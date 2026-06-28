@@ -3,6 +3,7 @@
  * We use it read-only: test the connection and find which items a given Plex
  * user has requested (joined to Plex via media.ratingKey).
  */
+import { fetchJson } from './http';
 
 interface SeerrUser {
   id: number;
@@ -21,9 +22,12 @@ async function seerrGet<T>(
   path: string
 ): Promise<T> {
   const url = base.replace(/\/$/, '') + '/api/v1' + path;
-  const res = await fetch(url, { headers: { 'X-Api-Key': apiKey } });
-  if (!res.ok) throw new Error(`Seerr ${path} HTTP ${res.status}`);
-  return (await res.json()) as T;
+  // fetchJson rejects non-JSON (e.g. an HTML login/error page from a wrong URL)
+  // with a clear message instead of a cryptic "Unexpected token '<'".
+  return fetchJson<T>(url, {
+    headers: { 'X-Api-Key': apiKey },
+    label: `Seerr ${path}`,
+  });
 }
 
 export async function testSeerr(

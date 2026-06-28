@@ -66,12 +66,18 @@ function ServiceFields({
     <div className="flex flex-wrap items-end gap-3">
       <label className="text-xs text-slate-400">
         Hostname or IP
-        <input
-          className={`${inputCls} mt-1 w-48`}
-          placeholder="192.168.1.10"
-          value={parts.host}
-          onChange={(e) => setParts({ ...parts, host: e.target.value })}
-        />
+        <div className="mt-1 flex items-stretch">
+          {/* Shows the protocol that gets prepended (follows the SSL toggle). */}
+          <span className="inline-flex items-center rounded-l-md border border-r-0 border-slate-700 bg-slate-900 px-2 font-mono text-xs text-slate-400">
+            {parts.ssl ? 'https://' : 'http://'}
+          </span>
+          <input
+            className="w-40 rounded-r-md border border-slate-700 bg-slate-800 px-3 py-2 text-sm focus:border-brand focus:outline-none"
+            placeholder="192.168.1.10"
+            value={parts.host}
+            onChange={(e) => setParts({ ...parts, host: e.target.value })}
+          />
+        </div>
       </label>
       <label className="text-xs text-slate-400">
         Port

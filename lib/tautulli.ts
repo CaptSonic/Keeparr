@@ -4,6 +4,7 @@
  * Envelope: { response: { result, message, data } }.
  * NOTE: get_history rows are at response.data.data[] (data is an object).
  */
+import { fetchJson } from './http';
 
 function buildUrl(
   base: string,
@@ -25,11 +26,11 @@ async function call<T = unknown>(
   cmd: string,
   extra: Record<string, string | number> = {}
 ): Promise<T> {
-  const res = await fetch(buildUrl(base, apiKey, cmd, extra));
-  if (!res.ok) throw new Error(`Tautulli ${cmd} HTTP ${res.status}`);
-  const json = (await res.json()) as {
+  // fetchJson rejects non-JSON (e.g. an HTML error/login page from a wrong URL)
+  // with a clear message instead of a cryptic "Unexpected token '<'".
+  const json = await fetchJson<{
     response?: { result?: string; message?: string; data?: T };
-  };
+  }>(buildUrl(base, apiKey, cmd, extra), { label: `Tautulli ${cmd}` });
   if (json.response?.result !== 'success') {
     throw new Error(`Tautulli ${cmd}: ${json.response?.message ?? 'error'}`);
   }

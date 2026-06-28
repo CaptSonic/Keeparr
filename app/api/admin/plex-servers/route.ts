@@ -1,14 +1,15 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth';
 import { errorResponse } from '@/lib/route-helpers';
-import { getResources } from '@/lib/plex';
+import { getResources, usefulServerConnections } from '@/lib/plex';
 import { getAdminToken } from '@/lib/settings';
 
 export const runtime = 'nodejs';
 
 /**
  * Discover Plex servers the admin can connect, using their stored account
- * token. Returns one entry per server with its candidate connection URIs.
+ * token. Returns one entry per server with its candidate connection URIs —
+ * Docker-bridge addresses filtered out, best (LAN) connection first.
  */
 export async function GET() {
   try {
@@ -23,11 +24,7 @@ export async function GET() {
       machineId: r.clientIdentifier,
       owned: r.owned,
       accessToken: r.accessToken,
-      // Prefer local/direct URIs first, relays last.
-      connections: r.connections
-        .slice()
-        .sort((a, b) => Number(a.relay) - Number(b.relay))
-        .map((c) => ({ uri: c.uri, local: c.local, relay: c.relay })),
+      connections: usefulServerConnections(r.connections),
     }));
     return NextResponse.json({ servers });
   } catch (e) {

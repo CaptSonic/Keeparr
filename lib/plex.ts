@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { getSetting, setSetting } from './queries';
+import { fetchJson } from './http';
 
 /**
  * Plex client: the plex.tv PIN OAuth flow (login + identity + server-access
@@ -45,12 +46,11 @@ export interface PlexPin {
 
 /** Create a strong PIN. Returns { id, code, authToken: null }. */
 export async function createPin(): Promise<PlexPin> {
-  const res = await fetch(`${PLEX_TV}/api/v2/pins?strong=true`, {
+  const data = await fetchJson<PlexPin>(`${PLEX_TV}/api/v2/pins?strong=true`, {
     method: 'POST',
     headers: plexHeaders(),
+    label: 'Plex createPin',
   });
-  if (!res.ok) throw new Error(`Plex createPin failed: ${res.status}`);
-  const data = (await res.json()) as PlexPin;
   return { id: data.id, code: data.code, authToken: data.authToken ?? null };
 }
 
@@ -66,11 +66,10 @@ export function buildAuthUrl(code: string, forwardUrl?: string): string {
 
 /** Poll a PIN. Returns the user's plex.tv token once authorized, else null. */
 export async function checkPin(id: number): Promise<string | null> {
-  const res = await fetch(`${PLEX_TV}/api/v2/pins/${id}`, {
-    headers: plexHeaders(),
-  });
-  if (!res.ok) throw new Error(`Plex checkPin failed: ${res.status}`);
-  const data = (await res.json()) as { authToken: string | null };
+  const data = await fetchJson<{ authToken: string | null }>(
+    `${PLEX_TV}/api/v2/pins/${id}`,
+    { headers: plexHeaders(), label: 'Plex checkPin' }
+  );
   return data.authToken ?? null;
 }
 
@@ -85,11 +84,10 @@ export interface PlexAccount {
 
 /** Resolve the authenticated user's identity from their token. */
 export async function getPlexAccount(userToken: string): Promise<PlexAccount> {
-  const res = await fetch(`${PLEX_TV}/api/v2/user`, {
+  const d = await fetchJson<Record<string, unknown>>(`${PLEX_TV}/api/v2/user`, {
     headers: plexHeaders({ 'X-Plex-Token': userToken }),
+    label: 'Plex account',
   });
-  if (!res.ok) throw new Error(`Plex getPlexAccount failed: ${res.status}`);
-  const d = (await res.json()) as Record<string, unknown>;
   return {
     id: String(d.id),
     uuid: String(d.uuid ?? ''),
@@ -106,16 +104,67 @@ export interface PlexResource {
   provides: string;
   accessToken: string | null;
   owned: boolean;
-  connections: { uri: string; local: boolean; relay: boolean }[];
+  connections: ServerConnection[];
+}
+
+export interface ServerConnection {
+  uri: string;
+  local: boolean;
+  relay: boolean;
+}
+
+/** Extract an IPv4 from a connection URI host. plex.direct encodes the IP with
+ *  dashes ("172-18-0-1.<hash>.plex.direct"); it may also be a raw IP. */
+function ipv4FromUri(uri: string): string | null {
+  let host: string;
+  try {
+    host = new URL(uri).hostname;
+  } catch {
+    return null;
+  }
+  const first = host.split('.')[0];
+  if (/^\d{1,3}-\d{1,3}-\d{1,3}-\d{1,3}$/.test(first)) return first.replace(/-/g, '.');
+  if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) return host;
+  return null;
+}
+
+/** Docker's default address pool (172.16.0.0/12). When Plex runs in Docker it
+ *  advertises a "local" connection for every bridge network — none reachable
+ *  from another container — so these are noise. */
+function isDockerBridge(ip: string): boolean {
+  const p = ip.split('.').map(Number);
+  return p[0] === 172 && p[1] >= 16 && p[1] <= 31;
+}
+
+/** Best connection first: LAN-local, then remote (WAN), then relay last. */
+function connRank(c: ServerConnection): number {
+  if (c.relay) return 2;
+  return c.local ? 0 : 1;
+}
+
+/**
+ * Trim a server's advertised connections to the useful ones for the discovery
+ * UI: drop Docker-bridge addresses and order LAN → WAN → relay. Never returns
+ * empty — falls back to all connections if filtering would remove everything.
+ */
+export function usefulServerConnections(
+  connections: ServerConnection[]
+): ServerConnection[] {
+  const useful = connections.filter((c) => {
+    const ip = ipv4FromUri(c.uri);
+    return !(ip && isDockerBridge(ip));
+  });
+  return (useful.length ? useful : connections)
+    .slice()
+    .sort((a, b) => connRank(a) - connRank(b));
 }
 
 /** List servers/resources available to a token (admin discovers their server). */
 export async function getResources(userToken: string): Promise<PlexResource[]> {
-  const res = await fetch(`${PLEX_TV}/api/v2/resources?includeHttps=1`, {
-    headers: plexHeaders({ 'X-Plex-Token': userToken }),
-  });
-  if (!res.ok) throw new Error(`Plex getResources failed: ${res.status}`);
-  const arr = (await res.json()) as Record<string, unknown>[];
+  const arr = await fetchJson<Record<string, unknown>[]>(
+    `${PLEX_TV}/api/v2/resources?includeHttps=1`,
+    { headers: plexHeaders({ 'X-Plex-Token': userToken }), label: 'Plex getResources' }
+  );
   return arr
     .filter((r) => String(r.provides ?? '').includes('server'))
     .map((r) => ({
@@ -235,25 +284,41 @@ async function pmsGet<T = unknown>(
   path: string,
   token: string
 ): Promise<T> {
-  const res = await fetch(pmsUrl(baseUrl, path, token), {
-    headers: { Accept: 'application/json' },
-  });
-  if (!res.ok) throw new Error(`PMS GET ${path} failed: ${res.status}`);
-  return (await res.json()) as T;
+  // Plex serves its web-app HTML at `/` when the token is missing/invalid, so we
+  // rely on fetchJson to reject non-JSON with a clear message rather than letting
+  // JSON.parse throw a cryptic "Unexpected token '<'".
+  return fetchJson<T>(pmsUrl(baseUrl, path, token), { label: `PMS ${path}` });
 }
 
-/** Get the server's machineIdentifier (and friendly name). */
+/**
+ * Get the server's machineIdentifier (and friendly name). Tries `/` first (gives
+ * the friendly name but needs a valid token); on failure falls back to the
+ * unauthenticated `/identity` endpoint so a manual reachability test works before
+ * a server token has been saved.
+ */
 export async function getServerIdentity(
   baseUrl: string,
   token: string
 ): Promise<{ machineIdentifier: string; friendlyName: string }> {
-  const d = await pmsGet<{
-    MediaContainer: { machineIdentifier: string; friendlyName: string };
-  }>(baseUrl, '/', token);
-  return {
-    machineIdentifier: d.MediaContainer.machineIdentifier,
-    friendlyName: d.MediaContainer.friendlyName,
-  };
+  try {
+    const d = await pmsGet<{
+      MediaContainer: { machineIdentifier: string; friendlyName?: string };
+    }>(baseUrl, '/', token);
+    return {
+      machineIdentifier: d.MediaContainer.machineIdentifier,
+      friendlyName: d.MediaContainer.friendlyName ?? 'Plex server',
+    };
+  } catch {
+    const d = await pmsGet<{ MediaContainer: { machineIdentifier: string } }>(
+      baseUrl,
+      '/identity',
+      token
+    );
+    return {
+      machineIdentifier: d.MediaContainer.machineIdentifier,
+      friendlyName: 'Plex server',
+    };
+  }
 }
 
 export interface PlexSection {

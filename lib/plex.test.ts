@@ -1,11 +1,34 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   extractGuids,
+  getServerIdentity,
   parseSharedUsers,
   sumLeafSizes,
   sumPartSizes,
+  usefulServerConnections,
   type PlexMetadata,
+  type ServerConnection,
 } from './plex';
+
+/** Minimal Response-like for mocking fetch in these unit tests. */
+function fakeRes(opts: {
+  ok?: boolean;
+  status?: number;
+  contentType?: string;
+  body?: unknown;
+}): Response {
+  const { ok = true, status = 200, contentType, body } = opts;
+  return {
+    ok,
+    status,
+    headers: {
+      get: (h: string) =>
+        h.toLowerCase() === 'content-type' ? contentType ?? null : null,
+    },
+    json: async () => (typeof body === 'string' ? JSON.parse(body) : body),
+    text: async () => (typeof body === 'string' ? body : JSON.stringify(body)),
+  } as unknown as Response;
+}
 
 describe('sumPartSizes / sumLeafSizes', () => {
   it('sums all parts across all media versions of a movie', () => {
@@ -50,6 +73,86 @@ describe('extractGuids', () => {
       tmdb: null,
       tvdb: null,
     });
+  });
+});
+
+describe('getServerIdentity', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('reads machineIdentifier + friendlyName from / when it returns JSON', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      fakeRes({
+        contentType: 'application/json',
+        body: { MediaContainer: { machineIdentifier: 'M1', friendlyName: 'Tower' } },
+      })
+    );
+    const id = await getServerIdentity('http://host:32400', 'tok');
+    expect(id).toEqual({ machineIdentifier: 'M1', friendlyName: 'Tower' });
+  });
+
+  it('falls back to /identity when / returns HTML (no cryptic JSON-parse error)', async () => {
+    // Plex serves its web-app HTML at / without a valid token — this used to
+    // surface as "Unexpected token '<'". Now it must fall back cleanly.
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/identity')) {
+          return fakeRes({
+            contentType: 'application/json',
+            body: { MediaContainer: { machineIdentifier: 'M2' } },
+          });
+        }
+        return fakeRes({
+          contentType: 'text/html',
+          body: '<!DOCTYPE html><html>Plex Web</html>',
+        });
+      });
+    const id = await getServerIdentity('http://host:32400', '');
+    expect(id.machineIdentifier).toBe('M2');
+    expect(fetchMock).toHaveBeenCalledTimes(2); // tried / then /identity
+  });
+
+  it('throws a clear error (not a JSON SyntaxError) when both fail with HTML', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      fakeRes({ contentType: 'text/html', body: '<!DOCTYPE html><html/>' })
+    );
+    await expect(getServerIdentity('http://host:32400', '')).rejects.toThrow(
+      /non-JSON|text\/html/i
+    );
+  });
+});
+
+describe('usefulServerConnections', () => {
+  const hash = 'abc123';
+  const conn = (ip: string, local: boolean, relay = false): ServerConnection => ({
+    uri: `https://${ip.replace(/\./g, '-')}.${hash}.plex.direct:32400`,
+    local,
+    relay,
+  });
+
+  it('drops Docker-bridge (172.16/12) addresses and orders LAN → WAN → relay', () => {
+    const input: ServerConnection[] = [
+      { uri: 'https://relay.plex.direct:443', local: false, relay: true },
+      conn('23.88.151.184', false), // remote/WAN
+      conn('172.18.0.1', true), // docker bridge — noise
+      conn('172.22.0.1', true), // docker bridge — noise
+      conn('192.168.1.2', true), // real LAN
+    ];
+    const out = usefulServerConnections(input);
+    const ips = out.map((c) => c.uri);
+    // Docker bridges removed
+    expect(ips.some((u) => u.includes('172-18-0-1'))).toBe(false);
+    expect(ips.some((u) => u.includes('172-22-0-1'))).toBe(false);
+    // LAN first, relay last
+    expect(out[0].uri).toContain('192-168-1-2');
+    expect(out[out.length - 1].relay).toBe(true);
+    expect(out).toHaveLength(3);
+  });
+
+  it('keeps Docker addresses only if they are the only option (never empties)', () => {
+    const input: ServerConnection[] = [conn('172.18.0.1', true)];
+    expect(usefulServerConnections(input)).toHaveLength(1);
   });
 });
 
