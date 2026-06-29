@@ -5,6 +5,7 @@ import {
   addSkips,
   countFeedRemaining,
   getFeed,
+  seerrRequestKeys,
   watchedRatingKeys,
 } from '@/lib/queries';
 import { toCard } from '@/lib/cards';
@@ -26,11 +27,13 @@ export async function POST(req: Request) {
     }
     const items = getFeed(user.plexUserId, FEED_BATCH_SIZE);
     const watched = watchedRatingKeys(user.plexUserId);
+    const requested = new Set(seerrRequestKeys(user.plexUserId));
     const remaining = countFeedRemaining(user.plexUserId);
     return NextResponse.json({
-      items: items.map((m) =>
-        toCard(m, false, undefined, undefined, watched.has(m.rating_key))
-      ),
+      items: items.map((m) => ({
+        ...toCard(m, false, undefined, undefined, watched.has(m.rating_key)),
+        requestedByMe: requested.has(m.rating_key),
+      })),
       remaining,
     });
   } catch (e) {

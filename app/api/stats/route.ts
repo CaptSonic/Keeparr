@@ -4,29 +4,50 @@ import { errorResponse } from '@/lib/route-helpers';
 import {
   largestItems,
   libraryStats,
+  markedForDeleteItems,
   neverWatchedItems,
   reclaimableItems,
 } from '@/lib/queries';
-import { toCard } from '@/lib/cards';
+import { thumbUrl, toCard } from '@/lib/cards';
 
 export const runtime = 'nodejs';
 
 const PAGE = 60;
 
-/** Big-picture stats. Query: view=largest|reclaimable|unwatched, offset. */
+/** Big-picture stats. Query: view=largest|reclaimable|unwatched|markedForDelete, offset. */
 export async function GET(req: Request) {
   try {
     const user = await requireUserOrApiKey(req);
     const p = new URL(req.url).searchParams;
     const viewParam = p.get('view');
     const view =
-      viewParam === 'reclaimable' || viewParam === 'unwatched'
+      viewParam === 'reclaimable' ||
+      viewParam === 'unwatched' ||
+      viewParam === 'markedForDelete'
         ? viewParam
         : 'largest';
     const offset = Math.max(0, Number(p.get('offset')) || 0);
 
     let items;
-    if (view === 'reclaimable') {
+    if (view === 'markedForDelete') {
+      // Titles anyone released, largest first, with who released each one (the
+      // one place marker identity is shown). Grouped in JS, so paginate here.
+      const all = markedForDeleteItems();
+      items = {
+        rows: all.slice(offset, offset + PAGE).map((r) => ({
+          ratingKey: r.ratingKey,
+          title: r.title,
+          year: r.year,
+          sectionId: r.sectionId,
+          libraryKind: r.libraryKind,
+          sizeBytes: r.sizeBytes,
+          thumbUrl: thumbUrl(r.thumb),
+          keptByAnyone: r.keptByAnyone,
+          markedBy: r.markedBy.map((m) => m.username || `User ${m.plexUserId}`),
+        })),
+        hasMore: all.length > offset + PAGE,
+      };
+    } else if (view === 'reclaimable') {
       const rows = reclaimableItems(PAGE + 1, offset);
       items = {
         rows: rows.slice(0, PAGE).map((r) => toCard(r, false)),

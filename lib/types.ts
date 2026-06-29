@@ -36,6 +36,14 @@ export interface MediaCardData {
   skipped?: boolean;
   /** True when the current user has watched it (any plays, from Tautulli). */
   watched?: boolean;
+  // --- "OK to delete" (the original Seerr requester signing off) ---
+  /** True when the current user requested this on Seerr (gates the control). */
+  requestedByMe?: boolean;
+  /** True when the current user marked this "OK to delete". */
+  markedForDeleteByMe?: boolean;
+  /** True when anyone marked it "OK to delete" — carries NO identity (Browse
+   *  never reveals who, except via markedForDeleteByMe). */
+  markedForDeleteAny?: boolean;
   // --- Sonarr/Radarr metadata (present only when the title is arr-matched) ---
   /** 'sonarr' | 'radarr'. */
   source?: string;

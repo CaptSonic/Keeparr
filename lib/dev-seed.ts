@@ -5,6 +5,7 @@
  * runs when you call it. Pairs with `KEEPARR_DEV_LOGIN=1` (middleware auto-login).
  */
 import {
+  addDelete,
   addKeep,
   addSkip,
   libraryStats,
@@ -238,6 +239,11 @@ export function seedDevData(opts: { reset?: boolean } = {}): SeedResult {
   // are made — the seeded watch_history rows below stand in for synced history.
   writeSetting('tautulli_url', 'http://localhost:8181');
   writeSetting('tautulli_api_key', 'dev-tautulli-key');
+  // Fake Seerr so the "OK to delete" surfaces (the requester sign-off control,
+  // its Browse filters, and the Big Picture KPI/drill-down) are demoable. No real
+  // calls are made — the seeded seerr_requests below stand in for synced requests.
+  writeSetting('seerr_url', 'http://localhost:5055');
+  writeSetting('seerr_api_key', 'dev-seerr-key');
   // Fake Sonarr (×2: main + anime) and Radarr so the Quality view + N-instance
   // filters are demoable. No real calls are made; arr_items is seeded below.
   setSonarrInstances([
@@ -319,7 +325,21 @@ export function seedDevData(opts: { reset?: boolean } = {}): SeedResult {
       // is excluded from "never watched", but absent from YOUR watched filter.
       { plexUserId: 'dev-friend', ratingKey: 'dev-160', plays: 4, lastWatched: dago(40) },
     ]);
-    replaceSeerrRequests(DEV_USER_ID, ['dev-2', 'dev-205']);
+    // Seerr requests per user — the gate for "OK to delete". Spread across
+    // people so the by-anyone view + attribution have variety. dev-300 is
+    // requested by both friend and kid so it ends up with multiple markers.
+    replaceSeerrRequests(DEV_USER_ID, ['dev-2', 'dev-12', 'dev-30', 'dev-50', 'dev-160', 'dev-205']);
+    replaceSeerrRequests('dev-friend', ['dev-50', 'dev-106', 'dev-300']);
+    replaceSeerrRequests('dev-kid', ['dev-300']);
+
+    // "OK to delete" marks (the original requester signing off). Each marker
+    // must have requested the title (above) and must not also keep it.
+    //  - dev-12 is kept by friend → demos "released but still protected".
+    //  - dev-300 is released by BOTH friend and kid → multiple markers.
+    addDelete(DEV_USER_ID, 'dev-12');
+    addDelete(DEV_USER_ID, 'dev-30');
+    addDelete('dev-friend', 'dev-300');
+    addDelete('dev-kid', 'dev-300');
   }
 
   // Synthetic storage capacity so the header shows ~75% full.

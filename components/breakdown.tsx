@@ -326,6 +326,10 @@ export interface Overview {
     byQuality: QualitySummary[];
     notInArr: Omit<QualitySummary, 'quality'>;
   };
+  /** Seerr connected → the "OK to delete" KPI + drill-down are meaningful. */
+  seerr?: boolean;
+  /** Titles + bytes anyone has marked "OK to delete" (the headline KPI). */
+  markedForDelete?: { titles: number; bytes: number };
 }
 
 export interface QualitySummary {

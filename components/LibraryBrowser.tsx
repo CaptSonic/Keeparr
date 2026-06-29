@@ -24,7 +24,15 @@ const SORT_KEYS: Sort[] = ['size', 'title', 'added', 'year', 'library', 'quality
 // Numeric-ish columns read best high→low by default; text columns A→Z.
 const defaultDir = (col: Sort): Dir => (col === 'size' || col === 'watched' ? 'desc' : 'asc');
 type View = 'grid' | 'list';
-type Status = 'undecided' | 'keptAny' | 'keptMine' | 'dontcare' | 'all';
+type Status =
+  | 'undecided'
+  | 'keptAny'
+  | 'keptMine'
+  | 'dontcare'
+  | 'okToDeleteMine'
+  | 'okToDeleteAny'
+  | 'all';
+type Deleted = 'all' | 'deletedByMe' | 'deletedAny';
 
 interface Facets {
   instances: { id: string; name: string; source: string }[];
@@ -66,12 +74,17 @@ const STATUS_PARAMS: Record<
     kept: 'all' | 'kept' | 'unkept';
     skip: 'all' | 'skipped' | 'unskipped';
     keptByMe?: boolean;
+    deleted?: Deleted;
   }
 > = {
-  undecided: { kept: 'unkept', skip: 'unskipped' }, // hide kept + don't-care
+  // "Undecided" hides anything this user has decided — kept, don't-care, AND
+  // their own "OK to delete" (the server's unkept+unskipped also drops deleted).
+  undecided: { kept: 'unkept', skip: 'unskipped' },
   keptAny: { kept: 'kept', skip: 'all' }, // kept by anyone (protected)
   keptMine: { kept: 'all', skip: 'all', keptByMe: true }, // only your keeps
   dontcare: { kept: 'all', skip: 'skipped' },
+  okToDeleteMine: { kept: 'all', skip: 'all', deleted: 'deletedByMe' },
+  okToDeleteAny: { kept: 'all', skip: 'all', deleted: 'deletedAny' },
   all: { kept: 'all', skip: 'all' },
 };
 
@@ -110,12 +123,15 @@ export default function LibraryBrowser({
   sections,
   tautulli = false,
   arr = false,
+  seerr = false,
 }: {
   sections: LibrarySection[];
   /** Tautulli connected → show the Watched filter (otherwise hidden). */
   tautulli?: boolean;
   /** Sonarr/Radarr connected → show the quality/tag/monitored filters. */
   arr?: boolean;
+  /** Seerr connected → show the "OK to delete" status options. */
+  seerr?: boolean;
 }) {
   // Library selection lives in the URL (?sections=) — driven by the nav rail's
   // Browse list. Empty = all libraries.
@@ -246,6 +262,7 @@ export default function LibraryBrowser({
       params.set('kept', STATUS_PARAMS[status].kept);
       params.set('skip', STATUS_PARAMS[status].skip);
       if (STATUS_PARAMS[status].keptByMe) params.set('keptByMe', '1');
+      if (STATUS_PARAMS[status].deleted) params.set('deleted', STATUS_PARAMS[status].deleted!);
       if (tautulli && watch !== 'all') params.set('watch', watch);
       if (requestedByMe) params.set('requestedByMe', '1');
       if (arr) {
@@ -342,6 +359,8 @@ export default function LibraryBrowser({
           <option value="keptAny">Kept by anyone</option>
           <option value="keptMine">Kept by you</option>
           <option value="dontcare">I don&apos;t care</option>
+          {seerr && <option value="okToDeleteMine">OK to delete (by you)</option>}
+          {seerr && <option value="okToDeleteAny">OK to delete (by anyone)</option>}
           <option value="all">All</option>
         </select>
         {tautulli && (
@@ -449,6 +468,7 @@ export default function LibraryBrowser({
             </label>
           </>
         )}
+        {seerr && (
         <label className="flex items-center gap-2 text-sm text-slate-400">
           <input
             type="checkbox"
@@ -457,6 +477,7 @@ export default function LibraryBrowser({
           />
           Requested by me
         </label>
+        )}
         {/* Grid ↔ List view toggle (remembered across visits). */}
         <div className="ml-auto flex overflow-hidden rounded-md border border-slate-700">
           {(['grid', 'list'] as View[]).map((v) => (

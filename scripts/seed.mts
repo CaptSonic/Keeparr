@@ -25,7 +25,7 @@ const reset = process.argv.includes('--reset');
 
 if (reset) {
   const db = getDb();
-  for (const t of ['seerr_requests', 'watch_history', 'user_skips', 'keeps', 'arr_items', 'arr_unmatched', 'job_runs', 'media_items']) {
+  for (const t of ['seerr_requests', 'watch_history', 'user_skips', 'user_deletes', 'keeps', 'arr_items', 'arr_unmatched', 'job_runs', 'media_items']) {
     db.prepare(`DELETE FROM ${t}`).run();
   }
   console.log('Cleared media + keep/skip/watch/seerr tables.');

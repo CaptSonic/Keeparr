@@ -50,6 +50,20 @@ function applySchema(database: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_skips_user ON user_skips(plex_user_id);
 
+    -- Per-user "OK to delete" — the original Seerr requester signing off ("I'm
+    -- done with it"). Only allowed on items that user requested. Mutually
+    -- exclusive with that user's keep / "don't care". Does NOT override anyone
+    -- else's keep: a marked item stays protected while someone keeps it.
+    CREATE TABLE IF NOT EXISTS user_deletes (
+      plex_user_id TEXT NOT NULL,
+      rating_key   TEXT NOT NULL REFERENCES media_items(rating_key) ON DELETE CASCADE,
+      marked_at    INTEGER NOT NULL,
+      PRIMARY KEY (plex_user_id, rating_key)
+    );
+    CREATE INDEX IF NOT EXISTS idx_deletes_user ON user_deletes(plex_user_id);
+    -- By-item lookup for the "OK to delete by anyone" view + attribution join.
+    CREATE INDEX IF NOT EXISTS idx_deletes_item ON user_deletes(rating_key);
+
     CREATE TABLE IF NOT EXISTS users (
       plex_user_id TEXT PRIMARY KEY,           -- numeric Plex account id
       username     TEXT,

@@ -49,18 +49,27 @@ manually in Plex / Sonarr / Radarr.
   total size), **multi-select several at once** to compare across them (e.g. all
   your series libraries to see the biggest), sort by size / title / release year /
   recently added in either direction, a single **Status** filter (defaults to
-  **Undecided**, hiding what you've already kept or marked "I don't care"; switch to
-  **Kept by anyone**, **Kept by you**, **I don't care**, or All), and — when
+  **Undecided**, hiding what you've already kept or marked "I don't care"/"OK to
+  delete"; switch to **Kept by anyone**, **Kept by you**, **I don't care**, — when
+  Seerr is connected — **OK to delete (by you)** / **(by anyone)**, or All), and — when
   **Tautulli is connected** — a **Watched** filter: watched / not watched **by
   you**, **not watched by anyone** (server-wide), watched in the last 30·60·90 days,
   or not watched in 90+ days (great paired with size sort to surface the biggest
   stuff nobody's touched). Plus **requested by me** in Seerr. Switch between a
   **Grid** (poster) and a **List** (dense table) view — your choice is remembered.
   Search always shows everything.
-- **Keep / I don't care** — a 3-state choice per card (nothing / keep / I don't
-  care). Keeps are per-user but protective: an item stays safe while anyone keeps
-  it, and you only remove your own keep. Marking "I don't care" clears your keep
-  (and vice-versa) and greys the card.
+- **Keep / I don't care** — a per-card choice (nothing / keep / I don't care).
+  Keeps are per-user but protective: an item stays safe while anyone keeps it, and
+  you only remove your own keep. Marking "I don't care" clears your keep (and
+  vice-versa) and greys the card.
+- **OK to delete** (needs Seerr) — the person who originally **requested** a title
+  can sign off on it ("I'm done with it"). The button only appears on titles *you*
+  requested, in Browse and the keep loop. It's a fourth, mutually-exclusive state
+  (keep / I don't care / OK to delete) and, like the others, never deletes anything
+  — it just **doesn't** override someone else's keep, so a released title that
+  someone still keeps stays protected (and is flagged "still kept"). It shows on
+  **Big Picture** with **who** released it, and Browse can filter to what you
+  released or to everything anyone released (the by-anyone view doesn't reveal who).
 - **Big Picture** — a dashboard: one honest disk bar (kept by you / kept by others
   / I don't care / undecided, with free as the empty remainder), your review
   progress, a "where your space goes" donut, and per-library breakdown cards with
@@ -70,7 +79,10 @@ manually in Plex / Sonarr / Radarr.
   bar and each library card marking the never-watched slice *within* each keep
   segment (so you can spot *kept* titles nobody has watched), and a dedicated
   drill-down tab (largest never-watched titles) — the strongest reclaim signal. Plus the other drill-down tables: largest titles on
-  disk, and what's not kept by anyone (largest first, running total).
+  disk, and what's not kept by anyone (largest first, running total). When **Seerr
+  is connected** it also adds an **"OK to delete"** headline stat and a drill-down
+  listing the titles requesters have released, largest first, with **who** released
+  each (and a "still kept" flag where someone else's keep still protects it).
 - **Size on disk** — series totals are summed across every episode; movies across
   all parts/versions. Shown as `x.xx GB` per card; aggregates auto-switch to TB.
 - **Scheduled refresh jobs** — admins set a schedule (every N minutes, or daily at a
@@ -98,8 +110,10 @@ manually in Plex / Sonarr / Radarr.
   filter, a small "watched" badge on cards, and the Big Picture **never watched by
   anyone** reclaim metric. All of these watch surfaces stay hidden until Tautulli
   is connected, so there's no dead UI if you don't run it.
-- **Seerr/Overseerr** (optional) — badges titles you requested. Cached locally and
-  refreshed by the *Requests* job (so badges reflect the last refresh, not live).
+- **Seerr/Overseerr** (optional) — badges titles you requested, and unlocks **"OK to
+  delete"** so the original requester can release a title they're done with (see
+  above). Cached locally and refreshed by the *Requests* job (so badges/requests
+  reflect the last refresh, not live).
 
 ## Tech stack
 

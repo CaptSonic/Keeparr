@@ -55,6 +55,9 @@ export default function KeepView({ libraries }: { libraries: Library[] }) {
   const [items, setItems] = useState<MediaCardData[]>([]);
   const [remaining, setRemaining] = useState<number | null>(null);
   const [kept, setKept] = useState<Set<string>>(new Set());
+  // Items the user released ("OK to delete") this batch — like `kept`, excluded
+  // from the skip-the-rest batch so we don't also mark them "don't care".
+  const [deleted, setDeleted] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [dims, setDims] = useState(estimateDims);
   const [overview, setOverview] = useState<Overview | null>(null);
@@ -126,6 +129,7 @@ export default function KeepView({ libraries }: { libraries: Library[] }) {
     setItems(data.items ?? []);
     setRemaining(data.remaining ?? null);
     setKept(new Set());
+    setDeleted(new Set());
     setLoading(false);
   }, [selection]);
 
@@ -143,8 +147,20 @@ export default function KeepView({ libraries }: { libraries: Library[] }) {
     loadOverview(); // keep the right-column progress live as you decide
   };
 
+  const onDeleteChange = (ratingKey: string, isMarked: boolean) => {
+    setDeleted((prev) => {
+      const next = new Set(prev);
+      if (isMarked) next.add(ratingKey);
+      else next.delete(ratingKey);
+      return next;
+    });
+    loadOverview();
+  };
+
   async function next() {
-    const toSkip = shown.map((i) => i.ratingKey).filter((rk) => !kept.has(rk));
+    const toSkip = shown
+      .map((i) => i.ratingKey)
+      .filter((rk) => !kept.has(rk) && !deleted.has(rk));
     setLoading(true);
     await fetch('/api/skip-batch', {
       method: 'POST',
@@ -205,7 +221,12 @@ export default function KeepView({ libraries }: { libraries: Library[] }) {
           ) : (
             <div className={`${CARD_GRID_CLASS} content-start`}>
               {shown.map((item) => (
-                <MediaCard key={item.ratingKey} item={item} onKeptChange={onKeptChange} />
+                <MediaCard
+                  key={item.ratingKey}
+                  item={item}
+                  onKeptChange={onKeptChange}
+                  onDeleteChange={onDeleteChange}
+                />
               ))}
             </div>
           )}

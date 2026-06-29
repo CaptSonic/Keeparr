@@ -5,6 +5,7 @@ import {
   countFeedRemaining,
   getFeed,
   largestItems,
+  seerrRequestKeys,
   watchedRatingKeys,
 } from '@/lib/queries';
 import { toCard } from '@/lib/cards';
@@ -28,20 +29,24 @@ export async function GET(req: Request) {
     );
 
     const watched = watchedRatingKeys(user.plexUserId);
+    // So requested titles can show the "OK to delete" control in the feed.
+    const requested = new Set(seerrRequestKeys(user.plexUserId));
 
     if (p.get('largest') === '1') {
       const rows = largestItems(limit, 0, user.plexUserId);
-      const items = rows.map((r) =>
-        toCard(r, r.kept === 1, r.kept_by_me === 1, undefined, watched.has(r.rating_key))
-      );
+      const items = rows.map((r) => ({
+        ...toCard(r, r.kept === 1, r.kept_by_me === 1, undefined, watched.has(r.rating_key)),
+        requestedByMe: requested.has(r.rating_key),
+      }));
       return NextResponse.json({ items, remaining: null });
     }
 
     const sectionId = p.get('section') || undefined;
     const rows = getFeed(user.plexUserId, limit, { sectionId });
-    const items = rows.map((m) =>
-      toCard(m, false, undefined, undefined, watched.has(m.rating_key))
-    );
+    const items = rows.map((m) => ({
+      ...toCard(m, false, undefined, undefined, watched.has(m.rating_key)),
+      requestedByMe: requested.has(m.rating_key),
+    }));
     const remaining = countFeedRemaining(user.plexUserId, { sectionId });
     return NextResponse.json({ items, remaining });
   } catch (e) {

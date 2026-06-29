@@ -4,6 +4,7 @@ import { errorResponse } from '@/lib/route-helpers';
 import {
   arrQualitySummary,
   librarySummary,
+  markedForDeleteSummary,
   unmatchedMediaSummary,
   usedBytesBySection,
 } from '@/lib/queries';
@@ -13,6 +14,7 @@ import {
   getManagedSections,
   getStorageMappings,
   isArrConfigured,
+  isSeerrConfigured,
   isTautulliConfigured,
 } from '@/lib/settings';
 
@@ -97,6 +99,11 @@ export async function GET() {
       ? { byQuality: arrQualitySummary(), notInArr: unmatchedMediaSummary() }
       : undefined;
 
+    // "OK to delete" KPI — only meaningful (and only settable) when Seerr is
+    // connected, so the UI hides the whole surface otherwise.
+    const seerr = isSeerrConfigured();
+    const markedForDelete = seerr ? markedForDeleteSummary() : undefined;
+
     // Tracked media that lives on disk (= sum of library bytes); the disk bar
     // shows "other" = usedBytes - mediaUsedBytes for everything Keeparr can't see.
     return NextResponse.json({
@@ -110,6 +117,9 @@ export async function GET() {
       // Sonarr/Radarr-derived "reclaim by quality" breakdown (when connected).
       arr,
       qualityBreakdown,
+      // Seerr "OK to delete" surface (KPI + drill-down), when connected.
+      seerr,
+      markedForDelete,
     });
   } catch (e) {
     return errorResponse(e);

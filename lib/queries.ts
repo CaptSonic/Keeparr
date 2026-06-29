@@ -345,6 +345,57 @@ export function isSkipped(plexUserId: string, ratingKey: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Per-user "OK to delete" (the original Seerr requester signing off)
+// ---------------------------------------------------------------------------
+
+/** Whether this user requested this item on Seerr (the gate for OK-to-delete). */
+export function isRequestedByUser(
+  plexUserId: string,
+  ratingKey: string
+): boolean {
+  const row = getDb()
+    .prepare(
+      'SELECT 1 FROM seerr_requests WHERE plex_user_id = ? AND rating_key = ?'
+    )
+    .get(plexUserId, ratingKey);
+  return !!row;
+}
+
+/** Mark a single item "OK to delete" for this user. True if newly inserted. */
+export function addDelete(plexUserId: string, ratingKey: string): boolean {
+  const info = getDb()
+    .prepare(
+      `INSERT INTO user_deletes (plex_user_id, rating_key, marked_at) VALUES (?, ?, ?)
+       ON CONFLICT(plex_user_id, rating_key) DO NOTHING`
+    )
+    .run(plexUserId, ratingKey, now());
+  return info.changes > 0;
+}
+
+/** Clear this user's "OK to delete" mark. True if a row was removed. */
+export function removeDelete(plexUserId: string, ratingKey: string): boolean {
+  const info = getDb()
+    .prepare(
+      'DELETE FROM user_deletes WHERE plex_user_id = ? AND rating_key = ?'
+    )
+    .run(plexUserId, ratingKey);
+  return info.changes > 0;
+}
+
+/** Whether this user has marked an item "OK to delete". */
+export function isMarkedForDelete(
+  plexUserId: string,
+  ratingKey: string
+): boolean {
+  const row = getDb()
+    .prepare(
+      'SELECT 1 FROM user_deletes WHERE plex_user_id = ? AND rating_key = ?'
+    )
+    .get(plexUserId, ratingKey);
+  return !!row;
+}
+
+// ---------------------------------------------------------------------------
 // Feed (the home keep-loop)
 // ---------------------------------------------------------------------------
 
@@ -359,11 +410,18 @@ export interface FeedOptions {
   reserveMovies?: number;
 }
 
-/** Base eligibility: present, not globally kept, not skipped by this user. */
+/**
+ * Base eligibility: present, not globally kept, and not already decided by this
+ * user (skipped "don't care" or marked "OK to delete" — both mean they're done
+ * with it, so it shouldn't roll back into their feed).
+ */
 const FEED_ELIGIBILITY = `m.removed = 0
   AND m.rating_key NOT IN (SELECT rating_key FROM keeps)
   AND m.rating_key NOT IN (
     SELECT rating_key FROM user_skips WHERE plex_user_id = @uid
+  )
+  AND m.rating_key NOT IN (
+    SELECT rating_key FROM user_deletes WHERE plex_user_id = @uid
   )`;
 
 /** A SQLite expression mapping random() (int64) to a (0,1) uniform. */
@@ -510,6 +568,7 @@ export type LibrarySort =
 export type SortDir = 'asc' | 'desc';
 export type KeptFilter = 'all' | 'kept' | 'unkept';
 export type SkipFilter = 'all' | 'skipped' | 'unskipped';
+export type DeleteFilter = 'all' | 'deletedByMe' | 'deletedAny';
 /** Per-user "have you watched it" filter (recency windows use last_watched). */
 export type WatchFilter =
   | 'all'
@@ -534,6 +593,11 @@ export interface LibraryQuery {
   /** Restrict to titles THIS user personally keeps (vs `keptFilter` = anyone). */
   keptByMeOnly?: boolean;
   skipFilter?: SkipFilter;
+  /**
+   * "OK to delete" filter. `deletedByMe` = items THIS user marked; `deletedAny`
+   * = items anyone marked (the "released by someone" view). Default 'all'.
+   */
+  deleteFilter?: DeleteFilter;
   /** Filter by THIS user's watch history (default 'all'). */
   watchFilter?: WatchFilter;
   /** Sonarr/Radarr filters (match arr_items). Each restricts to arr-matched rows.
@@ -581,6 +645,9 @@ export interface MediaWithKeep extends MediaItem {
 export interface LibraryRow extends MediaWithKeep {
   skipped: number;
   watched: number; // this user has watched it (any plays)
+  requested_by_me: number; // this user requested it on Seerr (gates OK-to-delete)
+  marked_for_delete_by_me: number; // this user marked it "OK to delete"
+  marked_for_delete_any: number; // anyone marked it "OK to delete" (no identity)
   arr_source: string | null;
   arr_instance_name: string | null;
   arr_monitored: number | null;
@@ -619,6 +686,19 @@ export function queryLibrary(q: LibraryQuery): LibraryRow[] {
   const skipFilter: SkipFilter = q.skipFilter ?? 'all';
   if (skipFilter === 'skipped') where.push('s.rating_key IS NOT NULL');
   else if (skipFilter === 'unskipped') where.push('s.rating_key IS NULL');
+
+  // "OK to delete" filter. By-me uses this user's mark (the LEFT JOIN); by-anyone
+  // uses an EXISTS so it stays identity-free.
+  const deletedAnyExists =
+    'EXISTS (SELECT 1 FROM user_deletes d WHERE d.rating_key = m.rating_key)';
+  const deleteFilter: DeleteFilter = q.deleteFilter ?? 'all';
+  if (deleteFilter === 'deletedByMe') where.push('ud.rating_key IS NOT NULL');
+  else if (deleteFilter === 'deletedAny') where.push(deletedAnyExists);
+  // "Undecided" (unkept + unskipped) means this user hasn't decided anything, so
+  // also exclude their own "OK to delete" marks.
+  if (keptFilter === 'unkept' && skipFilter === 'unskipped') {
+    where.push('ud.rating_key IS NULL');
+  }
 
   // Watch filter (this user's history). Recency uses last_watched (epoch seconds).
   const watchFilter: WatchFilter = q.watchFilter ?? 'all';
@@ -693,6 +773,9 @@ export function queryLibrary(q: LibraryQuery): LibraryRow[] {
               (km.rating_key IS NOT NULL) AS kept_by_me,
               (s.rating_key IS NOT NULL) AS skipped,
               (wh.rating_key IS NOT NULL) AS watched,
+              (sr.rating_key IS NOT NULL) AS requested_by_me,
+              (ud.rating_key IS NOT NULL) AS marked_for_delete_by_me,
+              ${deletedAnyExists} AS marked_for_delete_any,
               a.source AS arr_source, a.instance_name AS arr_instance_name,
               a.monitored AS arr_monitored, a.status AS arr_status,
               a.quality AS arr_quality, a.quality_kind AS arr_quality_kind,
@@ -702,6 +785,10 @@ export function queryLibrary(q: LibraryQuery): LibraryRow[] {
          ON km.rating_key = m.rating_key AND km.plex_user_id = @uid
        LEFT JOIN user_skips s
          ON s.rating_key = m.rating_key AND s.plex_user_id = @uid
+       LEFT JOIN user_deletes ud
+         ON ud.rating_key = m.rating_key AND ud.plex_user_id = @uid
+       LEFT JOIN seerr_requests sr
+         ON sr.rating_key = m.rating_key AND sr.plex_user_id = @uid
        LEFT JOIN watch_history wh
          ON wh.rating_key = m.rating_key AND wh.plex_user_id = @uid
        LEFT JOIN arr_items a ON a.rating_key = m.rating_key
@@ -721,6 +808,9 @@ export interface SearchRow extends MediaItem {
   kept_by_me: number;
   skipped: number;
   watched: number;
+  requested_by_me: number;
+  marked_for_delete_by_me: number;
+  marked_for_delete_any: number;
   score: number;
 }
 
@@ -776,12 +866,19 @@ export function searchMedia(params: {
               (km.rating_key IS NOT NULL) AS kept_by_me,
               (s.rating_key IS NOT NULL) AS skipped,
               (wh.rating_key IS NOT NULL) AS watched,
+              (sr.rating_key IS NOT NULL) AS requested_by_me,
+              (ud.rating_key IS NOT NULL) AS marked_for_delete_by_me,
+              EXISTS (SELECT 1 FROM user_deletes d WHERE d.rating_key = m.rating_key) AS marked_for_delete_any,
               ${score} AS score
        FROM media_items m
        LEFT JOIN keeps km
          ON km.rating_key = m.rating_key AND km.plex_user_id = @uid
        LEFT JOIN user_skips s
          ON s.rating_key = m.rating_key AND s.plex_user_id = @uid
+       LEFT JOIN user_deletes ud
+         ON ud.rating_key = m.rating_key AND ud.plex_user_id = @uid
+       LEFT JOIN seerr_requests sr
+         ON sr.rating_key = m.rating_key AND sr.plex_user_id = @uid
        LEFT JOIN watch_history wh
          ON wh.rating_key = m.rating_key AND wh.plex_user_id = @uid
        WHERE m.removed = 0 AND ${tokenWhere.join(' AND ')}
@@ -853,6 +950,86 @@ export function neverWatchedItems(
        LIMIT @limit OFFSET @offset`
     )
     .all({ uid: plexUserId, limit, offset }) as MediaWithKeep[];
+}
+
+/** One marked-for-delete title with who released it (Big Picture drill-down). */
+export interface MarkedForDeleteItem {
+  ratingKey: string;
+  title: string;
+  year: number | null;
+  sectionId: string;
+  libraryKind: LibraryKind;
+  sizeBytes: number;
+  thumb: string | null;
+  /** Still protected because someone keeps it (released but not reclaimable). */
+  keptByAnyone: boolean;
+  /** Everyone who marked it "OK to delete" (the one place identity is shown). */
+  markedBy: { plexUserId: string; username: string | null }[];
+}
+
+/**
+ * Items anyone marked "OK to delete", largest first, with the markers' names
+ * (Big Picture attribution). One title can be released by several requesters,
+ * so markers is an array; `keptByAnyone` flags titles still protected by a keep.
+ */
+export function markedForDeleteItems(): MarkedForDeleteItem[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT m.rating_key, m.title, m.year, m.section_id, m.library_kind,
+              m.size_bytes, m.thumb,
+              EXISTS (SELECT 1 FROM keeps k WHERE k.rating_key = m.rating_key) AS kept,
+              ud.plex_user_id AS marker_id, u.username AS marker_name
+       FROM user_deletes ud
+       JOIN media_items m ON m.rating_key = ud.rating_key AND m.removed = 0
+       LEFT JOIN users u ON u.plex_user_id = ud.plex_user_id
+       ORDER BY m.size_bytes DESC, m.title COLLATE NOCASE ASC, ud.marked_at ASC`
+    )
+    .all() as {
+    rating_key: string;
+    title: string;
+    year: number | null;
+    section_id: string;
+    library_kind: LibraryKind;
+    size_bytes: number;
+    thumb: string | null;
+    kept: number;
+    marker_id: string;
+    marker_name: string | null;
+  }[];
+  // Group markers per item; Map preserves the size-DESC insertion order.
+  const byItem = new Map<string, MarkedForDeleteItem>();
+  for (const r of rows) {
+    let item = byItem.get(r.rating_key);
+    if (!item) {
+      item = {
+        ratingKey: r.rating_key,
+        title: r.title,
+        year: r.year,
+        sectionId: r.section_id,
+        libraryKind: r.library_kind,
+        sizeBytes: r.size_bytes,
+        thumb: r.thumb,
+        keptByAnyone: !!r.kept,
+        markedBy: [],
+      };
+      byItem.set(r.rating_key, item);
+    }
+    item.markedBy.push({ plexUserId: r.marker_id, username: r.marker_name });
+  }
+  return [...byItem.values()];
+}
+
+/** Distinct titles + summed bytes that anyone marked "OK to delete" (the KPI). */
+export function markedForDeleteSummary(): { titles: number; bytes: number } {
+  const row = getDb()
+    .prepare(
+      `SELECT COUNT(*) AS titles, COALESCE(SUM(m.size_bytes), 0) AS bytes
+       FROM media_items m
+       WHERE m.removed = 0
+         AND EXISTS (SELECT 1 FROM user_deletes d WHERE d.rating_key = m.rating_key)`
+    )
+    .get() as { titles: number; bytes: number };
+  return { titles: row.titles, bytes: row.bytes };
 }
 
 /** Total bytes that could be freed (everything not kept). */

@@ -6,6 +6,12 @@ import {
   addSkip,
   removeSkip,
   isSkipped,
+  addDelete,
+  removeDelete,
+  isMarkedForDelete,
+  isRequestedByUser,
+  markedForDeleteItems,
+  markedForDeleteSummary,
   countFeedRemaining,
   getFeed,
   isKept,
@@ -901,5 +907,102 @@ describe('queryLibrary keptByMeOnly', () => {
       keptFilter: 'kept',
     });
     expect(rows.map((r) => r.rating_key).sort()).toEqual(['1', '2']);
+  });
+});
+
+describe('OK to delete (user_deletes)', () => {
+  beforeEach(() => {
+    upsertMediaBatch([media('1'), media('2'), media('3')]);
+  });
+
+  it('addDelete/removeDelete/isMarkedForDelete round-trip, scoped per user', () => {
+    expect(addDelete('userA', '1')).toBe(true);
+    expect(addDelete('userA', '1')).toBe(false); // idempotent
+    expect(isMarkedForDelete('userA', '1')).toBe(true);
+    expect(isMarkedForDelete('userB', '1')).toBe(false); // per-user
+    expect(removeDelete('userA', '1')).toBe(true);
+    expect(isMarkedForDelete('userA', '1')).toBe(false);
+    expect(removeDelete('userA', '1')).toBe(false); // nothing to remove
+  });
+
+  it('isRequestedByUser reflects the Seerr request cache', () => {
+    expect(isRequestedByUser('userA', '1')).toBe(false);
+    replaceSeerrRequests('userA', ['1']);
+    expect(isRequestedByUser('userA', '1')).toBe(true);
+    expect(isRequestedByUser('userB', '1')).toBe(false);
+  });
+
+  it('getFeed excludes the user\'s own delete-marked items only', () => {
+    addDelete('userA', '2');
+    const a = getFeed('userA', 10).map((r) => r.rating_key).sort();
+    const b = getFeed('userB', 10).map((r) => r.rating_key).sort();
+    expect(a).toEqual(['1', '3']); // A's mark hides 2 from A
+    expect(b).toEqual(['1', '2', '3']); // B unaffected
+  });
+
+  it('queryLibrary exposes requested + delete flags and the by-me/by-anyone filters', () => {
+    replaceSeerrRequests('me', ['1']);
+    addDelete('me', '1'); // mine
+    addDelete('other', '2'); // someone else's
+
+    const all = queryLibrary({ plexUserId: 'me', limit: 100, offset: 0 });
+    const byKey = new Map(all.map((r) => [r.rating_key, r]));
+    expect(byKey.get('1')!.requested_by_me).toBe(1);
+    expect(byKey.get('1')!.marked_for_delete_by_me).toBe(1);
+    expect(byKey.get('1')!.marked_for_delete_any).toBe(1);
+    expect(byKey.get('2')!.requested_by_me).toBe(0);
+    expect(byKey.get('2')!.marked_for_delete_by_me).toBe(0);
+    expect(byKey.get('2')!.marked_for_delete_any).toBe(1); // released by other
+    expect(byKey.get('3')!.marked_for_delete_any).toBe(0);
+
+    const mine = queryLibrary({
+      plexUserId: 'me',
+      limit: 100,
+      offset: 0,
+      deleteFilter: 'deletedByMe',
+    });
+    expect(mine.map((r) => r.rating_key)).toEqual(['1']);
+
+    const any = queryLibrary({
+      plexUserId: 'me',
+      limit: 100,
+      offset: 0,
+      deleteFilter: 'deletedAny',
+    });
+    expect(any.map((r) => r.rating_key).sort()).toEqual(['1', '2']);
+  });
+
+  it('Undecided (unkept + unskipped) also excludes my delete-marked items', () => {
+    addDelete('me', '1');
+    const undecided = queryLibrary({
+      plexUserId: 'me',
+      limit: 100,
+      offset: 0,
+      keptFilter: 'unkept',
+      skipFilter: 'unskipped',
+    });
+    expect(undecided.map((r) => r.rating_key).sort()).toEqual(['2', '3']);
+  });
+
+  it('markedForDeleteItems attributes markers, flags still-kept, orders by size', () => {
+    upsertMediaBatch([
+      media('big', { sizeBytes: 50 * GB }),
+      media('small', { sizeBytes: 1 * GB }),
+    ]);
+    upsertUser({ plexUserId: 'u1', username: 'Alice', email: null, thumb: null, isAdmin: false });
+    upsertUser({ plexUserId: 'u2', username: 'Bob', email: null, thumb: null, isAdmin: false });
+    addDelete('u1', 'big');
+    addDelete('u2', 'big'); // two markers on one title
+    addDelete('u1', 'small');
+    addKeep('other', 'big'); // released by requesters but still kept → protected
+
+    const rows = markedForDeleteItems();
+    expect(rows.map((r) => r.ratingKey)).toEqual(['big', 'small']); // size DESC
+    const big = rows[0];
+    expect(big.markedBy.map((m) => m.username).sort()).toEqual(['Alice', 'Bob']);
+    expect(big.keptByAnyone).toBe(true);
+    expect(rows[1].keptByAnyone).toBe(false);
+
+    expect(markedForDeleteSummary()).toEqual({ titles: 2, bytes: 51 * GB });
   });
 });

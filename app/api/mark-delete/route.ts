@@ -2,8 +2,9 @@ import { NextResponse } from 'next/server';
 import { requireUser } from '@/lib/auth';
 import { errorResponse } from '@/lib/route-helpers';
 import {
-  addKeep,
+  addDelete,
   getMediaItem,
+  isRequestedByUser,
   removeDelete,
   removeKeep,
   removeSkip,
@@ -11,7 +12,11 @@ import {
 
 export const runtime = 'nodejs';
 
-/** Add the current user's keep. Clears their "don't care" (mutually exclusive). Body: { ratingKey }. */
+/**
+ * Mark "OK to delete" for the current user (the original requester signing off).
+ * Allowed ONLY on items this user requested on Seerr. Clears their keep / "don't
+ * care" (mutually exclusive). Does NOT touch anyone else's keep. Body: { ratingKey }.
+ */
 export async function POST(req: Request) {
   try {
     const user = await requireUser();
@@ -19,17 +24,20 @@ export async function POST(req: Request) {
     if (!ratingKey || !getMediaItem(ratingKey)) {
       return NextResponse.json({ error: 'unknown_item' }, { status: 404 });
     }
-    const newlyKept = addKeep(user.plexUserId, ratingKey);
-    // Keep is exclusive with "don't care" and "OK to delete".
+    // Gate: you can only release something you requested on Seerr.
+    if (!isRequestedByUser(user.plexUserId, ratingKey)) {
+      return NextResponse.json({ error: 'not_requested' }, { status: 403 });
+    }
+    const changed = addDelete(user.plexUserId, ratingKey);
+    removeKeep(user.plexUserId, ratingKey);
     removeSkip(user.plexUserId, ratingKey);
-    removeDelete(user.plexUserId, ratingKey);
-    return NextResponse.json({ kept: true, newlyKept });
+    return NextResponse.json({ markedForDelete: true, changed });
   } catch (e) {
     return errorResponse(e);
   }
 }
 
-/** Remove only the current user's keep (never another user's). Body: { ratingKey }. */
+/** Clear the current user's "OK to delete" mark. Body: { ratingKey }. */
 export async function DELETE(req: Request) {
   try {
     const user = await requireUser();
@@ -37,8 +45,8 @@ export async function DELETE(req: Request) {
     if (!ratingKey) {
       return NextResponse.json({ error: 'bad_request' }, { status: 400 });
     }
-    const removed = removeKeep(user.plexUserId, ratingKey);
-    return NextResponse.json({ kept: false, removed });
+    const changed = removeDelete(user.plexUserId, ratingKey);
+    return NextResponse.json({ markedForDelete: false, changed });
   } catch (e) {
     return errorResponse(e);
   }

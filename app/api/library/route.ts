@@ -5,6 +5,7 @@ import {
   queryLibrary,
   seerrRequestKeys,
   type ArrMonitored,
+  type DeleteFilter,
   type KeptFilter,
   type LibrarySort,
   type SkipFilter,
@@ -29,6 +30,7 @@ const SORTS: LibrarySort[] = [
 ];
 const KEPT: KeptFilter[] = ['all', 'kept', 'unkept'];
 const SKIP: SkipFilter[] = ['all', 'skipped', 'unskipped'];
+const DELETED: DeleteFilter[] = ['all', 'deletedByMe', 'deletedAny'];
 const WATCH: WatchFilter[] = [
   'all',
   'watched',
@@ -66,6 +68,7 @@ export async function GET(req: Request) {
     const kept = (p.get('kept') as KeptFilter) || 'all';
     const keptByMe = p.get('keptByMe') === '1';
     const skip = (p.get('skip') as SkipFilter) || 'all';
+    const deleted = (p.get('deleted') as DeleteFilter) || 'all';
     const watch = (p.get('watch') as WatchFilter) || 'all';
     const offset = Math.max(0, Number(p.get('offset')) || 0);
 
@@ -99,6 +102,7 @@ export async function GET(req: Request) {
       keptFilter: KEPT.includes(kept) ? kept : 'all',
       keptByMeOnly: keptByMe,
       skipFilter: SKIP.includes(skip) ? skip : 'all',
+      deleteFilter: DELETED.includes(deleted) ? deleted : 'all',
       watchFilter: WATCH.includes(watch) ? watch : 'all',
       sources,
       instanceIds: csv('instance'),
@@ -122,6 +126,11 @@ export async function GET(req: Request) {
         Math.abs(r.size_bytes - arrSize) > 0.1 * r.size_bytes;
       return {
         ...toCard(r, r.kept === 1, r.kept_by_me === 1, r.skipped === 1, r.watched === 1),
+        // "OK to delete" state: whether this user requested it (gates the
+        // control), their own mark, and whether anyone released it (no identity).
+        requestedByMe: r.requested_by_me === 1,
+        markedForDeleteByMe: r.marked_for_delete_by_me === 1,
+        markedForDeleteAny: r.marked_for_delete_any === 1,
         // Sonarr/Radarr metadata (null when the title isn't arr-matched).
         source: r.arr_source ?? undefined,
         instanceName: r.arr_instance_name ?? undefined,

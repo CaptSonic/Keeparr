@@ -4,6 +4,7 @@ import { errorResponse } from '@/lib/route-helpers';
 import {
   addSkip,
   getMediaItem,
+  removeDelete,
   removeKeep,
   removeSkip,
 } from '@/lib/queries';
@@ -19,7 +20,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'unknown_item' }, { status: 404 });
     }
     const changed = addSkip(user.plexUserId, ratingKey);
-    removeKeep(user.plexUserId, ratingKey); // don't-care clears my keep
+    // "Don't care" is exclusive with keep and "OK to delete".
+    removeKeep(user.plexUserId, ratingKey);
+    removeDelete(user.plexUserId, ratingKey);
     return NextResponse.json({ skipped: true, changed });
   } catch (e) {
     return errorResponse(e);

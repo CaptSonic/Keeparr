@@ -19,7 +19,9 @@ import { __setTestDbToMemory, __closeDb } from '@/lib/db';
 import {
   isKept,
   isKeptByUser,
+  isMarkedForDelete,
   isSkipped,
+  replaceSeerrRequests,
   upsertMediaBatch,
   upsertUser,
   type UpsertMediaInput,
@@ -27,6 +29,7 @@ import {
 import { setSessionCookie } from '@/lib/auth';
 import { POST as keepPost, DELETE as keepDelete } from '@/app/api/keep/route';
 import { POST as skipPost } from '@/app/api/skip/route';
+import { POST as markPost } from '@/app/api/mark-delete/route';
 import { POST as skipBatch } from '@/app/api/skip-batch/route';
 import { GET as feedRandom } from '@/app/api/feed/random/route';
 
@@ -152,6 +155,16 @@ describe('keep + don’t-care are mutually exclusive', () => {
     await skipPost(jsonReq({ ratingKey: '1' }));
     expect(isSkipped('userA', '1')).toBe(true);
     expect(isKeptByUser('userA', '1')).toBe(false);
+  });
+
+  it('keeping clears my "OK to delete" mark (three-way exclusive)', async () => {
+    await loginAs('userA');
+    replaceSeerrRequests('userA', ['1']);
+    await markPost(jsonReq({ ratingKey: '1' }));
+    expect(isMarkedForDelete('userA', '1')).toBe(true);
+    await keepPost(jsonReq({ ratingKey: '1' }));
+    expect(isKeptByUser('userA', '1')).toBe(true);
+    expect(isMarkedForDelete('userA', '1')).toBe(false);
   });
 });
 

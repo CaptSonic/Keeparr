@@ -3,6 +3,7 @@ import { getSessionUser } from '@/lib/auth';
 import {
   getManagedSections,
   isArrConfigured,
+  isSeerrConfigured,
   isServerConfigured,
   isTautulliConfigured,
 } from '@/lib/settings';
@@ -38,6 +39,7 @@ export default async function LibraryPage() {
           sections={sections}
           tautulli={isTautulliConfigured()}
           arr={isArrConfigured()}
+          seerr={isSeerrConfigured()}
         />
       )}
     </AppShell>

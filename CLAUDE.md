@@ -8,9 +8,14 @@ or settings keys.
 Plex-login web app for deciding what media to **keep** and reporting what can be
 deleted. Tag + report only — **never deletes**. Keep is **per-user** but
 protective: an item is kept (safe) if **anyone** keeps it, and you can only
-remove **your own** keep. Keep and "don't care" are **mutually exclusive** per
-user (a 3-state control: none / keep / don't care). "Don't care" ("skip the
-rest") is per-user. See README.md for the feature overview.
+remove **your own** keep. Per user the states are **mutually exclusive**:
+none / keep / "don't care" / **"OK to delete"** — the last is the original Seerr
+requester signing off ("I'm done with it"), offered **only on items that user
+requested** and **only when Seerr is connected**. "OK to delete" does NOT override
+anyone else's keep (a marked item stays protected while someone keeps it); it's
+surfaced on Big Picture (with who marked it) and filterable on Browse (by you / by
+anyone — the by-anyone view never reveals who). "Don't care" ("skip the rest") is
+per-user. See README.md for the feature overview.
 
 ## Canonical rules
 
@@ -101,7 +106,14 @@ The chrome is a Sonarr/Radarr-style left rail (logo → Keep; Keep / Browse[expa
   manages only their own keep. (Was a single global row per item; `migrate()`
   rebuilds the legacy table, carrying `kept_by` → `plex_user_id`.)
 - `user_skips` — `(plex_user_id, rating_key)`; per-user "don't care". Mutually
-  exclusive with that user's keep (the keep/skip routes clear the other).
+  exclusive with that user's keep + "OK to delete" (the keep/skip/mark-delete routes
+  clear the others).
+- `user_deletes` — `(plex_user_id, rating_key)` + `marked_at`; per-user "OK to
+  delete" (the requester signing off). Only settable on an item that user requested
+  (`isRequestedByUser` gate, from `seerr_requests`). Mutually exclusive with that
+  user's keep/skip. Indexed by user (`idx_deletes_user`) and item (`idx_deletes_item`,
+  for the by-anyone view + the attribution join to `users`). Excluded from that
+  user's feed (`FEED_ELIGIBILITY`).
 - `users` — Plex accounts; `is_admin` (first login / server owner), `enabled`
   (admin can block an account; Owner is exempt). Migrated via guarded `ALTER TABLE`.
 - `watch_history` — `(plex_user_id, rating_key)` `plays` + `last_watched`, from
@@ -145,21 +157,29 @@ Plex sync populates as raw numeric strings.
   `largest=1` = biggest titles regardless of library/keep-eligibility
   (`remaining` is null). Categories are real Plex libraries — never hardcoded.
 - `POST/DELETE /api/keep` `{ratingKey}` — toggle **this user's** keep. POST also
-  clears their "don't care"; DELETE removes only their own keep (others' keeps
-  stay, item remains protected).
+  clears their "don't care" + "OK to delete"; DELETE removes only their own keep
+  (others' keeps stay, item remains protected).
 - `POST/DELETE /api/skip` `{ratingKey}` — per-user single-item "don't care"
-  toggle. POST also clears this user's keep (mutually exclusive).
+  toggle. POST also clears this user's keep + "OK to delete" (mutually exclusive).
+- `POST/DELETE /api/mark-delete` `{ratingKey}` — per-user "OK to delete" toggle.
+  POST is **gated** by `isRequestedByUser` (403 `not_requested` otherwise) and clears
+  this user's keep + "don't care". Does not touch others' keeps.
 - `POST /api/skip-batch` `{ratingKeys[]}` — per-user skip + fresh batch (keep-loop).
-- `GET /api/library?sections=<id,id,…>&q=&sort=size|title|added|year&dir=asc|desc&kept=all|kept|unkept&keptByMe=1&skip=all|skipped|unskipped&watch=all|watched|unwatched|unwatchedAny|recent30|recent60|recent90|stale90&source=sonarr|radarr&instance=&tag=&quality=&monitored=all|monitored|unmonitored&requestedByMe=1&hideKept=&offset=`
+- `GET /api/library?sections=<id,id,…>&q=&sort=size|title|added|year&dir=asc|desc&kept=all|kept|unkept&keptByMe=1&skip=all|skipped|unskipped&deleted=all|deletedByMe|deletedAny&watch=all|watched|unwatched|unwatchedAny|recent30|recent60|recent90|stale90&source=sonarr|radarr&instance=&tag=&quality=&monitored=all|monitored|unmonitored&requestedByMe=1&hideKept=&offset=`
   — browse/search; `sections` is a comma list of Plex library ids (omit = all,
   multi-select in the sidebar). Returns `kept` (anyone), per-user `keptByMe`,
-  per-user `skipped`, per-user `watched`, **and Sonarr/Radarr metadata** (`source`,
+  per-user `skipped`, per-user `watched`, per-user `requestedByMe` +
+  `markedForDeleteByMe`, server-wide `markedForDeleteAny` (no identity),
+  **and Sonarr/Radarr metadata** (`source`,
   `instanceName`, `monitored`, `status`, `quality`, `qualityKind`, `tags[]` — null
   when the title isn't arr-matched; powers Browse's List view + quality badge). The
   Browse UI exposes one **Status** filter (default **Undecided** →
-  `kept=unkept&skip=unskipped`, i.e. hides decided items; **Kept by anyone** →
-  `kept=kept`; **Kept by you** → `keptByMe=1`; **I don't care** → `skip=skipped`;
-  All), a **Grid/List** view toggle (remembered in `localStorage`; List adds
+  `kept=unkept&skip=unskipped`, i.e. hides decided items — incl. the user's own "OK
+  to delete"; **Kept by anyone** → `kept=kept`; **Kept by you** → `keptByMe=1`;
+  **I don't care** → `skip=skipped`; — only when Seerr is connected — **OK to delete
+  (by you)** → `deleted=deletedByMe` and **OK to delete (by anyone)** →
+  `deleted=deletedAny`; All), a **Grid/List** view toggle (remembered in
+  `localStorage`; List adds
   click-to-sort column headers — all columns, sort persisted — and a poster column),
   — **only when Tautulli is connected** — a **Watched** filter (`watch=`):
   watched/not-watched **by you**, **not watched by anyone** (`unwatchedAny`,
@@ -174,8 +194,9 @@ Plex sync populates as raw numeric strings.
 - `GET /api/library/facets` → `{instances,tags,qualities,statuses}` for the Browse
   arr filter dropdowns (from `arrFacets()`).
 - `GET /api/search?q=&offset=` → ranked results (exact>prefix>word>substring,
-  multi-token AND), with kept + per-user skipped + per-user watched flags. `GET
-  /api/search/suggest?q=` → top-8 typeahead.
+  multi-token AND), with kept + per-user skipped/watched/requestedByMe +
+  markedForDeleteByMe/markedForDeleteAny flags (so search cards show the "OK to
+  delete" control too). `GET /api/search/suggest?q=` → top-8 typeahead.
 - `GET /api/sections` → managed libraries `[{id,title,kind,itemCount,sizeBytes}]`
   (nav rail Browse, Keep filters, Library, Big Picture).
 - `GET /api/storage` → per-filesystem free/total (`fs.statfs`) + per-library used
@@ -193,12 +214,17 @@ Plex sync populates as raw numeric strings.
   `tautulli` (bool — whether watch surfaces should render), and — when Sonarr/Radarr
   is connected — `arr: true` + `qualityBreakdown` (`{byQuality[], notInArr}` → the
   Big Picture "By quality" table; its `reclaimableBytes` field shows in the UI as
-  "Not kept"). Backed by `librarySummary` + `arrQualitySummary`/`unmatchedMediaSummary`.
+  "Not kept"); and — when Seerr is connected — `seerr: true` + `markedForDelete:
+  {titles, bytes}` (the Big Picture "OK to delete" KPI). Backed by `librarySummary` +
+  `arrQualitySummary`/`unmatchedMediaSummary` + `markedForDeleteSummary`.
 - `GET /api/about` → `{name, version}` for the About panel.
-- `GET /api/stats?view=largest|reclaimable|unwatched&offset=` — big picture +
-  summary. `unwatched` = largest titles nobody has watched (`neverWatchedItems`;
-  the "Never watched" drill-down, shown only when Tautulli is connected). Accepts a
-  session user **or** the API key (`X-Api-Key`).
+- `GET /api/stats?view=largest|reclaimable|unwatched|markedForDelete&offset=` — big
+  picture + summary. `unwatched` = largest titles nobody has watched
+  (`neverWatchedItems`; the "Never watched" drill-down, shown only when Tautulli is
+  connected). `markedForDelete` = titles anyone marked "OK to delete", largest first,
+  each with its marker name(s) + a `keptByAnyone` flag (`markedForDeleteItems`; the
+  drill-down shown only when Seerr is connected — the one place marker identity is
+  shown). Accepts a session user **or** the API key (`X-Api-Key`).
 - `GET /api/requests` — current user's Seerr rating keys for badges, read from the
   `seerr_requests` cache (refreshed by the `requests` job, not live).
 - `GET /api/image?path=&w=&h=` — proxies Plex thumbs (token stays server-side).

@@ -27,11 +27,12 @@ export async function GET(req: Request) {
       offset,
     });
     const hasMore = rows.length > PAGE;
-    const items = rows
-      .slice(0, PAGE)
-      .map((r) =>
-        toCard(r, r.kept === 1, r.kept_by_me === 1, r.skipped === 1, r.watched === 1)
-      );
+    const items = rows.slice(0, PAGE).map((r) => ({
+      ...toCard(r, r.kept === 1, r.kept_by_me === 1, r.skipped === 1, r.watched === 1),
+      requestedByMe: r.requested_by_me === 1,
+      markedForDeleteByMe: r.marked_for_delete_by_me === 1,
+      markedForDeleteAny: r.marked_for_delete_any === 1,
+    }));
 
     return NextResponse.json({ items, hasMore, nextOffset: offset + items.length });
   } catch (e) {

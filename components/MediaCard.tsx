@@ -20,6 +20,8 @@ interface Props {
   skippable?: boolean;
   /** Called after a successful skip toggle. */
   onSkipChange?: (ratingKey: string, skipped: boolean) => void;
+  /** Called after a successful "OK to delete" toggle. */
+  onDeleteChange?: (ratingKey: string, markedForDelete: boolean) => void;
   /** Optional "you requested this" badge (from Seerr). */
   requested?: boolean;
 }
@@ -30,19 +32,34 @@ export default function MediaCard({
   onKeptChange,
   skippable = false,
   onSkipChange,
+  onDeleteChange,
   requested,
 }: Props) {
-  // Tri-state, per user: keptByMe / skipped / neither (shared keep/skip logic).
-  // An item can also be "kept by others" (item.kept true while not mine) —
+  // Per user: keptByMe / skipped / markedForDelete / neither (shared logic). An
+  // item can also be "kept by others" (item.kept true while not mine) —
   // protected, but their keep is never ours to remove. Snapshot fixed at load.
   const keptByOthers = item.kept && !item.keptByMe;
-  const { keptByMe, skipped, skipBusy, toggleKeep, toggleSkip } = useKeepState({
+  const {
+    keptByMe,
+    skipped,
+    markedForDelete,
+    skipBusy,
+    deleteBusy,
+    toggleKeep,
+    toggleSkip,
+    toggleDelete,
+  } = useKeepState({
     ratingKey: item.ratingKey,
     initialKeptByMe: item.keptByMe,
     initialSkipped: item.skipped,
+    initialMarkedForDelete: item.markedForDeleteByMe,
     onKeptChange,
     onSkipChange,
+    onDeleteChange,
   });
+  // Someone else released it (the by-anyone view) — name-less badge; my own
+  // mark is shown by its own badge/button.
+  const releasedByOther = !!item.markedForDeleteAny && !markedForDelete;
 
   const toggle = () => {
     if (interactive) void toggleKeep();
@@ -51,7 +68,13 @@ export default function MediaCard({
     e.stopPropagation();
     void toggleSkip();
   };
+  const onDeleteClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    void toggleDelete();
+  };
 
+  // Only "don't care" greys the card out. "OK to delete" stays full-color with a
+  // rose ring (a deliberate flag, not a dismissal) so the two read differently.
   const dimmed = skipped;
 
   function onKeyDown(e: React.KeyboardEvent) {
@@ -62,12 +85,18 @@ export default function MediaCard({
     }
   }
 
-  // Border: my keep = full amber ring; others' keep = muted amber edge.
+  // Border encodes the decision: my keep = full amber ring; my "OK to delete" =
+  // full rose ring; someone else released it = muted rose edge; others' keep =
+  // muted amber edge. (Grey/dim is reserved for "don't care".)
   const borderCls = keptByMe
     ? 'border-brand ring-2 ring-brand'
-    : keptByOthers && !skipped
-      ? 'border-amber-700/60'
-      : 'border-slate-800 hover:border-slate-600';
+    : markedForDelete
+      ? 'border-rose-500 ring-2 ring-rose-500/70'
+      : releasedByOther && !skipped
+        ? 'border-rose-800/60'
+        : keptByOthers && !skipped
+          ? 'border-amber-700/60'
+          : 'border-slate-800 hover:border-slate-600';
 
   return (
     <div
@@ -132,14 +161,23 @@ export default function MediaCard({
         )}
       </div>
 
-      {/* Status badge: my keep wins, then don't care, then kept-by-others. */}
+      {/* Status badge: my keep wins, then my "OK to delete", then don't care,
+          then released-by-someone-else (name-less), then kept-by-others. */}
       {keptByMe ? (
         <div className="absolute right-2 top-2 rounded-full bg-brand px-2 py-0.5 text-xs font-bold text-slate-900">
           ✓ Keep
         </div>
+      ) : markedForDelete ? (
+        <div className="absolute right-2 top-2 rounded-full bg-rose-600 px-2 py-0.5 text-[10px] font-bold text-white">
+          🗑 OK to delete
+        </div>
       ) : skipped ? (
         <div className="absolute right-2 top-2 rounded-full bg-slate-700 px-2 py-0.5 text-[10px] font-semibold text-slate-200">
           Don&apos;t care
+        </div>
+      ) : releasedByOther ? (
+        <div className="absolute right-2 top-2 rounded-full bg-rose-900/70 px-2 py-0.5 text-[10px] font-semibold text-rose-200">
+          OK to delete
         </div>
       ) : keptByOthers ? (
         <div className="absolute right-2 top-2 rounded-full bg-amber-900/80 px-2 py-0.5 text-[10px] font-semibold text-amber-200">
@@ -168,6 +206,22 @@ export default function MediaCard({
             className="mt-1.5 w-full rounded border border-slate-700 px-2 py-1 text-[11px] text-slate-400 hover:border-slate-500 hover:text-slate-200 disabled:opacity-60"
           >
             {skipped ? '↺ I care after all' : "I don't care"}
+          </button>
+        )}
+        {/* "OK to delete" — on titles you requested on Seerr (you're the original
+            requester signing off). Also shown once marked, so you can always undo. */}
+        {(item.requestedByMe || markedForDelete) && (
+          <button
+            type="button"
+            onClick={onDeleteClick}
+            disabled={deleteBusy}
+            className={`mt-1.5 w-full rounded border px-2 py-1 text-[11px] disabled:opacity-60 ${
+              markedForDelete
+                ? 'border-rose-700 bg-rose-800/80 font-semibold text-rose-100'
+                : 'border-rose-900/70 text-rose-300 hover:border-rose-700 hover:text-rose-200'
+            }`}
+          >
+            {markedForDelete ? '↺ Never mind' : 'OK to delete'}
           </button>
         )}
       </div>

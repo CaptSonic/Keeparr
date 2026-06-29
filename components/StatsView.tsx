@@ -18,12 +18,20 @@ import {
   type Overview,
 } from './breakdown';
 
-type View = 'largest' | 'reclaimable' | 'unwatched';
+type View = 'largest' | 'reclaimable' | 'unwatched' | 'markedForDelete';
 
 const VIEW_LABEL: Record<View, string> = {
   largest: 'Largest on disk',
   reclaimable: 'Not kept by anyone',
   unwatched: 'Never watched',
+  markedForDelete: 'OK to delete',
+};
+
+/** A drill-down row. The "OK to delete" view adds who released it + whether it's
+ *  still kept; other views leave those undefined. */
+type StatRow = MediaCardData & {
+  markedBy?: string[];
+  keptByAnyone?: boolean;
 };
 
 interface Summary {
@@ -37,7 +45,7 @@ interface Summary {
 export default function StatsView() {
   const [view, setView] = useState<View>('largest');
   const [summary, setSummary] = useState<Summary | null>(null);
-  const [items, setItems] = useState<MediaCardData[]>([]);
+  const [items, setItems] = useState<StatRow[]>([]);
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -70,10 +78,14 @@ export default function StatsView() {
   }, []);
 
   let cumulative = 0;
-  // The "Never watched" drill-down only appears when Tautulli is connected.
-  const views: View[] = overview?.tautulli
-    ? ['largest', 'reclaimable', 'unwatched']
-    : ['largest', 'reclaimable'];
+  // The "Never watched" drill-down only appears when Tautulli is connected; the
+  // "OK to delete" drill-down only when Seerr is.
+  const views: View[] = [
+    'largest',
+    'reclaimable',
+    ...(overview?.tautulli ? (['unwatched'] as View[]) : []),
+    ...(overview?.seerr ? (['markedForDelete'] as View[]) : []),
+  ];
 
   return (
     <div className="space-y-6">
@@ -117,6 +129,8 @@ export default function StatsView() {
                 <th className="text-right font-medium px-3 py-2">Size</th>
                 {view === 'reclaimable' ? (
                   <th className="text-right font-medium px-3 py-2">Cumulative</th>
+                ) : view === 'markedForDelete' ? (
+                  <th className="text-left font-medium px-3 py-2">Marked by</th>
                 ) : (
                   <th className="text-right font-medium px-3 py-2">Kept</th>
                 )}
@@ -136,6 +150,18 @@ export default function StatsView() {
                     {view === 'reclaimable' ? (
                       <td className="px-3 py-2 text-right font-mono text-slate-400">
                         {formatSize(cumulative)}
+                      </td>
+                    ) : view === 'markedForDelete' ? (
+                      <td className="px-3 py-2 text-slate-300">
+                        {(item.markedBy ?? []).join(', ') || '—'}
+                        {item.keptByAnyone && (
+                          <span
+                            className="ml-2 rounded bg-amber-900/70 px-1.5 py-0.5 text-[10px] font-semibold text-amber-200"
+                            title="Someone still keeps this, so it stays protected"
+                          >
+                            still kept
+                          </span>
+                        )}
                       </td>
                     ) : (
                       <td className="px-3 py-2 text-right">
@@ -265,6 +291,14 @@ function StorageHero({ overview }: { overview: Overview }) {
             label="Never watched"
             tone="text-slate-200"
             sub={`${totals.unwatchedItems} titles nobody has watched`}
+          />
+        )}
+        {overview.seerr && overview.markedForDelete && (
+          <BigStat
+            value={formatSize(overview.markedForDelete.bytes)}
+            label="OK to delete"
+            tone="text-rose-300"
+            sub={`${overview.markedForDelete.titles} titles a requester released`}
           />
         )}
       </div>
