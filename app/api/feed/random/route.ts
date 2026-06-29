@@ -1,7 +1,12 @@
 import { NextResponse } from 'next/server';
 import { requireUser } from '@/lib/auth';
 import { errorResponse } from '@/lib/route-helpers';
-import { countFeedRemaining, getFeed, largestItems } from '@/lib/queries';
+import {
+  countFeedRemaining,
+  getFeed,
+  largestItems,
+  watchedRatingKeys,
+} from '@/lib/queries';
 import { toCard } from '@/lib/cards';
 import { FEED_BATCH_SIZE } from '@/lib/config';
 
@@ -22,18 +27,21 @@ export async function GET(req: Request) {
       Math.max(1, Number(p.get('limit')) || FEED_BATCH_SIZE)
     );
 
+    const watched = watchedRatingKeys(user.plexUserId);
+
     if (p.get('largest') === '1') {
       const rows = largestItems(limit, 0, user.plexUserId);
-      const items = rows.map((r) => toCard(r, r.kept === 1, r.kept_by_me === 1));
+      const items = rows.map((r) =>
+        toCard(r, r.kept === 1, r.kept_by_me === 1, undefined, watched.has(r.rating_key))
+      );
       return NextResponse.json({ items, remaining: null });
     }
 
     const sectionId = p.get('section') || undefined;
-    const rows = getFeed(user.plexUserId, limit, {
-      preferWatched: true,
-      sectionId,
-    });
-    const items = rows.map((m) => toCard(m, false));
+    const rows = getFeed(user.plexUserId, limit, { sectionId });
+    const items = rows.map((m) =>
+      toCard(m, false, undefined, undefined, watched.has(m.rating_key))
+    );
     const remaining = countFeedRemaining(user.plexUserId, { sectionId });
     return NextResponse.json({ items, remaining });
   } catch (e) {

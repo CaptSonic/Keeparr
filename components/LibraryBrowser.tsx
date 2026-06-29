@@ -8,23 +8,41 @@ import MediaCard, { CARD_GRID_CLASS } from './MediaCard';
 
 type Sort = 'size' | 'title' | 'added' | 'year';
 type Dir = 'asc' | 'desc';
-type Status = 'undecided' | 'kept' | 'dontcare' | 'all';
+type Status = 'undecided' | 'keptAny' | 'keptMine' | 'dontcare' | 'all';
+type Watch =
+  | 'all'
+  | 'watched'
+  | 'unwatched'
+  | 'unwatchedAny'
+  | 'recent30'
+  | 'recent60'
+  | 'recent90'
+  | 'stale90';
 
-// One clear Status filter → the existing kept/skip query params.
+// One clear Status filter → the existing kept/skip query params. `keptByMe`
+// narrows "kept" to the current user's own keeps (vs anyone's).
 const STATUS_PARAMS: Record<
   Status,
-  { kept: 'all' | 'kept' | 'unkept'; skip: 'all' | 'skipped' | 'unskipped' }
+  {
+    kept: 'all' | 'kept' | 'unkept';
+    skip: 'all' | 'skipped' | 'unskipped';
+    keptByMe?: boolean;
+  }
 > = {
   undecided: { kept: 'unkept', skip: 'unskipped' }, // hide kept + don't-care
-  kept: { kept: 'kept', skip: 'all' },
+  keptAny: { kept: 'kept', skip: 'all' }, // kept by anyone (protected)
+  keptMine: { kept: 'all', skip: 'all', keptByMe: true }, // only your keeps
   dontcare: { kept: 'all', skip: 'skipped' },
   all: { kept: 'all', skip: 'all' },
 };
 
 export default function LibraryBrowser({
   sections,
+  tautulli = false,
 }: {
   sections: LibrarySection[];
+  /** Tautulli connected → show the Watched filter (otherwise hidden). */
+  tautulli?: boolean;
 }) {
   // Library selection lives in the URL (?sections=) — driven by the nav rail's
   // Browse list. Empty = all libraries.
@@ -41,6 +59,7 @@ export default function LibraryBrowser({
   const [dir, setDir] = useState<Dir>('desc');
   // Default hides items you've already decided on (kept or don't-care).
   const [status, setStatus] = useState<Status>('undecided');
+  const [watch, setWatch] = useState<Watch>('all');
   const [requestedByMe, setRequestedByMe] = useState(false);
 
   const [items, setItems] = useState<MediaCardData[]>([]);
@@ -79,6 +98,8 @@ export default function LibraryBrowser({
       params.set('dir', dir);
       params.set('kept', STATUS_PARAMS[status].kept);
       params.set('skip', STATUS_PARAMS[status].skip);
+      if (STATUS_PARAMS[status].keptByMe) params.set('keptByMe', '1');
+      if (tautulli && watch !== 'all') params.set('watch', watch);
       if (requestedByMe) params.set('requestedByMe', '1');
       params.set('offset', String(off));
       const data = await fetch(`/api/library?${params}`).then((r) => r.json());
@@ -87,11 +108,11 @@ export default function LibraryBrowser({
       setItems((prev) => (reset ? data.items : [...prev, ...data.items]));
       setLoading(false);
     },
-    [selectedKey, debouncedQ, sort, dir, status, requestedByMe, offset]
+    [selectedKey, debouncedQ, sort, dir, status, watch, tautulli, requestedByMe, offset]
   );
 
   // Reset + reload whenever a filter (or the rail selection) changes.
-  const filterKey = `${selectedKey}|${debouncedQ}|${sort}|${dir}|${status}|${requestedByMe}`;
+  const filterKey = `${selectedKey}|${debouncedQ}|${sort}|${dir}|${status}|${watch}|${requestedByMe}`;
   useEffect(() => {
     setOffset(0);
     fetchPage(true);
@@ -149,10 +170,28 @@ export default function LibraryBrowser({
           title="Which items to show"
         >
           <option value="undecided">Undecided</option>
-          <option value="kept">Kept</option>
-          <option value="dontcare">Don&apos;t care</option>
+          <option value="keptAny">Kept by anyone</option>
+          <option value="keptMine">Kept by you</option>
+          <option value="dontcare">I don&apos;t care</option>
           <option value="all">All</option>
         </select>
+        {tautulli && (
+          <select
+            className={inputCls}
+            value={watch}
+            onChange={(e) => setWatch(e.target.value as Watch)}
+            title="Filter by what you've watched"
+          >
+            <option value="all">Watched: any</option>
+            <option value="watched">Watched by you</option>
+            <option value="unwatched">Not watched by you</option>
+            <option value="unwatchedAny">Not watched by anyone</option>
+            <option value="recent30">Watched ≤ 30 days</option>
+            <option value="recent60">Watched ≤ 60 days</option>
+            <option value="recent90">Watched ≤ 90 days</option>
+            <option value="stale90">Not watched in 90+ days</option>
+          </select>
+        )}
         <label className="flex items-center gap-2 text-sm text-slate-400">
           <input
             type="checkbox"

@@ -8,6 +8,7 @@ import {
   type LibrarySort,
   type SkipFilter,
   type SortDir,
+  type WatchFilter,
 } from '@/lib/queries';
 import { toCard } from '@/lib/cards';
 
@@ -17,9 +18,19 @@ const PAGE = 60;
 const SORTS: LibrarySort[] = ['size', 'title', 'added', 'year'];
 const KEPT: KeptFilter[] = ['all', 'kept', 'unkept'];
 const SKIP: SkipFilter[] = ['all', 'skipped', 'unskipped'];
+const WATCH: WatchFilter[] = [
+  'all',
+  'watched',
+  'unwatched',
+  'unwatchedAny',
+  'recent30',
+  'recent60',
+  'recent90',
+  'stale90',
+];
 
 /**
- * Browse/search a library. Query: section, q, sort, dir, kept, skip,
+ * Browse/search a library. Query: section, q, sort, dir, kept, skip, watch,
  * requestedByMe, hideKept (legacy), offset.
  */
 export async function GET(req: Request) {
@@ -30,7 +41,9 @@ export async function GET(req: Request) {
     const sort = (p.get('sort') as LibrarySort) || 'size';
     const dir = (p.get('dir') as SortDir) === 'asc' ? 'asc' : 'desc';
     const kept = (p.get('kept') as KeptFilter) || 'all';
+    const keptByMe = p.get('keptByMe') === '1';
     const skip = (p.get('skip') as SkipFilter) || 'all';
+    const watch = (p.get('watch') as WatchFilter) || 'all';
     const offset = Math.max(0, Number(p.get('offset')) || 0);
 
     // "Requested by me" reads the cached Seerr requests (refreshed by the
@@ -50,7 +63,9 @@ export async function GET(req: Request) {
       dir,
       hideKept: p.get('hideKept') === '1',
       keptFilter: KEPT.includes(kept) ? kept : 'all',
+      keptByMeOnly: keptByMe,
       skipFilter: SKIP.includes(skip) ? skip : 'all',
+      watchFilter: WATCH.includes(watch) ? watch : 'all',
       requestedKeys,
       limit: PAGE + 1, // fetch one extra to detect "has more"
       offset,
@@ -58,7 +73,9 @@ export async function GET(req: Request) {
     const hasMore = rows.length > PAGE;
     const items = rows
       .slice(0, PAGE)
-      .map((r) => toCard(r, r.kept === 1, r.kept_by_me === 1, r.skipped === 1));
+      .map((r) =>
+        toCard(r, r.kept === 1, r.kept_by_me === 1, r.skipped === 1, r.watched === 1)
+      );
     return NextResponse.json({ items, hasMore, nextOffset: offset + PAGE });
   } catch (e) {
     return errorResponse(e);

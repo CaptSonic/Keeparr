@@ -7,6 +7,7 @@ import {
   getDevStorageTotal,
   getManagedSections,
   getStorageMappings,
+  isTautulliConfigured,
 } from '@/lib/settings';
 
 export const runtime = 'nodejs';
@@ -45,6 +46,12 @@ export async function GET() {
         dontcareBytes: r?.dontcare_bytes ?? 0,
         undecidedItems: r?.undecided_items ?? 0,
         undecidedBytes: r?.undecided_bytes ?? 0,
+        unwatchedItems: r?.unwatched_items ?? 0,
+        unwatchedBytes: r?.unwatched_bytes ?? 0,
+        unwatchedKeptBytes: r?.unwatched_kept_bytes ?? 0,
+        unwatchedKeptByMeBytes: r?.unwatched_kept_by_me_bytes ?? 0,
+        unwatchedDontcareBytes: r?.unwatched_dontcare_bytes ?? 0,
+        unwatchedUndecidedBytes: r?.unwatched_undecided_bytes ?? 0,
       };
     });
 
@@ -62,6 +69,12 @@ export async function GET() {
       dontcareBytes: sum('dontcareBytes'),
       undecidedItems: sum('undecidedItems'),
       undecidedBytes: sum('undecidedBytes'),
+      unwatchedItems: sum('unwatchedItems'),
+      unwatchedBytes: sum('unwatchedBytes'),
+      unwatchedKeptBytes: sum('unwatchedKeptBytes'),
+      unwatchedKeptByMeBytes: sum('unwatchedKeptByMeBytes'),
+      unwatchedDontcareBytes: sum('unwatchedDontcareBytes'),
+      unwatchedUndecidedBytes: sum('unwatchedUndecidedBytes'),
     };
 
     const storage = report.totals
@@ -80,6 +93,9 @@ export async function GET() {
       mediaUsedBytes: totals.bytes,
       libraries,
       totals,
+      // Watch data (badges, never-watched metric) only makes sense when Tautulli
+      // is connected — the UI hides those surfaces otherwise.
+      tautulli: isTautulliConfigured(),
     });
   } catch (e) {
     return errorResponse(e);

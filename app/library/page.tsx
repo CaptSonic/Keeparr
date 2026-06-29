@@ -1,6 +1,10 @@
 import { redirect } from 'next/navigation';
 import { getSessionUser } from '@/lib/auth';
-import { getManagedSections, isServerConfigured } from '@/lib/settings';
+import {
+  getManagedSections,
+  isServerConfigured,
+  isTautulliConfigured,
+} from '@/lib/settings';
 import { sectionSizeSummary } from '@/lib/queries';
 import AppShell from '@/components/AppShell';
 import LibraryBrowser from '@/components/LibraryBrowser';
@@ -29,7 +33,7 @@ export default async function LibraryPage() {
       {!isServerConfigured() ? (
         <p className="text-slate-400 p-6">Not set up yet.</p>
       ) : (
-        <LibraryBrowser sections={sections} />
+        <LibraryBrowser sections={sections} tautulli={isTautulliConfigured()} />
       )}
     </AppShell>
   );

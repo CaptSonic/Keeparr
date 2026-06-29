@@ -93,7 +93,7 @@ export default function SearchBox() {
                   <span className="block truncate text-sm">{s.title}</span>
                   <span className="text-xs text-slate-500">
                     {s.year ?? ''}
-                    {s.kept ? ' · kept' : s.skipped ? ' · don’t care' : ''}
+                    {s.kept ? ' · kept' : s.skipped ? ' · I don’t care' : ''}
                   </span>
                 </span>
               </button>

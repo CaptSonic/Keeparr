@@ -228,7 +228,7 @@ export default function KeepView({ libraries }: { libraries: Library[] }) {
             <div className="ml-auto flex items-center gap-3">
               <span className="hidden text-right text-xs text-slate-500 sm:block max-w-xs">
                 Marks everything you didn’t keep as{' '}
-                <span className="text-rose-400">“You don’t care”</span> and loads a
+                <span className="text-rose-400">“I don’t care”</span> and loads a
                 fresh set.
               </span>
               <button
@@ -299,7 +299,7 @@ function KeepTotals({ overview }: { overview: Overview }) {
               max={storage.totalBytes}
               segments={[
                 { tone: 'kept', value: totals.keptBytes, label: 'Kept' },
-                { tone: 'dontcare', value: totals.dontcareBytes, label: 'You don’t care' },
+                { tone: 'dontcare', value: totals.dontcareBytes, label: 'I don’t care' },
                 { tone: 'undecided', value: totals.undecidedBytes, label: 'Undecided' },
                 { tone: 'other', value: otherBytes, label: 'Other files' },
               ]}
@@ -309,7 +309,7 @@ function KeepTotals({ overview }: { overview: Overview }) {
             <LegendRow tone="kept" label="Kept" value={formatSize(totals.keptBytes)} />
             <LegendRow
               tone="dontcare"
-              label="You don’t care"
+              label="I don’t care"
               value={formatSize(totals.dontcareBytes)}
             />
             <LegendRow
@@ -374,7 +374,7 @@ function KeepTotals({ overview }: { overview: Overview }) {
             <span className="h-2 w-2 rounded-sm bg-brand" /> Kept
           </span>
           <span className="flex items-center gap-1">
-            <span className="h-2 w-2 rounded-sm bg-rose-500" /> You don’t care
+            <span className="h-2 w-2 rounded-sm bg-rose-500" /> I don’t care
           </span>
           <span className="flex items-center gap-1">
             <span className="h-2 w-2 rounded-sm bg-blue-500" /> Undecided
@@ -401,7 +401,7 @@ function KeepTotals({ overview }: { overview: Overview }) {
             height="h-2"
             segments={[
               { tone: 'kept', value: totals.keptByMeItems, label: 'Kept by you' },
-              { tone: 'dontcare', value: totals.dontcareItems, label: 'You don’t care' },
+              { tone: 'dontcare', value: totals.dontcareItems, label: 'I don’t care' },
               { tone: 'undecided', value: totals.undecidedItems, label: 'Undecided' },
             ]}
           />
@@ -414,7 +414,7 @@ function KeepTotals({ overview }: { overview: Overview }) {
           />
           <LegendRow
             tone="dontcare"
-            label="You don’t care"
+            label="I don’t care"
             value={String(totals.dontcareItems)}
           />
           <LegendRow

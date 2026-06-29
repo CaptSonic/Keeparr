@@ -11,9 +11,11 @@ import {
   isKept,
   isKeptByUser,
   largestItems,
+  neverWatchedItems,
   librarySummary,
   listUsers,
   queryLibrary,
+  searchMedia,
   reclaimableItems,
   reclaimableTotalBytes,
   libraryStats,
@@ -550,5 +552,148 @@ describe('reclaimable + library views', () => {
     expect(row.kept_bytes + row.dontcare_bytes + row.undecided_bytes).toBe(
       row.bytes
     );
+  });
+});
+
+describe('watch filters + never-watched', () => {
+  const dago = (d: number) => Math.floor(Date.now() / 1000) - d * 86400;
+
+  beforeEach(() => {
+    upsertMediaBatch([
+      media('1'),
+      media('2'),
+      media('3'),
+      media('4'),
+      media('5', { sizeBytes: 2 * GB }),
+    ]);
+    upsertWatchBatch([
+      { plexUserId: 'userA', ratingKey: '1', plays: 3, lastWatched: dago(10) }, // recent
+      { plexUserId: 'userA', ratingKey: '2', plays: 1, lastWatched: dago(75) }, // ≤90 only
+      { plexUserId: 'userA', ratingKey: '3', plays: 1, lastWatched: dago(210) }, // stale
+      { plexUserId: 'userB', ratingKey: '4', plays: 9, lastWatched: dago(5) }, // someone else
+      // '5' — watched by nobody
+    ]);
+  });
+
+  const keys = (watchFilter: Parameters<typeof queryLibrary>[0]['watchFilter']) =>
+    queryLibrary({ plexUserId: 'userA', limit: 100, offset: 0, watchFilter })
+      .map((r) => r.rating_key)
+      .sort();
+
+  it('watched / unwatched are per-user', () => {
+    expect(keys('watched')).toEqual(['1', '2', '3']); // userA's plays
+    expect(keys('unwatched')).toEqual(['4', '5']); // '4' is userB's, not userA's
+  });
+
+  it('recency windows use last_watched', () => {
+    expect(keys('recent30')).toEqual(['1']);
+    expect(keys('recent60')).toEqual(['1']);
+    expect(keys('recent90')).toEqual(['1', '2']);
+  });
+
+  it('stale90 = never-watched-by-you OR last watched 90d+ ago', () => {
+    expect(keys('stale90')).toEqual(['3', '4', '5']);
+  });
+
+  it('queryLibrary returns a per-user watched flag', () => {
+    const rows = queryLibrary({ plexUserId: 'userA', limit: 100, offset: 0 });
+    expect(rows.find((r) => r.rating_key === '1')?.watched).toBe(1);
+    expect(rows.find((r) => r.rating_key === '4')?.watched).toBe(0); // userB's, not userA's
+    expect(rows.find((r) => r.rating_key === '5')?.watched).toBe(0);
+  });
+
+  it('searchMedia exposes the watched flag', () => {
+    const rows = searchMedia({ query: 'Title', plexUserId: 'userA', limit: 100, offset: 0 });
+    expect(rows.find((r) => r.rating_key === '2')?.watched).toBe(1);
+    expect(rows.find((r) => r.rating_key === '5')?.watched).toBe(0);
+  });
+
+  it('librarySummary counts "never watched by anyone" (only item 5)', () => {
+    const [row] = librarySummary('userA');
+    expect(row.unwatched_items).toBe(1); // only '5' — '4' is watched by userB
+    expect(row.unwatched_bytes).toBe(2 * GB);
+  });
+
+  it('unwatchedAny = never watched by ANYONE (server-wide, not per-user)', () => {
+    // '4' is watched by userB, so it's excluded even though userA never saw it.
+    expect(keys('unwatchedAny')).toEqual(['5']);
+    // Contrast: per-user "unwatched" still includes '4' for userA.
+    expect(keys('unwatched')).toEqual(['4', '5']);
+  });
+
+  it('neverWatchedItems returns server-wide unwatched, largest first', () => {
+    const rows = neverWatchedItems(100, 0, 'userA');
+    expect(rows.map((r) => r.rating_key)).toEqual(['5']); // only nobody-watched item
+    expect(rows[0].size_bytes).toBe(2 * GB);
+  });
+
+  it('neverWatchedItems carries kept flags for this user', () => {
+    addKeep('userA', '5');
+    const [row] = neverWatchedItems(100, 0, 'userA');
+    expect(row.kept).toBe(1);
+    expect(row.kept_by_me).toBe(1);
+  });
+});
+
+describe('librarySummary never-watched split by keep bucket', () => {
+  beforeEach(() => {
+    upsertMediaBatch([
+      media('1', { sizeBytes: 1 * GB }), // kept by me, never watched
+      media('2', { sizeBytes: 2 * GB }), // kept by other, never watched
+      media('3', { sizeBytes: 4 * GB }), // I don't care, never watched
+      media('4', { sizeBytes: 8 * GB }), // undecided, never watched
+      media('5', { sizeBytes: 16 * GB }), // undecided but WATCHED → excluded
+    ]);
+    addKeep('me', '1');
+    addKeep('other', '2');
+    addSkip('me', '3');
+    upsertWatchBatch([
+      { plexUserId: 'someone', ratingKey: '5', plays: 1, lastWatched: 1000 },
+    ]);
+  });
+
+  it('splits never-watched bytes across keep buckets (they sum to the total)', () => {
+    const [r] = librarySummary('me');
+    expect(r.unwatched_bytes).toBe((1 + 2 + 4 + 8) * GB); // '5' watched → excluded
+    expect(r.unwatched_kept_by_me_bytes).toBe(1 * GB);
+    expect(r.unwatched_kept_bytes).toBe((1 + 2) * GB); // protected: mine + other's
+    expect(r.unwatched_dontcare_bytes).toBe(4 * GB);
+    expect(r.unwatched_undecided_bytes).toBe(8 * GB);
+    const keptOther = r.unwatched_kept_bytes - r.unwatched_kept_by_me_bytes;
+    expect(
+      r.unwatched_kept_by_me_bytes +
+        keptOther +
+        r.unwatched_dontcare_bytes +
+        r.unwatched_undecided_bytes
+    ).toBe(r.unwatched_bytes);
+  });
+});
+
+describe('queryLibrary keptByMeOnly', () => {
+  beforeEach(() => {
+    upsertMediaBatch([media('1'), media('2'), media('3')]);
+    addKeep('me', '1'); // my keep
+    addKeep('other', '2'); // someone else's keep (protected, but not mine)
+    // '3' — kept by nobody
+  });
+
+  it('keptByMeOnly returns only the caller\'s own keeps', () => {
+    const rows = queryLibrary({
+      plexUserId: 'me',
+      limit: 100,
+      offset: 0,
+      keptByMeOnly: true,
+    });
+    expect(rows.map((r) => r.rating_key)).toEqual(['1']);
+  });
+
+  it('without keptByMeOnly, keptFilter=kept returns anyone\'s keeps', () => {
+    const rows = queryLibrary({
+      plexUserId: 'me',
+      limit: 100,
+      offset: 0,
+      keptFilter: 'kept',
+    });
+    expect(rows.map((r) => r.rating_key).sort()).toEqual(['1', '2']);
   });
 });

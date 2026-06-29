@@ -11,7 +11,8 @@ export function toCard(
   item: MediaItem,
   kept: boolean,
   keptByMe?: boolean,
-  skipped?: boolean
+  skipped?: boolean,
+  watched?: boolean
 ): MediaCardData {
   return {
     ratingKey: item.rating_key,
@@ -24,5 +25,6 @@ export function toCard(
     kept,
     keptByMe: !!keptByMe,
     skipped: !!skipped,
+    watched: !!watched,
   };
 }

@@ -117,7 +117,7 @@ export default function MediaCard({
         interactive ? 'cursor-pointer' : 'cursor-default'
       } ${dimmed ? 'opacity-50 grayscale' : ''}`}
     >
-      <div className="aspect-[2/3] w-full bg-slate-800">
+      <div className="relative aspect-[2/3] w-full bg-slate-800">
         {item.thumbUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -129,6 +129,28 @@ export default function MediaCard({
         ) : (
           <div className="flex h-full items-center justify-center p-2 text-center text-xs text-slate-500">
             {item.title}
+          </div>
+        )}
+        {/* Watched marker: small, neutral, bottom-left — never collides with the
+            keep/don't-care badges (top corners) or their highlights. */}
+        {item.watched && (
+          <div
+            title="You’ve watched this"
+            aria-label="Watched"
+            className="absolute bottom-1 left-1 grid h-5 w-5 place-items-center rounded-full bg-slate-900/75 text-slate-200 ring-1 ring-black/30"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              className="h-3 w-3"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+              <circle cx="12" cy="12" r="2.5" />
+            </svg>
           </div>
         )}
       </div>
@@ -168,7 +190,7 @@ export default function MediaCard({
             disabled={skipBusy}
             className="mt-1.5 w-full rounded border border-slate-700 px-2 py-1 text-[11px] text-slate-400 hover:border-slate-500 hover:text-slate-200 disabled:opacity-60"
           >
-            {skipped ? '↺ I care after all' : "Don't care"}
+            {skipped ? '↺ I care after all' : "I don't care"}
           </button>
         )}
       </div>

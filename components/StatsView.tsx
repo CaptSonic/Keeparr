@@ -8,6 +8,8 @@ import {
   LegendRow,
   Donut,
   compositionSegmentsSplit,
+  keptVsUnwatchedSegments,
+  UnwatchedBrackets,
   libColor,
   libStroke,
   pct,
@@ -15,7 +17,13 @@ import {
   type Overview,
 } from './breakdown';
 
-type View = 'largest' | 'reclaimable';
+type View = 'largest' | 'reclaimable' | 'unwatched';
+
+const VIEW_LABEL: Record<View, string> = {
+  largest: 'Largest on disk',
+  reclaimable: 'Not kept by anyone',
+  unwatched: 'Never watched',
+};
 
 interface Summary {
   totalItems: number;
@@ -61,6 +69,10 @@ export default function StatsView() {
   }, []);
 
   let cumulative = 0;
+  // The "Never watched" drill-down only appears when Tautulli is connected.
+  const views: View[] = overview?.tautulli
+    ? ['largest', 'reclaimable', 'unwatched']
+    : ['largest', 'reclaimable'];
 
   return (
     <div className="space-y-6">
@@ -79,7 +91,7 @@ export default function StatsView() {
       {/* Ranked drill-down tables */}
       <div>
         <div className="flex gap-2 mb-4">
-          {(['largest', 'reclaimable'] as View[]).map((v) => (
+          {views.map((v) => (
             <button
               key={v}
               onClick={() => setView(v)}
@@ -87,7 +99,7 @@ export default function StatsView() {
                 view === v ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'
               }`}
             >
-              {v === 'largest' ? 'Largest on disk' : 'Not kept by anyone'}
+              {VIEW_LABEL[v]}
             </button>
           ))}
         </div>
@@ -193,7 +205,7 @@ function StorageHero({ overview }: { overview: Overview }) {
   const segments = [
     { tone: 'kept' as const, value: totals.keptByMeBytes, label: 'Kept by you' },
     { tone: 'keptOther' as const, value: keptOtherBytes, label: 'Kept by others' },
-    { tone: 'dontcare' as const, value: totals.dontcareBytes, label: 'You don’t care' },
+    { tone: 'dontcare' as const, value: totals.dontcareBytes, label: 'I don’t care' },
     { tone: 'undecided' as const, value: totals.undecidedBytes, label: 'Undecided' },
     ...(configured ? [{ tone: 'other' as const, value: otherBytes, label: 'Other files' }] : []),
   ];
@@ -231,7 +243,7 @@ function StorageHero({ overview }: { overview: Overview }) {
         />
         <BigStat
           value={formatSize(totals.dontcareBytes)}
-          label="You don’t care"
+          label="I don’t care"
           tone="text-rose-400"
           dot="dontcare"
           sub={`${totals.dontcareItems} titles`}
@@ -243,10 +255,33 @@ function StorageHero({ overview }: { overview: Overview }) {
           dot="undecided"
           sub={`${totals.undecidedItems} titles you’ve yet to review`}
         />
+        {overview.tautulli && (
+          <BigStat
+            value={formatSize(totals.unwatchedBytes)}
+            label="Never watched"
+            tone="text-slate-200"
+            sub={`${totals.unwatchedItems} titles nobody has watched`}
+          />
+        )}
       </div>
 
       <div className="mt-5">
         <StackedBar height="h-6" segments={segments} max={configured ? storage.totalBytes : undefined} />
+        {/* Brackets below the bar mark the never-watched-by-anyone slice WITHIN
+            each keep segment — one per segment, aligned to it. */}
+        {overview.tautulli && totals.unwatchedBytes > 0 && (
+          <>
+            <div className="mt-1">
+              <UnwatchedBrackets segments={keptVsUnwatchedSegments(totals)} max={denom} />
+            </div>
+            <div className="mt-1 text-[11px] text-slate-500">
+              <span className="mr-1 inline-block h-2 w-3 rounded-b-sm border-x border-b border-white/40 align-middle" />
+              Brackets mark titles never watched by anyone within each category ·{' '}
+              {totals.unwatchedItems} total · {formatSize(totals.unwatchedBytes)} ·{' '}
+              {pct(totals.unwatchedBytes, denom)}% of disk
+            </div>
+          </>
+        )}
       </div>
 
       {/* Legend: filled categories + free (the empty part of the bar). */}
@@ -318,7 +353,7 @@ function ReviewProgress({ overview }: { overview: Overview }) {
             />
             <LegendRow
               tone="dontcare"
-              label="You don’t care"
+              label="I don’t care"
               value={`${totals.dontcareItems}`}
               sub={formatSize(totals.dontcareBytes)}
             />
@@ -436,22 +471,39 @@ function LibraryGrid({ overview }: { overview: Overview }) {
                 </div>
 
                 {/* The bar's WIDTH is proportional to library size (vs the biggest
-                    library); it's fully filled, so there's no empty "free" track. */}
+                    library); it's fully filled, so there's no empty "free" track.
+                    Brackets above each keep segment mark its never-watched slice. */}
                 <div className="mt-2.5">
                   <div
                     className="min-w-[10px]"
                     style={{ width: `${(l.bytes / maxLib) * 100}%` }}
                   >
                     <StackedBar height="h-3" segments={compositionSegmentsSplit(l)} />
+                    {overview.tautulli && l.unwatchedBytes > 0 && (
+                      <div className="mt-0.5">
+                        <UnwatchedBrackets
+                          segments={keptVsUnwatchedSegments(l)}
+                          max={l.bytes}
+                          height="h-1.5"
+                        />
+                      </div>
+                    )}
                   </div>
                 </div>
+
+                {overview.tautulli && (
+                  <div className="mt-1.5 text-[11px] text-slate-500">
+                    {l.unwatchedItems} never watched by anyone ·{' '}
+                    {formatSize(l.unwatchedBytes)} · {pct(l.unwatchedBytes, l.bytes)}%
+                  </div>
+                )}
 
                 <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
                   <MiniStat tone="kept" label="Kept by you" bytes={l.keptByMeBytes} items={l.keptByMeItems} />
                   <MiniStat tone="keptOther" label="Kept by others" bytes={keptOther} items={keptOtherItems} />
                   <MiniStat
                     tone="dontcare"
-                    label="You don’t care"
+                    label="I don’t care"
                     bytes={l.dontcareBytes}
                     items={l.dontcareItems}
                   />

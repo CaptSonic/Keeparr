@@ -34,6 +34,8 @@ export interface MediaCardData {
   keptByMe?: boolean;
   /** True when the current user has marked this "don't care". */
   skipped?: boolean;
+  /** True when the current user has watched it (any plays, from Tautulli). */
+  watched?: boolean;
 }
 
 export interface SessionUser {

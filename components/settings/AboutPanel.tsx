@@ -28,7 +28,7 @@ export default function AboutPanel() {
         <dd>{version || '—'}</dd>
         <dt className="text-slate-500">Keep</dt>
         <dd>Global — if anyone keeps a title, it’s kept for all.</dd>
-        <dt className="text-slate-500">Don’t care</dt>
+        <dt className="text-slate-500">I don’t care</dt>
         <dd>Per-user — hides a title from your own triage only.</dd>
         <dt className="text-slate-500">Stack</dt>
         <dd>Next.js · SQLite · Plex / Tautulli / Overseerr</dd>

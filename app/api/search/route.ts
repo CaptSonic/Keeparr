@@ -29,7 +29,9 @@ export async function GET(req: Request) {
     const hasMore = rows.length > PAGE;
     const items = rows
       .slice(0, PAGE)
-      .map((r) => toCard(r, r.kept === 1, r.kept_by_me === 1, r.skipped === 1));
+      .map((r) =>
+        toCard(r, r.kept === 1, r.kept_by_me === 1, r.skipped === 1, r.watched === 1)
+      );
 
     return NextResponse.json({ items, hasMore, nextOffset: offset + items.length });
   } catch (e) {

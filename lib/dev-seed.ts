@@ -171,6 +171,11 @@ export function seedDevData(opts: { reset?: boolean } = {}): SeedResult {
   writeSetting('plex_server_token', 'dev-token');
   writeSetting('plex_server_name', 'Dev Server');
   writeSetting('plex_owner_id', DEV_USER_ID);
+  // Fake Tautulli so the watch surfaces (Browse "Watched" filter, the watched
+  // badge, Big Picture "never watched") are visible in the demo. No real calls
+  // are made — the seeded watch_history rows below stand in for synced history.
+  writeSetting('tautulli_url', 'http://localhost:8181');
+  writeSetting('tautulli_api_key', 'dev-tautulli-key');
   setPlexSections(SECTIONS.map((s) => ({ ...s, paths: [`/media/${s.title}`] })));
   setManagedSectionIds([]); // all libraries managed
   setOpenSignin(true);
@@ -219,9 +224,26 @@ export function seedDevData(opts: { reset?: boolean } = {}): SeedResult {
 
     addSkip(DEV_USER_ID, 'dev-3');
     addSkip(DEV_USER_ID, 'dev-120');
+
+    // Watch history with now-relative timestamps so the Browse "Watched" windows
+    // (≤30/60/90d, stale 90d+) are demoable. Most titles stay unwatched so the
+    // Big Picture "never watched by anyone" metric is meaningful.
+    const wnow = Math.floor(Date.now() / 1000);
+    const dago = (d: number) => wnow - d * 86400;
     upsertWatchBatch([
-      { plexUserId: DEV_USER_ID, ratingKey: 'dev-110', plays: 12, lastWatched: 1_700_000_000 },
-      { plexUserId: DEV_USER_ID, ratingKey: 'dev-115', plays: 5, lastWatched: 1_699_900_000 },
+      // You — watched recently (hits ≤30/60/90)
+      { plexUserId: DEV_USER_ID, ratingKey: 'dev-101', plays: 8, lastWatched: dago(6) },
+      { plexUserId: DEV_USER_ID, ratingKey: 'dev-205', plays: 20, lastWatched: dago(12) },
+      { plexUserId: DEV_USER_ID, ratingKey: 'dev-1', plays: 1, lastWatched: dago(20) },
+      // You — watched a couple months ago (hits ≤90 only)
+      { plexUserId: DEV_USER_ID, ratingKey: 'dev-110', plays: 12, lastWatched: dago(75) },
+      { plexUserId: DEV_USER_ID, ratingKey: 'dev-115', plays: 5, lastWatched: dago(82) },
+      // You — watched long ago (stale: not watched in 90+ days)
+      { plexUserId: DEV_USER_ID, ratingKey: 'dev-150', plays: 2, lastWatched: dago(210) },
+      { plexUserId: DEV_USER_ID, ratingKey: 'dev-30', plays: 1, lastWatched: dago(260) },
+      // Someone else watched it (you didn't) — proves "watched by anyone" so this
+      // is excluded from "never watched", but absent from YOUR watched filter.
+      { plexUserId: 'dev-friend', ratingKey: 'dev-160', plays: 4, lastWatched: dago(40) },
     ]);
     replaceSeerrRequests(DEV_USER_ID, ['dev-2', 'dev-205']);
   }

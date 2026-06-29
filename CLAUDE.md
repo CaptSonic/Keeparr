@@ -97,7 +97,10 @@ The chrome is a Sonarr/Radarr-style left rail (logo → Keep; Keep / Browse[expa
   exclusive with that user's keep (the keep/skip routes clear the other).
 - `users` — Plex accounts; `is_admin` (first login / server owner), `enabled`
   (admin can block an account; Owner is exempt). Migrated via guarded `ALTER TABLE`.
-- `watch_history` — `(plex_user_id, rating_key)` plays, from Tautulli.
+- `watch_history` — `(plex_user_id, rating_key)` `plays` + `last_watched`, from
+  Tautulli. Powers the Browse **Watched** filter + the per-card watched badge (by
+  you) and the Big Picture **never watched by anyone** metric. Indexed by user
+  (`idx_watch_user`) and by item (`idx_watch_item`, for the by-anyone lookup).
 - `seerr_requests` — `(plex_user_id, rating_key)`; cached Seerr requests (refreshed
   by the `requests` job; badges/filters read this, not live Seerr). Also warmed
   for a single user on their **first login** via `syncSeerrRequestsForUser`, so
@@ -128,16 +131,21 @@ across Plex library rebuilds — treat as best-effort).
 - `POST/DELETE /api/skip` `{ratingKey}` — per-user single-item "don't care"
   toggle. POST also clears this user's keep (mutually exclusive).
 - `POST /api/skip-batch` `{ratingKeys[]}` — per-user skip + fresh batch (keep-loop).
-- `GET /api/library?sections=<id,id,…>&q=&sort=size|title|added|year&dir=asc|desc&kept=all|kept|unkept&skip=all|skipped|unskipped&requestedByMe=1&hideKept=&offset=`
+- `GET /api/library?sections=<id,id,…>&q=&sort=size|title|added|year&dir=asc|desc&kept=all|kept|unkept&keptByMe=1&skip=all|skipped|unskipped&watch=all|watched|unwatched|unwatchedAny|recent30|recent60|recent90|stale90&requestedByMe=1&hideKept=&offset=`
   — browse/search; `sections` is a comma list of Plex library ids (omit = all,
-  multi-select in the sidebar). Returns `kept` (anyone), per-user `keptByMe`, and
-  per-user `skipped`. The Browse UI exposes one **Status** filter (default
-  **Undecided** → `kept=unkept&skip=unskipped`, i.e. hides decided items; Kept;
-  Don't care; All). `requestedByMe` filters to the user's Seerr requests
-  (best-effort; empty when Seerr unconfigured).
+  multi-select in the sidebar). Returns `kept` (anyone), per-user `keptByMe`,
+  per-user `skipped`, and per-user `watched`. The Browse UI exposes one **Status**
+  filter (default **Undecided** → `kept=unkept&skip=unskipped`, i.e. hides decided
+  items; **Kept by anyone** → `kept=kept`; **Kept by you** → `keptByMe=1`; **I
+  don't care** → `skip=skipped`; All) and — **only when Tautulli is connected** — a
+  **Watched** filter (`watch=`): watched/not-watched **by you**, **not watched by
+  anyone** (`unwatchedAny`, server-wide), recency windows (use
+  `watch_history.last_watched`), and `stale90` (not-watched-by-you OR last watched
+  90d+ ago). `requestedByMe` filters to the user's Seerr requests (best-effort;
+  empty when Seerr unconfigured).
 - `GET /api/search?q=&offset=` → ranked results (exact>prefix>word>substring,
-  multi-token AND), with kept + per-user skipped flags. `GET /api/search/suggest?q=`
-  → top-8 typeahead.
+  multi-token AND), with kept + per-user skipped + per-user watched flags. `GET
+  /api/search/suggest?q=` → top-8 typeahead.
 - `GET /api/sections` → managed libraries `[{id,title,kind,itemCount,sizeBytes}]`
   (nav rail Browse, Keep filters, Library, Big Picture).
 - `GET /api/storage` → per-filesystem free/total (`fs.statfs`) + per-library used
@@ -146,11 +154,19 @@ across Plex library rebuilds — treat as best-effort).
   one call (powers the Keep totals column and the Big Picture dashboard). Each
   library partitions its bytes/items into `kept` (protected — anyone keeps it),
   `dontcare` (not protected + this user skipped), and `undecided` (the rest);
-  `keptByMe*` is a sub-count of kept. Also returns `storage` totals, `mediaUsedBytes`,
-  and summed `totals`. Backed by `librarySummary(plexUserId)` in `lib/queries.ts`.
+  `keptByMe*` is a sub-count of kept. Also returns `unwatched*` (items NOBODY on the
+  server has watched — the Big Picture "never watched" reclaim metric) plus
+  `unwatchedKeptBytes`/`unwatchedKeptByMeBytes`/`unwatchedDontcareBytes`/
+  `unwatchedUndecidedBytes` (the never-watched bytes split by keep bucket, so the
+  metric can be drawn as a subset of the composition bar — surfacing e.g. kept
+  titles nobody has watched), `storage` totals, `mediaUsedBytes`, summed `totals`,
+  and `tautulli` (bool — whether watch surfaces should render). Backed by
+  `librarySummary(plexUserId)`.
 - `GET /api/about` → `{name, version}` for the About panel.
-- `GET /api/stats?view=largest|reclaimable&offset=` — big picture + summary.
-  Accepts a session user **or** the API key (`X-Api-Key`).
+- `GET /api/stats?view=largest|reclaimable|unwatched&offset=` — big picture +
+  summary. `unwatched` = largest titles nobody has watched (`neverWatchedItems`;
+  the "Never watched" drill-down, shown only when Tautulli is connected). Accepts a
+  session user **or** the API key (`X-Api-Key`).
 - `GET /api/requests` — current user's Seerr rating keys for badges, read from the
   `seerr_requests` cache (refreshed by the `requests` job, not live).
 - `GET /api/image?path=&w=&h=` — proxies Plex thumbs (token stays server-side).

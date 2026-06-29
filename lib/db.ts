@@ -67,6 +67,9 @@ function applySchema(database: Database.Database): void {
       PRIMARY KEY (plex_user_id, rating_key)
     );
     CREATE INDEX IF NOT EXISTS idx_watch_user ON watch_history(plex_user_id);
+    -- By-item lookup for "watched by anyone" (the PK is user-first, so a
+    -- rating_key-only probe needs its own index).
+    CREATE INDEX IF NOT EXISTS idx_watch_item ON watch_history(rating_key);
 
     -- Admin-configured connections + app settings. Token values are encrypted
     -- at rest (see lib/crypto.ts) before being stored here.

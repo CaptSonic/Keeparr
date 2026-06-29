@@ -349,7 +349,6 @@ export function isSkipped(plexUserId: string, ratingKey: string): boolean {
 // ---------------------------------------------------------------------------
 
 export interface FeedOptions {
-  preferWatched?: boolean;
   /**
    * Limit the feed to a single Plex library (section id). Omitted → a mix across
    * all libraries, weighted toward large series with a few movies guaranteed.
@@ -502,6 +501,16 @@ export type LibrarySort = 'size' | 'title' | 'added' | 'year';
 export type SortDir = 'asc' | 'desc';
 export type KeptFilter = 'all' | 'kept' | 'unkept';
 export type SkipFilter = 'all' | 'skipped' | 'unskipped';
+/** Per-user "have you watched it" filter (recency windows use last_watched). */
+export type WatchFilter =
+  | 'all'
+  | 'watched'
+  | 'unwatched'
+  | 'unwatchedAny'
+  | 'recent30'
+  | 'recent60'
+  | 'recent90'
+  | 'stale90';
 
 export interface LibraryQuery {
   plexUserId: string; // required for the per-user "don't care" flag + filter
@@ -513,7 +522,11 @@ export interface LibraryQuery {
   /** Legacy convenience: same as keptFilter='unkept'. */
   hideKept?: boolean;
   keptFilter?: KeptFilter;
+  /** Restrict to titles THIS user personally keeps (vs `keptFilter` = anyone). */
+  keptByMeOnly?: boolean;
   skipFilter?: SkipFilter;
+  /** Filter by THIS user's watch history (default 'all'). */
+  watchFilter?: WatchFilter;
   /**
    * Restrict to these rating keys (e.g. Seerr "requested by me"). `null`/omitted
    * = no restriction; an empty array = match nothing.
@@ -536,9 +549,10 @@ export interface MediaWithKeep extends MediaItem {
   kept_by_me: number; // this user keeps it
 }
 
-/** A library row: kept status + this user's "don't care" state. */
+/** A library row: kept status + this user's "don't care" + "watched" state. */
 export interface LibraryRow extends MediaWithKeep {
   skipped: number;
+  watched: number; // this user has watched it (any plays)
 }
 
 export function queryLibrary(q: LibraryQuery): LibraryRow[] {
@@ -563,10 +577,31 @@ export function queryLibrary(q: LibraryQuery): LibraryRow[] {
   const keptFilter: KeptFilter = q.hideKept ? 'unkept' : q.keptFilter ?? 'all';
   if (keptFilter === 'kept') where.push(keptExists);
   else if (keptFilter === 'unkept') where.push(`NOT ${keptExists}`);
+  // "Kept by you" — only titles this user personally keeps (subset of kept).
+  if (q.keptByMeOnly) where.push('km.rating_key IS NOT NULL');
 
   const skipFilter: SkipFilter = q.skipFilter ?? 'all';
   if (skipFilter === 'skipped') where.push('s.rating_key IS NOT NULL');
   else if (skipFilter === 'unskipped') where.push('s.rating_key IS NULL');
+
+  // Watch filter (this user's history). Recency uses last_watched (epoch seconds).
+  const watchFilter: WatchFilter = q.watchFilter ?? 'all';
+  const sinceDays = (d: number) => now() - d * 86400;
+  if (watchFilter === 'watched') where.push('wh.rating_key IS NOT NULL');
+  else if (watchFilter === 'unwatched') where.push('wh.rating_key IS NULL');
+  else if (watchFilter === 'unwatchedAny') {
+    // Never watched by ANYONE on the server (not just this user).
+    where.push(
+      'NOT EXISTS (SELECT 1 FROM watch_history w WHERE w.rating_key = m.rating_key)'
+    );
+  } else if (watchFilter === 'recent30' || watchFilter === 'recent60' || watchFilter === 'recent90') {
+    const days = watchFilter === 'recent30' ? 30 : watchFilter === 'recent60' ? 60 : 90;
+    params.watchCutoff = sinceDays(days);
+    where.push('wh.last_watched >= @watchCutoff');
+  } else if (watchFilter === 'stale90') {
+    params.watchCutoff = sinceDays(90);
+    where.push('(wh.rating_key IS NULL OR wh.last_watched < @watchCutoff)');
+  }
 
   if (q.requestedKeys != null) {
     if (q.requestedKeys.length === 0) {
@@ -587,12 +622,15 @@ export function queryLibrary(q: LibraryQuery): LibraryRow[] {
     .prepare(
       `SELECT m.*, ${keptExists} AS kept,
               (km.rating_key IS NOT NULL) AS kept_by_me,
-              (s.rating_key IS NOT NULL) AS skipped
+              (s.rating_key IS NOT NULL) AS skipped,
+              (wh.rating_key IS NOT NULL) AS watched
        FROM media_items m
        LEFT JOIN keeps km
          ON km.rating_key = m.rating_key AND km.plex_user_id = @uid
        LEFT JOIN user_skips s
          ON s.rating_key = m.rating_key AND s.plex_user_id = @uid
+       LEFT JOIN watch_history wh
+         ON wh.rating_key = m.rating_key AND wh.plex_user_id = @uid
        WHERE ${where.join(' AND ')}
        ORDER BY ${order}
        LIMIT @limit OFFSET @offset`
@@ -608,6 +646,7 @@ export interface SearchRow extends MediaItem {
   kept: number;
   kept_by_me: number;
   skipped: number;
+  watched: number;
   score: number;
 }
 
@@ -662,12 +701,15 @@ export function searchMedia(params: {
               EXISTS (SELECT 1 FROM keeps k WHERE k.rating_key = m.rating_key) AS kept,
               (km.rating_key IS NOT NULL) AS kept_by_me,
               (s.rating_key IS NOT NULL) AS skipped,
+              (wh.rating_key IS NOT NULL) AS watched,
               ${score} AS score
        FROM media_items m
        LEFT JOIN keeps km
          ON km.rating_key = m.rating_key AND km.plex_user_id = @uid
        LEFT JOIN user_skips s
          ON s.rating_key = m.rating_key AND s.plex_user_id = @uid
+       LEFT JOIN watch_history wh
+         ON wh.rating_key = m.rating_key AND wh.plex_user_id = @uid
        WHERE m.removed = 0 AND ${tokenWhere.join(' AND ')}
        ORDER BY score DESC, m.size_bytes DESC, m.title COLLATE NOCASE ASC
        LIMIT @limit OFFSET @offset`
@@ -711,6 +753,32 @@ export function reclaimableItems(limit: number, offset: number): MediaItem[] {
        LIMIT ? OFFSET ?`
     )
     .all(limit, offset) as MediaItem[];
+}
+
+/**
+ * Largest titles NOBODY on the server has ever watched, largest first. The
+ * strongest reclaim signal (Big Picture "Never watched" drill-down). Carries
+ * kept flags for this user so the table can show what's protected.
+ */
+export function neverWatchedItems(
+  limit: number,
+  offset: number,
+  plexUserId: string
+): MediaWithKeep[] {
+  return getDb()
+    .prepare(
+      `SELECT m.*,
+              EXISTS (SELECT 1 FROM keeps k WHERE k.rating_key = m.rating_key) AS kept,
+              (km.rating_key IS NOT NULL) AS kept_by_me
+       FROM media_items m
+       LEFT JOIN keeps km
+         ON km.rating_key = m.rating_key AND km.plex_user_id = @uid
+       WHERE m.removed = 0
+         AND NOT EXISTS (SELECT 1 FROM watch_history w WHERE w.rating_key = m.rating_key)
+       ORDER BY m.size_bytes DESC
+       LIMIT @limit OFFSET @offset`
+    )
+    .all({ uid: plexUserId, limit, offset }) as MediaWithKeep[];
 }
 
 /** Total bytes that could be freed (everything not kept). */
@@ -802,6 +870,7 @@ export function sectionSizeSummary(): {
  *   - undecided= not protected AND this user hasn't decided (their triage queue)
  * `kept_by_me_*` is a sub-count of `kept_*` (how much of the protected set is
  * the caller's own keep). Reclaimable = dontcare + undecided = bytes - kept.
+ * `unwatched_*` is independent: items NOBODY on the server has ever watched.
  */
 export interface LibrarySummaryRow {
   section_id: string;
@@ -815,11 +884,23 @@ export interface LibrarySummaryRow {
   dontcare_bytes: number;
   undecided_items: number;
   undecided_bytes: number;
+  unwatched_items: number;
+  unwatched_bytes: number;
+  // Never-watched-by-anyone bytes, split by THIS user's keep bucket (so the
+  // never-watched total can be drawn with the same kept/dontcare/undecided
+  // breakdown as the composition bar). These four sum to `unwatched_bytes`.
+  unwatched_kept_bytes: number; // protected (anyone keeps it) + never watched
+  unwatched_kept_by_me_bytes: number; // this user keeps it + never watched
+  unwatched_dontcare_bytes: number;
+  unwatched_undecided_bytes: number;
 }
 
 export function librarySummary(plexUserId: string): LibrarySummaryRow[] {
   const protectedExpr =
     'EXISTS (SELECT 1 FROM keeps k WHERE k.rating_key = m.rating_key)';
+  // "Never watched by anyone" — no watch_history row for this item, any user.
+  const notWatchedExpr =
+    'NOT EXISTS (SELECT 1 FROM watch_history w WHERE w.rating_key = m.rating_key)';
   return getDb()
     .prepare(
       `SELECT m.section_id,
@@ -832,7 +913,13 @@ export function librarySummary(plexUserId: string): LibrarySummaryRow[] {
               COALESCE(SUM(CASE WHEN NOT ${protectedExpr} AND s.rating_key IS NOT NULL THEN 1 ELSE 0 END), 0) AS dontcare_items,
               COALESCE(SUM(CASE WHEN NOT ${protectedExpr} AND s.rating_key IS NOT NULL THEN m.size_bytes ELSE 0 END), 0) AS dontcare_bytes,
               COALESCE(SUM(CASE WHEN NOT ${protectedExpr} AND s.rating_key IS NULL THEN 1 ELSE 0 END), 0) AS undecided_items,
-              COALESCE(SUM(CASE WHEN NOT ${protectedExpr} AND s.rating_key IS NULL THEN m.size_bytes ELSE 0 END), 0) AS undecided_bytes
+              COALESCE(SUM(CASE WHEN NOT ${protectedExpr} AND s.rating_key IS NULL THEN m.size_bytes ELSE 0 END), 0) AS undecided_bytes,
+              COALESCE(SUM(CASE WHEN ${notWatchedExpr} THEN 1 ELSE 0 END), 0) AS unwatched_items,
+              COALESCE(SUM(CASE WHEN ${notWatchedExpr} THEN m.size_bytes ELSE 0 END), 0) AS unwatched_bytes,
+              COALESCE(SUM(CASE WHEN ${notWatchedExpr} AND ${protectedExpr} THEN m.size_bytes ELSE 0 END), 0) AS unwatched_kept_bytes,
+              COALESCE(SUM(CASE WHEN ${notWatchedExpr} AND km.rating_key IS NOT NULL THEN m.size_bytes ELSE 0 END), 0) AS unwatched_kept_by_me_bytes,
+              COALESCE(SUM(CASE WHEN ${notWatchedExpr} AND NOT ${protectedExpr} AND s.rating_key IS NOT NULL THEN m.size_bytes ELSE 0 END), 0) AS unwatched_dontcare_bytes,
+              COALESCE(SUM(CASE WHEN ${notWatchedExpr} AND NOT ${protectedExpr} AND s.rating_key IS NULL THEN m.size_bytes ELSE 0 END), 0) AS unwatched_undecided_bytes
        FROM media_items m
        LEFT JOIN keeps km ON km.rating_key = m.rating_key AND km.plex_user_id = @uid
        LEFT JOIN user_skips s ON s.rating_key = m.rating_key AND s.plex_user_id = @uid

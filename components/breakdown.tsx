@@ -14,12 +14,12 @@ import { formatSize } from '@/lib/format';
 export const TONE = {
   // "Kept by you" (bright brand gold) vs "Kept by others" (the brand's darker
   // gold) — same protected family, two clean shades (not a muddy brown).
-  kept: { bar: 'bg-brand', dot: 'bg-brand', text: 'text-brand', stroke: 'stroke-brand' },
-  keptOther: { bar: 'bg-brand-dark', dot: 'bg-brand-dark', text: 'text-brand-dark', stroke: 'stroke-brand-dark' },
-  dontcare: { bar: 'bg-rose-500', dot: 'bg-rose-500', text: 'text-rose-400', stroke: 'stroke-rose-500' },
-  undecided: { bar: 'bg-blue-500', dot: 'bg-blue-500', text: 'text-blue-400', stroke: 'stroke-blue-500' },
-  other: { bar: 'bg-slate-600', dot: 'bg-slate-600', text: 'text-slate-400', stroke: 'stroke-slate-600' },
-  free: { bar: 'bg-emerald-500', dot: 'bg-emerald-500', text: 'text-emerald-400', stroke: 'stroke-emerald-500' },
+  kept: { bar: 'bg-brand', dot: 'bg-brand', text: 'text-brand', stroke: 'stroke-brand', border: 'border-brand' },
+  keptOther: { bar: 'bg-brand-dark', dot: 'bg-brand-dark', text: 'text-brand-dark', stroke: 'stroke-brand-dark', border: 'border-brand-dark' },
+  dontcare: { bar: 'bg-rose-500', dot: 'bg-rose-500', text: 'text-rose-400', stroke: 'stroke-rose-500', border: 'border-rose-500' },
+  undecided: { bar: 'bg-blue-500', dot: 'bg-blue-500', text: 'text-blue-400', stroke: 'stroke-blue-500', border: 'border-blue-500' },
+  other: { bar: 'bg-slate-600', dot: 'bg-slate-600', text: 'text-slate-400', stroke: 'stroke-slate-600', border: 'border-slate-600' },
+  free: { bar: 'bg-emerald-500', dot: 'bg-emerald-500', text: 'text-emerald-400', stroke: 'stroke-emerald-500', border: 'border-emerald-500' },
 } as const;
 
 export type ToneKey = keyof typeof TONE;
@@ -300,6 +300,13 @@ export interface LibraryBreakdown {
   dontcareBytes: number;
   undecidedItems: number;
   undecidedBytes: number;
+  unwatchedItems: number; // nobody on the server has watched it
+  unwatchedBytes: number;
+  // never-watched bytes split by keep bucket (sum to unwatchedBytes)
+  unwatchedKeptBytes: number;
+  unwatchedKeptByMeBytes: number;
+  unwatchedDontcareBytes: number;
+  unwatchedUndecidedBytes: number;
 }
 
 export type OverviewTotals = Omit<LibraryBreakdown, 'id' | 'title' | 'kind'>;
@@ -311,6 +318,8 @@ export interface Overview {
   mediaUsedBytes: number;
   libraries: LibraryBreakdown[];
   totals: OverviewTotals;
+  /** Tautulli connected → watch data (never-watched metric) is meaningful. */
+  tautulli?: boolean;
 }
 
 /** The three composition segments (kept / don't care / undecided) for a row. */
@@ -321,9 +330,79 @@ export function compositionSegments(b: {
 }): Segment[] {
   return [
     { tone: 'kept', value: b.keptBytes, label: 'Kept' },
-    { tone: 'dontcare', value: b.dontcareBytes, label: 'You don’t care' },
+    { tone: 'dontcare', value: b.dontcareBytes, label: 'I don’t care' },
     { tone: 'undecided', value: b.undecidedBytes, label: 'Undecided' },
   ];
+}
+
+/** Per keep segment: its size + how much of it nobody has ever watched. Drives
+ *  the `UnwatchedBrackets` row above a composition bar (same order/scale). */
+export function keptVsUnwatchedSegments(b: {
+  keptBytes: number;
+  keptByMeBytes: number;
+  dontcareBytes: number;
+  undecidedBytes: number;
+  unwatchedKeptBytes: number;
+  unwatchedKeptByMeBytes: number;
+  unwatchedDontcareBytes: number;
+  unwatchedUndecidedBytes: number;
+}): { value: number; unwatched: number; label: string; tone: ToneKey }[] {
+  return [
+    { tone: 'kept', value: b.keptByMeBytes, unwatched: b.unwatchedKeptByMeBytes, label: 'Kept by you' },
+    {
+      tone: 'keptOther',
+      value: Math.max(0, b.keptBytes - b.keptByMeBytes),
+      unwatched: Math.max(0, b.unwatchedKeptBytes - b.unwatchedKeptByMeBytes),
+      label: 'Kept by others',
+    },
+    { tone: 'dontcare', value: b.dontcareBytes, unwatched: b.unwatchedDontcareBytes, label: 'I don’t care' },
+    { tone: 'undecided', value: b.undecidedBytes, unwatched: b.unwatchedUndecidedBytes, label: 'Undecided' },
+  ];
+}
+
+/**
+ * A row of measurement brackets drawn BELOW a composition bar — one per keep
+ * segment, each under its segment and spanning that segment's
+ * never-watched-by-anyone portion (anchored at the segment's left edge). Reads
+ * as "how much of Kept / Undecided / … nobody has watched" without a second bar.
+ * Uses the same order/scale as the StackedBar above so the brackets line up.
+ */
+export function UnwatchedBrackets({
+  segments,
+  max,
+  height = 'h-2',
+}: {
+  segments: { value: number; unwatched: number; label: string; tone?: ToneKey }[];
+  max?: number;
+  height?: string;
+}) {
+  const sum = segments.reduce((a, s) => a + Math.max(0, s.value), 0);
+  const total = (max && max > sum ? max : sum) || 1;
+  let offset = 0;
+  const brackets = segments.map((s, i) => {
+    const left = (offset / total) * 100;
+    const segPct = (Math.max(0, s.value) / total) * 100;
+    const brPct =
+      s.value > 0 ? Math.min(segPct, (Math.max(0, s.unwatched) / total) * 100) : 0;
+    offset += Math.max(0, s.value);
+    if (brPct <= 0) return null;
+    // Inset each bracket by 2px per side so adjacent fully-never-watched
+    // segments read as separate brackets (one per category) instead of merging.
+    // Bottom + side borders → a "U" that points up at the segment above it.
+    return (
+      <div
+        key={i}
+        className="absolute inset-y-0 rounded-b-sm border-x border-b border-white/40"
+        style={{
+          left: `calc(${left}% + 2px)`,
+          width: `calc(${brPct}% - 4px)`,
+          minWidth: '3px',
+        }}
+        title={`${s.label}: never watched by anyone`}
+      />
+    );
+  });
+  return <div className={`relative w-full ${height}`}>{brackets}</div>;
 }
 
 /** Four-way split that separates your keeps from everyone else's. The bytes
@@ -337,7 +416,7 @@ export function compositionSegmentsSplit(b: {
   return [
     { tone: 'kept', value: b.keptByMeBytes, label: 'Kept by you' },
     { tone: 'keptOther', value: Math.max(0, b.keptBytes - b.keptByMeBytes), label: 'Kept by others' },
-    { tone: 'dontcare', value: b.dontcareBytes, label: 'You don’t care' },
+    { tone: 'dontcare', value: b.dontcareBytes, label: 'I don’t care' },
     { tone: 'undecided', value: b.undecidedBytes, label: 'Undecided (yours to review)' },
   ];
 }

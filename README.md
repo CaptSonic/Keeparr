@@ -48,20 +48,28 @@ manually in Plex / Sonarr / Radarr.
 - **Library browse/search** — your Plex libraries in the sidebar (each with its
   total size), **multi-select several at once** to compare across them (e.g. all
   your series libraries to see the biggest), sort by size / title / release year /
-  recently added in either direction, and a single **Status** filter (defaults to
-  **Undecided**, hiding what you've already kept or marked "don't care"; switch to
-  Kept, Don't care, or All), plus **requested by me** in Seerr. Search always
-  shows everything.
-- **Keep / don't care** — a 3-state choice per card (nothing / keep / don't
+  recently added in either direction, a single **Status** filter (defaults to
+  **Undecided**, hiding what you've already kept or marked "I don't care"; switch to
+  **Kept by anyone**, **Kept by you**, **I don't care**, or All), and — when
+  **Tautulli is connected** — a **Watched** filter: watched / not watched **by
+  you**, **not watched by anyone** (server-wide), watched in the last 30·60·90 days,
+  or not watched in 90+ days (great paired with size sort to surface the biggest
+  stuff nobody's touched). Plus **requested by me** in Seerr. Search always shows
+  everything.
+- **Keep / I don't care** — a 3-state choice per card (nothing / keep / I don't
   care). Keeps are per-user but protective: an item stays safe while anyone keeps
-  it, and you only remove your own keep. Marking "don't care" clears your keep
+  it, and you only remove your own keep. Marking "I don't care" clears your keep
   (and vice-versa) and greys the card.
 - **Big Picture** — a dashboard: one honest disk bar (kept by you / kept by others
-  / you don't care / undecided, with free as the empty remainder), your review
+  / I don't care / undecided, with free as the empty remainder), your review
   progress, a "where your space goes" donut, and per-library breakdown cards with
   bars sized proportional to each library. The charts are interactive (hover to
-  highlight a segment + see its size/share). Plus the drill-down tables: largest
-  titles on disk, and what's not kept by anyone (largest first, running total).
+  highlight a segment + see its size/share). When **Tautulli is connected** it also
+  surfaces **"never watched by anyone"** — a headline stat, brackets above the disk
+  bar and each library card marking the never-watched slice *within* each keep
+  segment (so you can spot *kept* titles nobody has watched), and a dedicated
+  drill-down tab (largest never-watched titles) — the strongest reclaim signal. Plus the other drill-down tables: largest titles on
+  disk, and what's not kept by anyone (largest first, running total).
 - **Size on disk** — series totals are summed across every episode; movies across
   all parts/versions. Shown as `x.xx GB` per card; aggregates auto-switch to TB.
 - **Scheduled refresh jobs** — admins set a schedule (every N minutes, or daily at a
@@ -70,8 +78,10 @@ manually in Plex / Sonarr / Radarr.
   (the expensive per-show recompute, daily 6 AM), *Tautulli* (4 AM), and *Seerr* (5 AM).
   Clear the poster / Seerr / watch caches from the same page, and view app events
   under **Settings → Logs**. A **Recent activity** list shows the last runs + errors.
-- **Tautulli** (optional) — pulls watch history so your most-watched titles
-  surface first in the keep loop.
+- **Tautulli** (optional) — pulls watch history, powering the Browse **Watched**
+  filter, a small "watched" badge on cards, and the Big Picture **never watched by
+  anyone** reclaim metric. All of these watch surfaces stay hidden until Tautulli
+  is connected, so there's no dead UI if you don't run it.
 - **Seerr/Overseerr** (optional) — badges titles you requested. Cached locally and
   refreshed by the *Requests* job (so badges reflect the last refresh, not live).
 
