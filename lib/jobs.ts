@@ -1,4 +1,5 @@
 import {
+  syncArr,
   syncLibrary,
   syncRecentlyAdded,
   syncSeerrRequests,
@@ -23,7 +24,8 @@ export type JobId =
   | 'library'
   | 'sizes'
   | 'watch'
-  | 'requests';
+  | 'requests'
+  | 'arr';
 
 export interface JobDef {
   id: JobId;
@@ -38,6 +40,7 @@ export const JOBS: JobDef[] = [
   { id: 'sizes', label: 'Library size', run: syncSizes },
   { id: 'watch', label: 'Tautulli', run: syncWatchHistory },
   { id: 'requests', label: 'Seerr', run: syncSeerrRequests },
+  { id: 'arr', label: 'Sonarr / Radarr', run: syncArr },
 ];
 
 export const JOB_IDS = JOBS.map((j) => j.id);
@@ -113,8 +116,9 @@ export async function runJob(id: string): Promise<boolean> {
 }
 
 /**
- * Whether a job is due now under its schedule: interval (every N min, 0 = off)
- * or daily (once per day after a local HH:MM). Pure w.r.t. the passed clock.
+ * Whether a job is due now under its schedule: interval (every N min, 0 = off),
+ * daily (once per day after a local HH:MM), or weekly (once a week on a local
+ * weekday after HH:MM). Pure w.r.t. the passed clock.
  */
 export function isDue(
   sch: JobSchedule | undefined,
@@ -126,7 +130,12 @@ export function isDue(
   if (sch.type === 'interval') {
     return sch.minutes > 0 && nowS >= lastRun + sch.minutes * 60;
   }
-  // daily: due once today, after the target local time.
+  // weekly: only on the configured local weekday (0=Sun).
+  if (sch.type === 'weekly' && new Date(nowMs).getDay() !== sch.weekday) {
+    return false;
+  }
+  // daily/weekly: due once after the target local time (and, for weekly, only on
+  // the matching weekday — already gated above).
   const target = new Date(nowMs);
   target.setHours(sch.hour, sch.minute, 0, 0);
   const targetS = Math.floor(target.getTime() / 1000);

@@ -320,6 +320,20 @@ export interface Overview {
   totals: OverviewTotals;
   /** Tautulli connected → watch data (never-watched metric) is meaningful. */
   tautulli?: boolean;
+  /** Sonarr/Radarr connected → the "Reclaim by quality" breakdown is present. */
+  arr?: boolean;
+  qualityBreakdown?: {
+    byQuality: QualitySummary[];
+    notInArr: Omit<QualitySummary, 'quality'>;
+  };
+}
+
+export interface QualitySummary {
+  quality: string;
+  titles: number;
+  bytes: number;
+  reclaimableBytes: number;
+  unwatchedBytes: number;
 }
 
 /** The three composition segments (kept / don't care / undecided) for a row. */

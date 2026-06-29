@@ -497,7 +497,16 @@ export function countFeedRemaining(
 // Library browse / search
 // ---------------------------------------------------------------------------
 
-export type LibrarySort = 'size' | 'title' | 'added' | 'year';
+export type LibrarySort =
+  | 'size'
+  | 'title'
+  | 'added'
+  | 'year'
+  | 'library'
+  | 'quality'
+  | 'tags'
+  | 'status'
+  | 'watched';
 export type SortDir = 'asc' | 'desc';
 export type KeptFilter = 'all' | 'kept' | 'unkept';
 export type SkipFilter = 'all' | 'skipped' | 'unskipped';
@@ -527,6 +536,19 @@ export interface LibraryQuery {
   skipFilter?: SkipFilter;
   /** Filter by THIS user's watch history (default 'all'). */
   watchFilter?: WatchFilter;
+  /** Sonarr/Radarr filters (match arr_items). Each restricts to arr-matched rows.
+   *  All are multi-value "any of"; empty/omitted = no filter. */
+  sources?: string[]; // 'sonarr' | 'radarr'
+  instanceIds?: string[];
+  tags?: string[];
+  qualities?: string[];
+  statuses?: string[];
+  /** Subset of ['monitored','unmonitored']; both or neither = no filter. */
+  monitored?: ArrMonitored[];
+  /** Whether the title exists in any connected Sonarr/Radarr. */
+  matchFilter?: 'all' | 'matched' | 'unmatched';
+  /** Only arr-matched titles whose Plex vs arr sizes diverge materially. */
+  sizeMismatch?: boolean;
   /**
    * Restrict to these rating keys (e.g. Seerr "requested by me"). `null`/omitted
    * = no restriction; an empty array = match nothing.
@@ -541,6 +563,11 @@ const sortColumn: Record<LibrarySort, string> = {
   title: 'm.title COLLATE NOCASE',
   added: 'm.added_at',
   year: 'm.year',
+  library: 'm.section_id', // groups same-library rows together
+  quality: 'a.quality COLLATE NOCASE',
+  tags: 'a.tags COLLATE NOCASE', // raw JSON; roughly groups by first tag
+  status: 'a.status COLLATE NOCASE',
+  watched: '(wh.rating_key IS NOT NULL)',
 };
 
 /** A media row joined with its kept status. */
@@ -549,10 +576,19 @@ export interface MediaWithKeep extends MediaItem {
   kept_by_me: number; // this user keeps it
 }
 
-/** A library row: kept status + this user's "don't care" + "watched" state. */
+/** A library row: kept status + this user's "don't care" + "watched" state,
+ *  plus Sonarr/Radarr metadata (null when the title isn't arr-matched). */
 export interface LibraryRow extends MediaWithKeep {
   skipped: number;
   watched: number; // this user has watched it (any plays)
+  arr_source: string | null;
+  arr_instance_name: string | null;
+  arr_monitored: number | null;
+  arr_status: string | null;
+  arr_quality: string | null;
+  arr_quality_kind: string | null;
+  arr_tags: string | null; // JSON array string, or null
+  arr_size_bytes: number | null;
 }
 
 export function queryLibrary(q: LibraryQuery): LibraryRow[] {
@@ -603,6 +639,39 @@ export function queryLibrary(q: LibraryQuery): LibraryRow[] {
     where.push('(wh.rating_key IS NULL OR wh.last_watched < @watchCutoff)');
   }
 
+  // Sonarr/Radarr filters (reference arr_items via the LEFT JOIN below). Each is
+  // multi-value "any of" and implicitly restricts to arr-matched titles. A helper
+  // emits `col IN (@p0,@p1,…)` with uniquely-named params.
+  const inClause = (col: string, vals: string[], prefix: string) => {
+    const named = vals.map((_, i) => `@${prefix}${i}`);
+    vals.forEach((v, i) => (params[`${prefix}${i}`] = v));
+    where.push(`${col} IN (${named.join(', ')})`);
+  };
+  if (q.sources && q.sources.length) inClause('a.source', q.sources, 'src');
+  if (q.instanceIds && q.instanceIds.length) inClause('a.instance_id', q.instanceIds, 'inst');
+  if (q.qualities && q.qualities.length) inClause('a.quality', q.qualities, 'ql');
+  if (q.statuses && q.statuses.length) inClause('a.status', q.statuses, 'st');
+  if (q.matchFilter === 'matched') where.push('a.rating_key IS NOT NULL');
+  else if (q.matchFilter === 'unmatched') where.push('a.rating_key IS NULL');
+  if (q.sizeMismatch) {
+    // Flag arr-matched titles whose Plex vs arr size differ by >10% AND >1 GB.
+    where.push(
+      `a.rating_key IS NOT NULL AND a.arr_size_bytes IS NOT NULL
+       AND ABS(m.size_bytes - a.arr_size_bytes) > 1073741824
+       AND ABS(m.size_bytes - a.arr_size_bytes) > 0.1 * m.size_bytes`
+    );
+  }
+  if (q.tags && q.tags.length) {
+    const named = q.tags.map((_, i) => `@tg${i}`);
+    q.tags.forEach((t, i) => (params[`tg${i}`] = t));
+    where.push(
+      `EXISTS (SELECT 1 FROM json_each(COALESCE(a.tags, '[]')) WHERE value IN (${named.join(', ')}))`
+    );
+  }
+  // Monitored: filter only when exactly one of the two is chosen.
+  const mon = q.monitored ?? [];
+  if (mon.length === 1) where.push(`a.monitored = ${mon[0] === 'monitored' ? 1 : 0}`);
+
   if (q.requestedKeys != null) {
     if (q.requestedKeys.length === 0) {
       where.push('1 = 0'); // requested-by-me with nothing requested → no rows
@@ -623,7 +692,11 @@ export function queryLibrary(q: LibraryQuery): LibraryRow[] {
       `SELECT m.*, ${keptExists} AS kept,
               (km.rating_key IS NOT NULL) AS kept_by_me,
               (s.rating_key IS NOT NULL) AS skipped,
-              (wh.rating_key IS NOT NULL) AS watched
+              (wh.rating_key IS NOT NULL) AS watched,
+              a.source AS arr_source, a.instance_name AS arr_instance_name,
+              a.monitored AS arr_monitored, a.status AS arr_status,
+              a.quality AS arr_quality, a.quality_kind AS arr_quality_kind,
+              a.tags AS arr_tags, a.arr_size_bytes AS arr_size_bytes
        FROM media_items m
        LEFT JOIN keeps km
          ON km.rating_key = m.rating_key AND km.plex_user_id = @uid
@@ -631,6 +704,7 @@ export function queryLibrary(q: LibraryQuery): LibraryRow[] {
          ON s.rating_key = m.rating_key AND s.plex_user_id = @uid
        LEFT JOIN watch_history wh
          ON wh.rating_key = m.rating_key AND wh.plex_user_id = @uid
+       LEFT JOIN arr_items a ON a.rating_key = m.rating_key
        WHERE ${where.join(' AND ')}
        ORDER BY ${order}
        LIMIT @limit OFFSET @offset`
@@ -1207,6 +1281,265 @@ export function seerrRequestKeys(plexUserId: string): string[] {
     .prepare('SELECT rating_key FROM seerr_requests WHERE plex_user_id = ?')
     .all(plexUserId) as { rating_key: string }[];
   return rows.map((r) => r.rating_key);
+}
+
+// ---------------------------------------------------------------------------
+// Sonarr / Radarr cache (refreshed by the 'arr' job) — backs the Quality view
+// ---------------------------------------------------------------------------
+
+export interface ArrItemInput {
+  ratingKey: string;
+  source: 'sonarr' | 'radarr';
+  instanceId: string;
+  instanceName: string;
+  arrId: number | null;
+  monitored: boolean;
+  status: string | null;
+  quality: string | null;
+  qualityKind: 'file' | 'profile';
+  rootFolder: string | null;
+  arrSizeBytes: number;
+  tags: string[];
+}
+
+/** Replace the whole arr_items cache atomically (small dataset; avoids stale). */
+export function replaceArrItems(rows: ArrItemInput[]): number {
+  const db = getDb();
+  const ins = db.prepare(
+    `INSERT INTO arr_items
+       (rating_key, source, instance_id, instance_name, arr_id, monitored, status,
+        quality, quality_kind, root_folder, arr_size_bytes, tags, last_synced)
+     VALUES (@rating_key, @source, @instance_id, @instance_name, @arr_id, @monitored,
+        @status, @quality, @quality_kind, @root_folder, @arr_size_bytes, @tags, @ts)
+     ON CONFLICT(rating_key) DO UPDATE SET
+       source=excluded.source, instance_id=excluded.instance_id,
+       instance_name=excluded.instance_name, arr_id=excluded.arr_id,
+       monitored=excluded.monitored, status=excluded.status, quality=excluded.quality,
+       quality_kind=excluded.quality_kind, root_folder=excluded.root_folder,
+       arr_size_bytes=excluded.arr_size_bytes, tags=excluded.tags,
+       last_synced=excluded.last_synced`
+  );
+  const ts = now();
+  db.transaction(() => {
+    db.prepare('DELETE FROM arr_items').run();
+    for (const r of rows) {
+      ins.run({
+        rating_key: r.ratingKey,
+        source: r.source,
+        instance_id: r.instanceId,
+        instance_name: r.instanceName,
+        arr_id: r.arrId,
+        monitored: r.monitored ? 1 : 0,
+        status: r.status,
+        quality: r.quality,
+        quality_kind: r.qualityKind,
+        root_folder: r.rootFolder,
+        arr_size_bytes: r.arrSizeBytes,
+        tags: JSON.stringify(r.tags ?? []),
+        ts,
+      });
+    }
+  })();
+  return rows.length;
+}
+
+/** Clear the Sonarr/Radarr cache (rebuilt by the 'arr' job). */
+export function clearArrItems(): number {
+  return getDb().prepare('DELETE FROM arr_items').run().changes;
+}
+
+/** Rating keys of non-removed media items by external id (for arr matching). */
+export function ratingKeysByGuid(kind: 'tvdb' | 'tmdb'): Map<string, string> {
+  const col = kind === 'tvdb' ? 'guid_tvdb' : 'guid_tmdb';
+  const wantKind = kind === 'tvdb' ? 'show' : 'movie';
+  const rows = getDb()
+    .prepare(
+      `SELECT rating_key, ${col} AS guid FROM media_items
+       WHERE removed = 0 AND library_kind = @kind AND ${col} IS NOT NULL`
+    )
+    .all({ kind: wantKind }) as { rating_key: string; guid: string }[];
+  return new Map(rows.map((r) => [r.guid, r.rating_key]));
+}
+
+/** Sonarr/Radarr "monitored" filter (reused by queryLibrary's arr filters). */
+export type ArrMonitored = 'all' | 'monitored' | 'unmonitored';
+
+/** Distinct filter values for the Browse arr filter dropdowns. */
+export function arrFacets(): {
+  instances: { id: string; name: string; source: string }[];
+  tags: string[];
+  qualities: string[];
+  statuses: string[];
+} {
+  const db = getDb();
+  const instances = db
+    .prepare(
+      `SELECT DISTINCT instance_id AS id, instance_name AS name, source
+       FROM arr_items ORDER BY source, name`
+    )
+    .all() as { id: string; name: string; source: string }[];
+  const tags = (
+    db
+      .prepare(
+        `SELECT DISTINCT value AS tag FROM arr_items,
+           json_each(COALESCE(arr_items.tags, '[]'))
+         ORDER BY value COLLATE NOCASE`
+      )
+      .all() as { tag: string }[]
+  ).map((r) => r.tag);
+  const qualities = (
+    db
+      .prepare(
+        `SELECT DISTINCT quality FROM arr_items
+         WHERE quality IS NOT NULL AND quality <> '' ORDER BY quality`
+      )
+      .all() as { quality: string }[]
+  ).map((r) => r.quality);
+  const statuses = (
+    db
+      .prepare(
+        `SELECT DISTINCT status FROM arr_items
+         WHERE status IS NOT NULL AND status <> '' ORDER BY status`
+      )
+      .all() as { status: string }[]
+  ).map((r) => r.status);
+  return { instances, tags, qualities, statuses };
+}
+
+// --- Match health (Sonarr/Radarr titles with no Plex match) ---
+
+export interface ArrUnmatchedInput {
+  source: string;
+  instanceName: string;
+  title: string;
+  extKind: 'tvdb' | 'tmdb';
+  extId: string;
+}
+export interface ArrUnmatchedRow extends ArrUnmatchedInput {
+  lastSynced: number;
+}
+
+/** Replace the whole unmatched-arr list atomically (rebuilt by the 'arr' job). */
+export function replaceArrUnmatched(rows: ArrUnmatchedInput[]): number {
+  const db = getDb();
+  const ins = db.prepare(
+    `INSERT INTO arr_unmatched (source, instance_name, title, ext_kind, ext_id, last_synced)
+     VALUES (@source, @instanceName, @title, @extKind, @extId, @ts)`
+  );
+  const ts = now();
+  db.transaction(() => {
+    db.prepare('DELETE FROM arr_unmatched').run();
+    for (const r of rows) ins.run({ ...r, ts });
+  })();
+  return rows.length;
+}
+
+export function clearArrUnmatched(): number {
+  return getDb().prepare('DELETE FROM arr_unmatched').run().changes;
+}
+
+export function getArrUnmatched(): ArrUnmatchedRow[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT source, instance_name, title, ext_kind, ext_id, last_synced
+       FROM arr_unmatched ORDER BY title COLLATE NOCASE`
+    )
+    .all() as {
+    source: string;
+    instance_name: string;
+    title: string;
+    ext_kind: 'tvdb' | 'tmdb';
+    ext_id: string;
+    last_synced: number;
+  }[];
+  return rows.map((r) => ({
+    source: r.source,
+    instanceName: r.instance_name,
+    title: r.title,
+    extKind: r.ext_kind,
+    extId: r.ext_id,
+    lastSynced: r.last_synced,
+  }));
+}
+
+/** Managed, non-removed Plex items with no external id (so they can never match
+ *  Sonarr/Radarr): counts per kind + a small sample of titles. */
+export function mediaMissingExternalIds(): {
+  shows: number;
+  movies: number;
+  sample: { title: string; kind: string }[];
+} {
+  const db = getDb();
+  const count = (kind: 'show' | 'movie', col: string) =>
+    (
+      db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM media_items
+           WHERE removed = 0 AND library_kind = @kind AND ${col} IS NULL`
+        )
+        .get({ kind }) as { n: number }
+    ).n;
+  const sample = db
+    .prepare(
+      `SELECT title, library_kind AS kind FROM media_items
+       WHERE removed = 0 AND (
+         (library_kind = 'show' AND guid_tvdb IS NULL) OR
+         (library_kind = 'movie' AND guid_tmdb IS NULL))
+       ORDER BY size_bytes DESC LIMIT 20`
+    )
+    .all() as { title: string; kind: string }[];
+  return { shows: count('show', 'guid_tvdb'), movies: count('movie', 'guid_tmdb'), sample };
+}
+
+/** Count of arr-matched titles (rows in arr_items). */
+export function arrMatchedCount(): number {
+  return (getDb().prepare('SELECT COUNT(*) AS n FROM arr_items').get() as { n: number }).n;
+}
+
+// --- Reclaim-by-quality breakdown (Big Picture) ---
+
+export interface QualitySummaryRow {
+  quality: string;
+  titles: number;
+  bytes: number;
+  reclaimableBytes: number; // not kept by anyone
+  unwatchedBytes: number; // never watched by anyone
+}
+
+const notKeptExpr =
+  'NOT EXISTS (SELECT 1 FROM keeps k WHERE k.rating_key = m.rating_key)';
+const notWatchedAnyExpr =
+  'NOT EXISTS (SELECT 1 FROM watch_history w WHERE w.rating_key = m.rating_key)';
+
+/** Per-quality aggregate over arr-matched, non-removed media. */
+export function arrQualitySummary(): QualitySummaryRow[] {
+  return getDb()
+    .prepare(
+      `SELECT COALESCE(a.quality, 'Unknown') AS quality,
+              COUNT(*) AS titles,
+              COALESCE(SUM(m.size_bytes), 0) AS bytes,
+              COALESCE(SUM(CASE WHEN ${notKeptExpr} THEN m.size_bytes ELSE 0 END), 0) AS reclaimableBytes,
+              COALESCE(SUM(CASE WHEN ${notWatchedAnyExpr} THEN m.size_bytes ELSE 0 END), 0) AS unwatchedBytes
+       FROM arr_items a
+       JOIN media_items m ON m.rating_key = a.rating_key AND m.removed = 0
+       GROUP BY COALESCE(a.quality, 'Unknown')`
+    )
+    .all() as QualitySummaryRow[];
+}
+
+/** Single aggregate for non-removed media with NO arr match ("Not in *arr"). */
+export function unmatchedMediaSummary(): Omit<QualitySummaryRow, 'quality'> {
+  return getDb()
+    .prepare(
+      `SELECT COUNT(*) AS titles,
+              COALESCE(SUM(m.size_bytes), 0) AS bytes,
+              COALESCE(SUM(CASE WHEN ${notKeptExpr} THEN m.size_bytes ELSE 0 END), 0) AS reclaimableBytes,
+              COALESCE(SUM(CASE WHEN ${notWatchedAnyExpr} THEN m.size_bytes ELSE 0 END), 0) AS unwatchedBytes
+       FROM media_items m
+       WHERE m.removed = 0
+         AND NOT EXISTS (SELECT 1 FROM arr_items a WHERE a.rating_key = m.rating_key)`
+    )
+    .get() as Omit<QualitySummaryRow, 'quality'>;
 }
 
 /** Map of existing (non-removed) show rating_key → current size_bytes. */

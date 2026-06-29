@@ -80,6 +80,19 @@ describe('isDue (pure schedule check)', () => {
     const ranAt = Math.floor(new Date(2026, 0, 2, 3, 30, 0).getTime() / 1000);
     expect(isDue({ type: 'daily', hour: 3, minute: 0 }, ranAt, day)).toBe(false);
   });
+
+  it('weekly: due only on the configured weekday, after HH:MM', () => {
+    // 2026-01-02 is a Friday (getDay() === 5); 01-03 is Saturday.
+    const wk = { type: 'weekly', weekday: 5, hour: 3, minute: 0 } as const;
+    const fridayPM = new Date(2026, 0, 2, 17, 0, 0).getTime();
+    const fridayEarly = new Date(2026, 0, 2, 2, 0, 0).getTime();
+    const saturday = new Date(2026, 0, 3, 17, 0, 0).getTime();
+    expect(isDue(wk, 0, fridayPM)).toBe(true); // right day, after time
+    expect(isDue(wk, 0, fridayEarly)).toBe(false); // before time
+    expect(isDue(wk, 0, saturday)).toBe(false); // wrong weekday
+    const ranAt = Math.floor(new Date(2026, 0, 2, 3, 30, 0).getTime() / 1000);
+    expect(isDue(wk, ranAt, fridayPM)).toBe(false); // already ran today
+  });
 });
 
 describe('dueJobs', () => {

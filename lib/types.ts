@@ -36,6 +36,23 @@ export interface MediaCardData {
   skipped?: boolean;
   /** True when the current user has watched it (any plays, from Tautulli). */
   watched?: boolean;
+  // --- Sonarr/Radarr metadata (present only when the title is arr-matched) ---
+  /** 'sonarr' | 'radarr'. */
+  source?: string;
+  instanceName?: string;
+  monitored?: boolean;
+  /** Raw arr status (continuing/ended/released…). */
+  status?: string;
+  /** Movie: actual file quality; series: quality profile name. */
+  quality?: string;
+  /** 'file' (movie, actual) | 'profile' (series, target). */
+  qualityKind?: string;
+  /** Resolved Sonarr/Radarr tag labels. */
+  tags?: string[];
+  /** arr-reported size on disk (for the Plex-vs-arr cross-check). */
+  arrSizeBytes?: number;
+  /** True when Plex size and arr size diverge materially (likely partial/broken). */
+  sizeMismatch?: boolean;
 }
 
 export interface SessionUser {

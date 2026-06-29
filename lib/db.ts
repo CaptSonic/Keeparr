@@ -27,6 +27,9 @@ function applySchema(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_media_section ON media_items(section_id);
     CREATE INDEX IF NOT EXISTS idx_media_size ON media_items(size_bytes DESC);
     CREATE INDEX IF NOT EXISTS idx_media_removed ON media_items(removed);
+    -- External-id lookups for matching Sonarr (tvdb) / Radarr (tmdb) titles.
+    CREATE INDEX IF NOT EXISTS idx_media_guid_tvdb ON media_items(guid_tvdb);
+    CREATE INDEX IF NOT EXISTS idx_media_guid_tmdb ON media_items(guid_tmdb);
 
     -- Per-user keeps. An item is "kept" (protected) if ANYONE keeps it; each user
     -- manages their own keep and can't remove another user's.
@@ -105,6 +108,39 @@ function applySchema(database: Database.Database): void {
       PRIMARY KEY (plex_user_id, rating_key)
     );
     CREATE INDEX IF NOT EXISTS idx_seerr_user ON seerr_requests(plex_user_id);
+
+    -- Sonarr/Radarr metadata per matched media item (refreshed by the 'arr' job).
+    -- One row per matched Plex item (rating_key); quality/tags/status cross-data
+    -- for the Quality view. Report-only today; arr_id + instance let a future
+    -- action (unmonitor/delete) target the right instance.
+    CREATE TABLE IF NOT EXISTS arr_items (
+      rating_key     TEXT PRIMARY KEY REFERENCES media_items(rating_key) ON DELETE CASCADE,
+      source         TEXT NOT NULL,             -- 'sonarr' | 'radarr'
+      instance_id    TEXT NOT NULL,
+      instance_name  TEXT NOT NULL,
+      arr_id         INTEGER,                   -- Sonarr series id / Radarr movie id
+      monitored      INTEGER NOT NULL DEFAULT 0,
+      status         TEXT,                      -- raw arr status (continuing/ended/released…)
+      quality        TEXT,                      -- movie: file quality; series: profile name
+      quality_kind   TEXT,                      -- 'file' | 'profile'
+      root_folder    TEXT,
+      arr_size_bytes INTEGER,                   -- arr-reported sizeOnDisk (cross-check)
+      tags           TEXT,                      -- JSON array of resolved tag labels
+      last_synced    INTEGER NOT NULL
+    );
+
+    -- Sonarr/Radarr titles that couldn't be matched to a Plex item (no Plex item
+    -- carries their tvdb/tmdb id). Surfaced in Settings → Match health. Replaced
+    -- wholesale by the 'arr' job.
+    CREATE TABLE IF NOT EXISTS arr_unmatched (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      source        TEXT NOT NULL,              -- 'sonarr' | 'radarr'
+      instance_name TEXT NOT NULL,
+      title         TEXT NOT NULL,
+      ext_kind      TEXT NOT NULL,              -- 'tvdb' | 'tmdb'
+      ext_id        TEXT NOT NULL,
+      last_synced   INTEGER NOT NULL
+    );
 
     -- Append-only history of scheduled-job runs (for the admin activity log).
     CREATE TABLE IF NOT EXISTS job_runs (

@@ -27,11 +27,12 @@ export function Card({
 }
 
 /**
- * Card container that flows cards into responsive columns to use the full width.
- * Cards `break-inside-avoid`, so each stays intact within a column.
+ * Single full-width column of stacked cards. (Multi-column reflow was jarring on
+ * resize.) Cards carry their own bottom margin, so they just stack. Jobs & Cache
+ * opts out with its own 2-column grid.
  */
 export function CardColumns({ children }: { children: React.ReactNode }) {
-  return <div className="columns-1 gap-5 lg:columns-2 2xl:columns-3">{children}</div>;
+  return <div>{children}</div>;
 }
 
 const TABS = [

@@ -20,7 +20,8 @@ rest") is per-user. See README.md for the feature overview.
   (movie/show) is Plex's own section type and may be used internally (e.g. to seed
   some movies into the mixed feed), but it is not a user-facing taxonomy.
 - All SQL lives in `lib/queries.ts`. Don't write SQL elsewhere.
-- All external HTTP lives in `lib/plex.ts`, `lib/tautulli.ts`, `lib/seerr.ts`.
+- All external HTTP lives in `lib/plex.ts`, `lib/tautulli.ts`, `lib/seerr.ts`,
+  `lib/arr.ts` (all built on `lib/http.ts` `fetchJson`).
 - All settings access goes through `lib/settings.ts` (typed getters; secrets are
   encrypted via `lib/crypto.ts`). Never read raw setting keys in routes.
 - Route handlers are thin: auth-guard → call lib → return JSON. Use
@@ -55,7 +56,9 @@ lib/
   plex.ts            plex.tv OAuth + PMS read API + size summation helpers
   tautulli.ts        watch-history client
   seerr.ts           requests client
-  sync.ts            job runners: syncRecentlyAdded / syncLibrary / syncSizes / syncWatchHistory / syncSeerrRequests
+  arr.ts             Sonarr/Radarr v3 client (shared) + pure normalize fns (fetchSonarr/fetchRadarr/testArr)
+  quality.ts         pure resolutionBucket()/RES_ORDER (shared by Browse + Big Picture quality grouping)
+  sync.ts            job runners: syncRecentlyAdded / syncLibrary / syncSizes / syncWatchHistory / syncSeerrRequests / syncArr
                      (+ syncSeerrRequestsForUser: warm one user's request cache on first login)
   jobs.ts            job registry + runJob/runWithState (single-flight) + isDue/dueJobs
   scheduler.ts       per-job scheduler (interval or daily HH:MM); fires due jobs each minute
@@ -66,19 +69,23 @@ lib/
 app/
   login/             Plex PIN login (popup + poll)
   page.tsx           home: AppShell → KeepView (no-scroll single-screen)
-  library/           AppShell → LibraryBrowser (Browse; library selection via rail)
+  library/           AppShell → LibraryBrowser (Browse; Grid/List view toggle, library
+                     selection via rail, + Sonarr/Radarr quality/tag/monitored filters)
   search/            AppShell → SearchResults
   stats/             AppShell → StatsView (full-width dashboard)
   settings/<tab>/    admin Settings sub-tabs: general, users, connections, libraries,
                      jobs, logs, about (+ /settings → general). admin/* → redirects.
   api/...            route handlers (see below)
-components/          AppShell (rail + top bar + user menu), MediaCard, KeepView,
+components/          AppShell (rail + top bar + user menu), MediaCard (grid), MediaRow
+                     (Browse List view), MultiSelect (grouped checkbox-dropdown filter),
+                     useKeepState (shared keep/skip hook), KeepView,
                      LibraryBrowser, StatsView, UsersManager, SearchBox, SearchResults;
                      breakdown.tsx (shared keep/reclaim visual language: StackedBar,
                        Donut, LegendRow + the TONE palette — used by KeepView's totals
                        column and the StatsView dashboard);
                      settings/ (SettingsLayout + General/Users/Connections/JobsCache/Logs/About panels;
-                       managed libraries + storage live inside the Connections panel)
+                       managed libraries + storage + Sonarr/Radarr instances + MatchHealthCard live
+                       inside the Connections panel)
 ```
 
 The chrome is a Sonarr/Radarr-style left rail (logo → Keep; Keep / Browse[expand
@@ -105,15 +112,27 @@ The chrome is a Sonarr/Radarr-style left rail (logo → Keep; Keep / Browse[expa
   by the `requests` job; badges/filters read this, not live Seerr). Also warmed
   for a single user on their **first login** via `syncSeerrRequestsForUser`, so
   "Requested by me" works without waiting for the daily job.
+- `arr_items` — one row per matched media item with its Sonarr/Radarr metadata
+  (`source`, `instance_id/name`, `arr_id`, `monitored`, `status`, `quality` +
+  `quality_kind` file|profile, `root_folder`, `arr_size_bytes`, `tags` JSON). Keyed
+  by `rating_key`; replaced wholesale by the `arr` job. LEFT-JOINed by `queryLibrary`
+  to power Browse's List view + quality/tag/monitored/status/size-mismatch filters.
+- `arr_unmatched` — Sonarr/Radarr titles that matched no Plex item (no Plex item
+  carries their tvdb/tmdb id). Replaced by the `arr` job; surfaced in Settings →
+  Match health. (`mediaMissingExternalIds()` reports the inverse: Plex items with a
+  null `guid_tvdb`/`guid_tmdb` that can never match.)
+  Matched via `media_items.guid_tvdb`/`guid_tmdb` (now indexed).
 - `settings` — key/value; secret values encrypted.
 - `job_state` — one row per scheduled job (`recentlyAdded`/`library`/`sizes`/`watch`/
-  `requests`): last run/status/message/duration/result.
+  `requests`/`arr`): last run/status/message/duration/result.
 - `job_runs` — append-only run history (last ~100) for the admin activity log.
 - `logs` — app-event log (`ts,level,source,message`, pruned to ~1000) for Settings → Logs.
 - `sync_state` — legacy single row (id=1); superseded by `job_state`, no longer read.
 
 The shared id across Plex/Tautulli/Seerr is the Plex **ratingKey** (mutable
-across Plex library rebuilds — treat as best-effort).
+across Plex library rebuilds — treat as best-effort). Sonarr/Radarr instead match
+on the **stable** external ids `guid_tvdb` (shows) / `guid_tmdb` (movies), which
+Plex sync populates as raw numeric strings.
 
 ## API routes
 
@@ -131,18 +150,29 @@ across Plex library rebuilds — treat as best-effort).
 - `POST/DELETE /api/skip` `{ratingKey}` — per-user single-item "don't care"
   toggle. POST also clears this user's keep (mutually exclusive).
 - `POST /api/skip-batch` `{ratingKeys[]}` — per-user skip + fresh batch (keep-loop).
-- `GET /api/library?sections=<id,id,…>&q=&sort=size|title|added|year&dir=asc|desc&kept=all|kept|unkept&keptByMe=1&skip=all|skipped|unskipped&watch=all|watched|unwatched|unwatchedAny|recent30|recent60|recent90|stale90&requestedByMe=1&hideKept=&offset=`
+- `GET /api/library?sections=<id,id,…>&q=&sort=size|title|added|year&dir=asc|desc&kept=all|kept|unkept&keptByMe=1&skip=all|skipped|unskipped&watch=all|watched|unwatched|unwatchedAny|recent30|recent60|recent90|stale90&source=sonarr|radarr&instance=&tag=&quality=&monitored=all|monitored|unmonitored&requestedByMe=1&hideKept=&offset=`
   — browse/search; `sections` is a comma list of Plex library ids (omit = all,
   multi-select in the sidebar). Returns `kept` (anyone), per-user `keptByMe`,
-  per-user `skipped`, and per-user `watched`. The Browse UI exposes one **Status**
-  filter (default **Undecided** → `kept=unkept&skip=unskipped`, i.e. hides decided
-  items; **Kept by anyone** → `kept=kept`; **Kept by you** → `keptByMe=1`; **I
-  don't care** → `skip=skipped`; All) and — **only when Tautulli is connected** — a
-  **Watched** filter (`watch=`): watched/not-watched **by you**, **not watched by
-  anyone** (`unwatchedAny`, server-wide), recency windows (use
-  `watch_history.last_watched`), and `stale90` (not-watched-by-you OR last watched
-  90d+ ago). `requestedByMe` filters to the user's Seerr requests (best-effort;
-  empty when Seerr unconfigured).
+  per-user `skipped`, per-user `watched`, **and Sonarr/Radarr metadata** (`source`,
+  `instanceName`, `monitored`, `status`, `quality`, `qualityKind`, `tags[]` — null
+  when the title isn't arr-matched; powers Browse's List view + quality badge). The
+  Browse UI exposes one **Status** filter (default **Undecided** →
+  `kept=unkept&skip=unskipped`, i.e. hides decided items; **Kept by anyone** →
+  `kept=kept`; **Kept by you** → `keptByMe=1`; **I don't care** → `skip=skipped`;
+  All), a **Grid/List** view toggle (remembered in `localStorage`; List adds
+  click-to-sort column headers — all columns, sort persisted — and a poster column),
+  — **only when Tautulli is connected** — a **Watched** filter (`watch=`):
+  watched/not-watched **by you**, **not watched by anyone** (`unwatchedAny`,
+  server-wide), recency windows, `stale90`; — **only when Sonarr/Radarr is
+  connected** — **multi-select** `source`/`instance`/`tag`/`quality`/`status`/
+  `monitored` filters (each a comma-separated "any of"; empty = no filter; the
+  quality dropdown groups values by resolution bucket with select-all), a **`match`**
+  filter (`matched`/`unmatched` — In vs Not in Sonarr·Radarr), and a `sizeMismatch=1`
+  toggle (Plex vs arr size diverges >10% AND >1 GB); and `requestedByMe` (Seerr).
+  Items also carry `arrSizeBytes` + a computed `sizeMismatch` flag. (The arr
+  multi-value filters restrict to arr-matched titles; `match`/`sizeMismatch` don't.)
+- `GET /api/library/facets` → `{instances,tags,qualities,statuses}` for the Browse
+  arr filter dropdowns (from `arrFacets()`).
 - `GET /api/search?q=&offset=` → ranked results (exact>prefix>word>substring,
   multi-token AND), with kept + per-user skipped + per-user watched flags. `GET
   /api/search/suggest?q=` → top-8 typeahead.
@@ -160,8 +190,10 @@ across Plex library rebuilds — treat as best-effort).
   `unwatchedUndecidedBytes` (the never-watched bytes split by keep bucket, so the
   metric can be drawn as a subset of the composition bar — surfacing e.g. kept
   titles nobody has watched), `storage` totals, `mediaUsedBytes`, summed `totals`,
-  and `tautulli` (bool — whether watch surfaces should render). Backed by
-  `librarySummary(plexUserId)`.
+  `tautulli` (bool — whether watch surfaces should render), and — when Sonarr/Radarr
+  is connected — `arr: true` + `qualityBreakdown` (`{byQuality[], notInArr}` → the
+  Big Picture "By quality" table; its `reclaimableBytes` field shows in the UI as
+  "Not kept"). Backed by `librarySummary` + `arrQualitySummary`/`unmatchedMediaSummary`.
 - `GET /api/about` → `{name, version}` for the About panel.
 - `GET /api/stats?view=largest|reclaimable|unwatched&offset=` — big picture +
   summary. `unwatched` = largest titles nobody has watched (`neverWatchedItems`;
@@ -173,13 +205,18 @@ across Plex library rebuilds — treat as best-effort).
 - `GET /api/health` — public liveness probe (used by the Docker healthcheck).
 - Admin (require `is_admin`): `GET/PUT /api/admin/settings` (PUT accepts
   `storageMappings`, `managedSectionIds`, `appTitle`, `appUrl`, `apiKey`, `plexBaseUrl`,
-  `jobSchedules`, `plexServer`, `tautulli`, `seerr`),
-  `GET /api/admin/plex-servers`, `POST /api/admin/test-connection`,
+  `jobSchedules`, `plexServer`, `tautulli`, `seerr`, `sonarrInstances`,
+  `radarrInstances` — GET returns instances as `[{id,name,url,hasKey}]`, never the apiKey),
+  `GET /api/admin/plex-servers`, `POST /api/admin/test-connection` (services
+  `plex`/`tautulli`/`seerr`/`sonarr`/`radarr`),
   `POST /api/admin/sync-libraries` (discover sections only, fast),
   `GET /api/admin/storage-check?path=`, `GET /api/admin/jobs` (status + recent runs)
   + `POST /api/admin/jobs {job}` (trigger one/`all`) — both also accept `X-Api-Key`,
   `GET /api/admin/logs?level=` + `DELETE /api/admin/logs`,
-  `GET /api/admin/cache` + `POST /api/admin/cache {target:images|requests|watch}`,
+  `GET /api/admin/cache` + `POST /api/admin/cache {target:images|requests|watch|arr}`
+  (`arr` clears both `arr_items` + `arr_unmatched`),
+  `GET /api/admin/arr-health` (`{matched, unmatched[], missing, arrJob}` — Match
+  health panel),
   `GET/PUT /api/admin/users` (list + grant/revoke admin + enable/disable + the
   `openSignin` toggle; Owner can't be demoted or disabled),
   `POST /api/admin/users/import` (import the Plex shared-user list).
@@ -189,8 +226,11 @@ across Plex library rebuilds — treat as best-effort).
 `plex_client_id`, `plex_owner_id`, `plex_admin_token`*, `plex_machine_id`,
 `plex_base_url`, `plex_server_token`*, `plex_server_name`, `plex_sections` (json;
 includes each section's Plex `paths[]`), `tautulli_url`, `tautulli_api_key`*,
-`seerr_url`, `seerr_api_key`*, `job_schedules` (json per job: `{type:'interval',
-minutes}` or `{type:'daily',hour,minute}`; replaces the old `job_intervals`),
+`seerr_url`, `seerr_api_key`*, `sonarr_instances`*, `radarr_instances`* (json
+arrays of `{id,name,url,apiKey}` — N instances each; the whole blob is encrypted),
+`job_schedules` (json per job: `{type:'interval',minutes}`,
+`{type:'daily',hour,minute}`, or `{type:'weekly',weekday,hour,minute}`; replaces
+the old `job_intervals`),
 `storage_mappings` (json `{sectionId,path}[]` — container paths for free-space
 measurement), `managed_section_ids` (json; which libraries Keeparr tracks, empty =
 all), `open_signin` (`'true'`/`'false'`), `api_key`* (automation), `app_title`,
@@ -247,6 +287,13 @@ dev session (no Plex/login). Both are inert/absent in production.
 - **Seerr**: base `/api/v1`, header `X-Api-Key`. `media.ratingKey` IS the Plex
   rating key (direct join). We match the Plex user to a Seerr user by email /
   plex username, then read `/user/{id}/requests`.
+- **Sonarr/Radarr** (v3): base `{url}/api/v3`, header `X-Api-Key`. `GET /series`
+  (`tvdbId`, `monitored`, `status`, `qualityProfileId`, `statistics.sizeOnDisk`,
+  `tags:number[]`) / `GET /movie` (`tmdbId`, `monitored`, `status`, `sizeOnDisk`,
+  `movieFile.quality.quality.name`, `tags:number[]`); resolve `tags`/profiles via
+  `GET /tag` + `GET /qualityprofile`; `GET /system/status` for the Test button.
+  Match `tvdbId→guid_tvdb` (shows) / `tmdbId→guid_tmdb` (movies). Series quality is
+  the profile name (target); movie quality is the actual file quality.
 
 A fuller source-verified reference is in the planning doc
 `~/.claude/plans/alright-this-is-a-mighty-brooks-agent-*.md`.
@@ -260,8 +307,8 @@ A fuller source-verified reference is in the planning doc
 - Refresh work is split into scheduled jobs (`lib/jobs.ts`): `recentlyAdded` (cheap,
   newest items only), `library` (full inventory + movie sizes + new-show sizing),
   `sizes` (expensive per-series `getAllLeaves` recompute), `watch` (Tautulli),
-  `requests` (Seerr cache). Each is single-flight per `job_state`, fire-and-forget
-  from `/api/admin/jobs`, auto-run by `lib/scheduler.ts` on its `job_schedules` entry
-  (`isDue`: every N minutes, or daily at a local HH:MM). Defaults in `config.ts`
-  (`DEFAULT_JOB_SCHEDULES`): recentlyAdded 5 min; library 03:00; watch 04:00;
-  requests 05:00; sizes 06:00.
+  `requests` (Seerr cache), `arr` (Sonarr/Radarr quality+tags cache). Each is
+  single-flight per `job_state`, fire-and-forget from `/api/admin/jobs`, auto-run by
+  `lib/scheduler.ts` on its `job_schedules` entry (`isDue`: every N minutes/hours, daily
+  at a local HH:MM, or weekly on a local weekday at HH:MM). Defaults in `config.ts` (`DEFAULT_JOB_SCHEDULES`): recentlyAdded
+  5 min; library 03:00; watch 04:00; requests 05:00; sizes 06:00; arr 07:00.

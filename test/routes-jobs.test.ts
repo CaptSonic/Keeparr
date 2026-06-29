@@ -96,6 +96,7 @@ describe('GET /api/admin/jobs', () => {
     await loginAs('admin', true);
     const body = await jobsGet(getReq()).then((r) => r.json());
     expect(body.jobs.map((j: { jobId: string }) => j.jobId).sort()).toEqual([
+      'arr',
       'library',
       'recentlyAdded',
       'requests',

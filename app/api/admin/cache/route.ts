@@ -2,7 +2,13 @@ import { NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth';
 import { errorResponse } from '@/lib/route-helpers';
 import { clearImageCache, imageCacheStats } from '@/lib/cache';
-import { clearSeerrRequests, clearWatchHistory, logEvent } from '@/lib/queries';
+import {
+  clearArrItems,
+  clearArrUnmatched,
+  clearSeerrRequests,
+  clearWatchHistory,
+  logEvent,
+} from '@/lib/queries';
 
 export const runtime = 'nodejs';
 
@@ -16,7 +22,7 @@ export async function GET() {
   }
 }
 
-/** Clear a cache. Body: { target: 'images' | 'requests' | 'watch' }. */
+/** Clear a cache. Body: { target: 'images' | 'requests' | 'watch' | 'arr' }. */
 export async function POST(req: Request) {
   try {
     await requireAdmin();
@@ -31,6 +37,9 @@ export async function POST(req: Request) {
     } else if (target === 'watch') {
       const n = clearWatchHistory();
       message = `Cleared ${n} watch-history rows.`;
+    } else if (target === 'arr') {
+      const n = clearArrItems() + clearArrUnmatched();
+      message = `Cleared ${n} Sonarr/Radarr rows.`;
     } else {
       return NextResponse.json({ error: 'bad_request' }, { status: 400 });
     }

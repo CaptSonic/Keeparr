@@ -4,6 +4,7 @@ import { errorResponse } from '@/lib/route-helpers';
 import {
   queryLibrary,
   seerrRequestKeys,
+  type ArrMonitored,
   type KeptFilter,
   type LibrarySort,
   type SkipFilter,
@@ -15,7 +16,17 @@ import { toCard } from '@/lib/cards';
 export const runtime = 'nodejs';
 
 const PAGE = 60;
-const SORTS: LibrarySort[] = ['size', 'title', 'added', 'year'];
+const SORTS: LibrarySort[] = [
+  'size',
+  'title',
+  'added',
+  'year',
+  'library',
+  'quality',
+  'tags',
+  'status',
+  'watched',
+];
 const KEPT: KeptFilter[] = ['all', 'kept', 'unkept'];
 const SKIP: SkipFilter[] = ['all', 'skipped', 'unskipped'];
 const WATCH: WatchFilter[] = [
@@ -29,9 +40,21 @@ const WATCH: WatchFilter[] = [
   'stale90',
 ];
 
+function safeTags(json: string | null): string[] {
+  if (!json) return [];
+  try {
+    const v = JSON.parse(json);
+    return Array.isArray(v) ? v.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
 /**
- * Browse/search a library. Query: section, q, sort, dir, kept, skip, watch,
- * requestedByMe, hideKept (legacy), offset.
+ * Browse/search a library. Query: sections, q, sort, dir, kept, keptByMe, skip,
+ * watch, requestedByMe, hideKept (legacy), offset, plus Sonarr/Radarr filters
+ * source/instance/tag/quality/monitored. Each item also carries arr metadata
+ * (quality/tags/status…) for the Browse list view, null when not arr-matched.
  */
 export async function GET(req: Request) {
   try {
@@ -45,6 +68,17 @@ export async function GET(req: Request) {
     const skip = (p.get('skip') as SkipFilter) || 'all';
     const watch = (p.get('watch') as WatchFilter) || 'all';
     const offset = Math.max(0, Number(p.get('offset')) || 0);
+
+    // Multi-value arr filters arrive as comma-separated lists.
+    const csv = (key: string) =>
+      (p.get(key) || '').split(',').map((s) => s.trim()).filter(Boolean);
+    const sources = csv('source').filter((s) => s === 'sonarr' || s === 'radarr');
+    const monitored = csv('monitored').filter(
+      (m): m is ArrMonitored => m === 'monitored' || m === 'unmonitored'
+    );
+    const matchParam = p.get('match');
+    const matchFilter =
+      matchParam === 'matched' || matchParam === 'unmatched' ? matchParam : 'all';
 
     // "Requested by me" reads the cached Seerr requests (refreshed by the
     // 'requests' job). Empty until that job has run.
@@ -66,16 +100,40 @@ export async function GET(req: Request) {
       keptByMeOnly: keptByMe,
       skipFilter: SKIP.includes(skip) ? skip : 'all',
       watchFilter: WATCH.includes(watch) ? watch : 'all',
+      sources,
+      instanceIds: csv('instance'),
+      tags: csv('tag'),
+      qualities: csv('quality'),
+      statuses: csv('status'),
+      monitored,
+      matchFilter,
+      sizeMismatch: p.get('sizeMismatch') === '1',
       requestedKeys,
       limit: PAGE + 1, // fetch one extra to detect "has more"
       offset,
     });
     const hasMore = rows.length > PAGE;
-    const items = rows
-      .slice(0, PAGE)
-      .map((r) =>
-        toCard(r, r.kept === 1, r.kept_by_me === 1, r.skipped === 1, r.watched === 1)
-      );
+    const items = rows.slice(0, PAGE).map((r) => {
+      const arrSize = r.arr_size_bytes ?? undefined;
+      // Plex vs arr size diverge >10% AND >1 GB → likely a partial/broken file.
+      const mismatch =
+        arrSize != null &&
+        Math.abs(r.size_bytes - arrSize) > 1_073_741_824 &&
+        Math.abs(r.size_bytes - arrSize) > 0.1 * r.size_bytes;
+      return {
+        ...toCard(r, r.kept === 1, r.kept_by_me === 1, r.skipped === 1, r.watched === 1),
+        // Sonarr/Radarr metadata (null when the title isn't arr-matched).
+        source: r.arr_source ?? undefined,
+        instanceName: r.arr_instance_name ?? undefined,
+        monitored: r.arr_monitored == null ? undefined : r.arr_monitored === 1,
+        status: r.arr_status ?? undefined,
+        quality: r.arr_quality ?? undefined,
+        qualityKind: r.arr_quality_kind ?? undefined,
+        tags: r.arr_tags ? safeTags(r.arr_tags) : undefined,
+        arrSizeBytes: arrSize,
+        sizeMismatch: mismatch || undefined,
+      };
+    });
     return NextResponse.json({ items, hasMore, nextOffset: offset + PAGE });
   } catch (e) {
     return errorResponse(e);

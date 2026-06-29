@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
 import type { MediaCardData } from '@/lib/types';
 import { formatGB } from '@/lib/format';
+import { useKeepState } from './useKeepState';
 
 // Shared so every page sizes its cards identically. CARD_MIN_W must match the
 // px in CARD_GRID_CLASS (kept as a literal so Tailwind's scanner sees it).
@@ -32,62 +32,25 @@ export default function MediaCard({
   onSkipChange,
   requested,
 }: Props) {
-  // Tri-state, per user: keptByMe / skipped / neither. An item can also be
-  // "kept by others" (item.kept true while not mine) — protected, but their
-  // keep is never ours to remove. That snapshot is fixed at load.
+  // Tri-state, per user: keptByMe / skipped / neither (shared keep/skip logic).
+  // An item can also be "kept by others" (item.kept true while not mine) —
+  // protected, but their keep is never ours to remove. Snapshot fixed at load.
   const keptByOthers = item.kept && !item.keptByMe;
-  const [keptByMe, setKeptByMe] = useState(!!item.keptByMe);
-  const [skipped, setSkipped] = useState(!!item.skipped);
-  const [busy, setBusy] = useState(false);
-  const [skipBusy, setSkipBusy] = useState(false);
+  const { keptByMe, skipped, skipBusy, toggleKeep, toggleSkip } = useKeepState({
+    ratingKey: item.ratingKey,
+    initialKeptByMe: item.keptByMe,
+    initialSkipped: item.skipped,
+    onKeptChange,
+    onSkipChange,
+  });
 
-  // Add/remove only MY keep. Adding one clears my "don't care" (mutually
-  // exclusive); the server does the same atomically.
-  async function toggle() {
-    if (!interactive || busy) return;
-    const next = !keptByMe;
-    setKeptByMe(next); // optimistic
-    if (next) setSkipped(false);
-    setBusy(true);
-    try {
-      const res = await fetch('/api/keep', {
-        method: next ? 'POST' : 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ratingKey: item.ratingKey }),
-      });
-      if (!res.ok) throw new Error('failed');
-      onKeptChange?.(item.ratingKey, next);
-      if (next) onSkipChange?.(item.ratingKey, false);
-    } catch {
-      setKeptByMe(!next); // revert
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  // "Don't care" clears my keep (mutually exclusive).
-  async function toggleSkip(e: React.MouseEvent) {
+  const toggle = () => {
+    if (interactive) void toggleKeep();
+  };
+  const onSkipClick = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (skipBusy) return;
-    const next = !skipped;
-    setSkipped(next); // optimistic
-    if (next) setKeptByMe(false);
-    setSkipBusy(true);
-    try {
-      const res = await fetch('/api/skip', {
-        method: next ? 'POST' : 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ratingKey: item.ratingKey }),
-      });
-      if (!res.ok) throw new Error('failed');
-      onSkipChange?.(item.ratingKey, next);
-      if (next) onKeptChange?.(item.ratingKey, false);
-    } catch {
-      setSkipped(!next); // revert
-    } finally {
-      setSkipBusy(false);
-    }
-  }
+    void toggleSkip();
+  };
 
   const dimmed = skipped;
 
@@ -153,6 +116,20 @@ export default function MediaCard({
             </svg>
           </div>
         )}
+        {/* Sonarr/Radarr quality — small, muted, bottom-right (opposite the
+            watched eye). Subordinate to the keep/don't-care badges. */}
+        {item.quality && (
+          <div
+            title={
+              item.qualityKind === 'profile'
+                ? `Quality profile: ${item.quality}`
+                : `Quality: ${item.quality}`
+            }
+            className="absolute bottom-1 right-1 max-w-[80%] truncate rounded bg-slate-900/75 px-1.5 py-0.5 text-[10px] text-slate-300 ring-1 ring-black/30"
+          >
+            {item.quality}
+          </div>
+        )}
       </div>
 
       {/* Status badge: my keep wins, then don't care, then kept-by-others. */}
@@ -186,7 +163,7 @@ export default function MediaCard({
         {skippable && (
           <button
             type="button"
-            onClick={toggleSkip}
+            onClick={onSkipClick}
             disabled={skipBusy}
             className="mt-1.5 w-full rounded border border-slate-700 px-2 py-1 text-[11px] text-slate-400 hover:border-slate-500 hover:text-slate-200 disabled:opacity-60"
           >

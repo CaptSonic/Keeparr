@@ -37,7 +37,8 @@ export const DEFAULT_SYNC_INTERVAL_MINUTES = 360;
  */
 export type JobSchedule =
   | { type: 'interval'; minutes: number }
-  | { type: 'daily'; hour: number; minute: number };
+  | { type: 'daily'; hour: number; minute: number }
+  | { type: 'weekly'; weekday: number; hour: number; minute: number };
 
 /** Default schedule per job. Cheap scans run often; expensive ones run overnight. */
 export const DEFAULT_JOB_SCHEDULES: Record<string, JobSchedule> = {
@@ -46,6 +47,8 @@ export const DEFAULT_JOB_SCHEDULES: Record<string, JobSchedule> = {
   watch: { type: 'daily', hour: 4, minute: 0 },
   requests: { type: 'daily', hour: 5, minute: 0 },
   sizes: { type: 'daily', hour: 6, minute: 0 },
+  // After 'library' (03:00) has populated guids that arr matches against.
+  arr: { type: 'daily', hour: 7, minute: 0 },
 };
 
 /** Mixed "all" feed: fraction of slots reserved for movies (rest favor big series). */

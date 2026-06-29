@@ -54,8 +54,9 @@ manually in Plex / Sonarr / Radarr.
   **Tautulli is connected** — a **Watched** filter: watched / not watched **by
   you**, **not watched by anyone** (server-wide), watched in the last 30·60·90 days,
   or not watched in 90+ days (great paired with size sort to surface the biggest
-  stuff nobody's touched). Plus **requested by me** in Seerr. Search always shows
-  everything.
+  stuff nobody's touched). Plus **requested by me** in Seerr. Switch between a
+  **Grid** (poster) and a **List** (dense table) view — your choice is remembered.
+  Search always shows everything.
 - **Keep / I don't care** — a 3-state choice per card (nothing / keep / I don't
   care). Keeps are per-user but protective: an item stays safe while anyone keeps
   it, and you only remove your own keep. Marking "I don't care" clears your keep
@@ -78,6 +79,21 @@ manually in Plex / Sonarr / Radarr.
   (the expensive per-show recompute, daily 6 AM), *Tautulli* (4 AM), and *Seerr* (5 AM).
   Clear the poster / Seerr / watch caches from the same page, and view app events
   under **Settings → Logs**. A **Recent activity** list shows the last runs + errors.
+- **Sonarr / Radarr** (optional) — connect any number of Sonarr and Radarr instances
+  to enrich **Browse**: each title gains its **quality** (movie file quality / series
+  quality profile), **tags** (Anime, Bounty, whatever you use), and monitoring/status.
+  Browse's **List** view shows them as columns (with a poster + click-to-sort
+  headers) and adds **multi-select** source / tag / quality / **status** (ended vs
+  continuing) / monitored filters, an **in / not-in-*arr** filter, and a **size
+  mismatch** flag (when Plex's size and *arr's diverge — a likely partial/broken
+  file) — the quality picker groups values by resolution (tick `1080p` to grab every
+  1080p variant). Sort by size to find the biggest, highest-quality titles to
+  downgrade; Grid view shows a small quality badge. **Big Picture** gains a **By
+  quality** table (how much 2160p/1080p/… is on disk, not kept, and never watched),
+  and **Settings → Match health** shows what matched vs not and which Plex items are
+  missing a tmdb/tvdb id (so you can fix them). Report-only; Keeparr never changes
+  anything in *arr. Titles match on stable tvdb/tmdb ids; unmatched titles are fine
+  to leave. All of this stays hidden until you connect an instance.
 - **Tautulli** (optional) — pulls watch history, powering the Browse **Watched**
   filter, a small "watched" badge on cards, and the Big Picture **never watched by
   anyone** reclaim metric. All of these watch surfaces stay hidden until Tautulli
@@ -107,7 +123,7 @@ The SQLite db lives at `./data/keeparr.db` locally (gitignored).
 
 First run: log in with Plex (you become the Owner/admin) → **Settings → Connections**
 → Discover & connect your Plex server (or set host/port/SSL manually) → optionally add
-Tautulli/Seerr → on the same **Connections** page pick which libraries to track and
+Tautulli/Seerr and any number of Sonarr/Radarr instances → on the same **Connections** page pick which libraries to track and
 map each to its on-disk path (for the free-space header) → in **Settings → Jobs &
 Cache** hit **Run all now** (or run individual jobs).
 

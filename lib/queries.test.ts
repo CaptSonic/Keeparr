@@ -13,6 +13,19 @@ import {
   largestItems,
   neverWatchedItems,
   librarySummary,
+  replaceArrItems,
+  clearArrItems,
+  replaceArrUnmatched,
+  getArrUnmatched,
+  clearArrUnmatched,
+  mediaMissingExternalIds,
+  arrMatchedCount,
+  arrQualitySummary,
+  unmatchedMediaSummary,
+  arrFacets,
+  ratingKeysByGuid,
+  type ArrItemInput,
+  type LibraryQuery,
   listUsers,
   queryLibrary,
   searchMedia,
@@ -666,6 +679,199 @@ describe('librarySummary never-watched split by keep bucket', () => {
         r.unwatched_dontcare_bytes +
         r.unwatched_undecided_bytes
     ).toBe(r.unwatched_bytes);
+  });
+});
+
+describe('arr_items (Sonarr/Radarr filters in queryLibrary)', () => {
+  const arr = (over: Partial<ArrItemInput>): ArrItemInput => ({
+    ratingKey: '1',
+    source: 'radarr',
+    instanceId: 'r1',
+    instanceName: 'Radarr',
+    arrId: 1,
+    monitored: true,
+    status: 'released',
+    quality: 'Bluray-1080p',
+    qualityKind: 'file',
+    rootFolder: '/m',
+    arrSizeBytes: 1 * GB,
+    tags: [],
+    ...over,
+  });
+
+  beforeEach(() => {
+    upsertMediaBatch([
+      media('1', { sizeBytes: 5 * GB }),
+      media('2', { sizeBytes: 3 * GB }),
+      media('3', { sizeBytes: 1 * GB }), // no arr row → excluded from the view
+    ]);
+    replaceArrItems([
+      // arr size matches Plex (5 GB) → no mismatch.
+      arr({ ratingKey: '1', source: 'radarr', quality: 'Bluray-2160p', tags: ['Bounty'], arrSizeBytes: 5 * GB }),
+      // arr size 1 GB vs Plex 3 GB → flagged as a size mismatch.
+      arr({
+        ratingKey: '2',
+        source: 'sonarr',
+        instanceId: 's1',
+        instanceName: 'Sonarr',
+        quality: 'Ultra-HD',
+        qualityKind: 'profile',
+        tags: ['Anime'],
+        monitored: false,
+        status: 'ended',
+        arrSizeBytes: 1 * GB,
+      }),
+    ]);
+  });
+
+  const keys = (q: Partial<LibraryQuery>) =>
+    queryLibrary({ plexUserId: 'u', limit: 100, offset: 0, ...q })
+      .map((r) => r.rating_key)
+      .sort();
+
+  it('Browse returns ALL media; arr fields null on unmatched (item 3)', () => {
+    expect(keys({})).toEqual(['1', '2', '3']);
+    const rows = queryLibrary({ plexUserId: 'u', limit: 100, offset: 0 });
+    expect(rows.find((r) => r.rating_key === '1')?.arr_quality).toBe('Bluray-2160p');
+    expect(rows.find((r) => r.rating_key === '1')?.arr_source).toBe('radarr');
+    expect(rows.find((r) => r.rating_key === '3')?.arr_quality).toBeNull();
+    expect(rows.find((r) => r.rating_key === '3')?.arr_source).toBeNull();
+  });
+
+  it('source filter restricts to that app (multi = any of)', () => {
+    expect(keys({ sources: ['radarr'] })).toEqual(['1']);
+    expect(keys({ sources: ['sonarr'] })).toEqual(['2']);
+    expect(keys({ sources: ['sonarr', 'radarr'] })).toEqual(['1', '2']);
+  });
+
+  it('tag filter (json_each, any of)', () => {
+    expect(keys({ tags: ['Anime'] })).toEqual(['2']);
+    expect(keys({ tags: ['Bounty'] })).toEqual(['1']);
+    expect(keys({ tags: ['Anime', 'Bounty'] })).toEqual(['1', '2']);
+  });
+
+  it('quality (any of) + monitored filters', () => {
+    expect(keys({ qualities: ['Ultra-HD'] })).toEqual(['2']);
+    expect(keys({ qualities: ['Ultra-HD', 'Bluray-2160p'] })).toEqual(['1', '2']);
+    expect(keys({ monitored: ['unmonitored'] })).toEqual(['2']);
+    expect(keys({ monitored: ['monitored'] })).toEqual(['1']);
+    expect(keys({ monitored: ['monitored', 'unmonitored'] })).toEqual(['1', '2', '3']); // both = no filter → all media
+  });
+
+  it('match filter (in / not in *arr)', () => {
+    expect(keys({ matchFilter: 'matched' })).toEqual(['1', '2']);
+    expect(keys({ matchFilter: 'unmatched' })).toEqual(['3']); // no arr row
+  });
+
+  it('status filter (any of)', () => {
+    expect(keys({ statuses: ['ended'] })).toEqual(['2']);
+    expect(keys({ statuses: ['released'] })).toEqual(['1']);
+  });
+
+  it('size-mismatch filter (Plex vs arr divergence)', () => {
+    expect(keys({ sizeMismatch: true })).toEqual(['2']); // 1 GB arr vs 3 GB Plex
+  });
+
+  it('sortable by an arr column (quality), arr-null rows last', () => {
+    const order = (dir: 'asc' | 'desc') =>
+      queryLibrary({ plexUserId: 'u', limit: 100, offset: 0, sort: 'quality', dir }).map(
+        (r) => r.rating_key
+      );
+    expect(order('asc')).toEqual(['1', '2', '3']); // Bluray-2160p, Ultra-HD, (null)
+    expect(order('desc')).toEqual(['2', '1', '3']); // Ultra-HD, Bluray-2160p, (null last)
+  });
+
+  it('arrFacets returns distinct instances / tags / qualities', () => {
+    const f = arrFacets();
+    expect(f.tags.sort()).toEqual(['Anime', 'Bounty']);
+    expect(f.qualities.sort()).toEqual(['Bluray-2160p', 'Ultra-HD']);
+    expect(f.instances.map((i) => i.id).sort()).toEqual(['r1', 's1']);
+  });
+
+  it('replaceArrItems replaces all; clearArrItems empties (media unaffected)', () => {
+    replaceArrItems([arr({ ratingKey: '3', source: 'radarr' })]);
+    expect(keys({ sources: ['radarr'] })).toEqual(['3']);
+    clearArrItems();
+    expect(keys({ sources: ['radarr'] })).toEqual([]);
+    expect(keys({})).toEqual(['1', '2', '3']); // all media still there
+  });
+});
+
+describe('arr match health + quality summary', () => {
+  const arrItem = (over: Partial<ArrItemInput>): ArrItemInput => ({
+    ratingKey: 's1',
+    source: 'sonarr',
+    instanceId: 'x',
+    instanceName: 'S',
+    arrId: 1,
+    monitored: true,
+    status: 'ended',
+    quality: 'HD-1080p',
+    qualityKind: 'profile',
+    rootFolder: '/tv',
+    arrSizeBytes: 4 * GB,
+    tags: [],
+    ...over,
+  });
+
+  beforeEach(() => {
+    upsertMediaBatch([
+      media('s1', { libraryKind: 'show', guidTvdb: '11', sizeBytes: 4 * GB }),
+      media('s2', { libraryKind: 'show', sizeBytes: 2 * GB }), // no tvdb id
+      media('m1', { libraryKind: 'movie', guidTmdb: '22', sizeBytes: 8 * GB }),
+    ]);
+    replaceArrItems([
+      arrItem({ ratingKey: 's1' }),
+      arrItem({ ratingKey: 'm1', source: 'radarr', quality: 'Bluray-2160p', qualityKind: 'file', arrSizeBytes: 8 * GB }),
+    ]);
+    // s2 has no arr row → "Not in *arr"
+  });
+
+  it('replaceArrUnmatched / getArrUnmatched / clearArrUnmatched round-trip', () => {
+    replaceArrUnmatched([
+      { source: 'sonarr', instanceName: 'S', title: 'Ghost', extKind: 'tvdb', extId: '999' },
+    ]);
+    expect(getArrUnmatched().map((u) => u.title)).toEqual(['Ghost']);
+    clearArrUnmatched();
+    expect(getArrUnmatched()).toEqual([]);
+  });
+
+  it('mediaMissingExternalIds counts only null-guid media', () => {
+    const m = mediaMissingExternalIds();
+    expect(m.shows).toBe(1); // s2
+    expect(m.movies).toBe(0);
+    expect(m.sample.some((s) => s.title === 'Title s2')).toBe(true);
+  });
+
+  it('arrMatchedCount = arr_items rows', () => {
+    expect(arrMatchedCount()).toBe(2);
+  });
+
+  it('arrQualitySummary + unmatchedMediaSummary partition bytes', () => {
+    const byQ = arrQualitySummary();
+    expect(byQ.find((r) => r.quality === 'HD-1080p')).toMatchObject({
+      titles: 1,
+      bytes: 4 * GB,
+      reclaimableBytes: 4 * GB,
+      unwatchedBytes: 4 * GB,
+    });
+    expect(byQ.find((r) => r.quality === 'Bluray-2160p')).toMatchObject({ titles: 1, bytes: 8 * GB });
+    expect(unmatchedMediaSummary()).toMatchObject({ titles: 1, bytes: 2 * GB }); // s2
+  });
+});
+
+describe('ratingKeysByGuid (arr matching)', () => {
+  beforeEach(() => {
+    upsertMediaBatch([
+      media('s1', { libraryKind: 'show', guidTvdb: '111' }),
+      media('m1', { libraryKind: 'movie', guidTmdb: '222' }),
+    ]);
+  });
+
+  it('maps tvdb→show and tmdb→movie rating keys (kind-scoped)', () => {
+    expect(ratingKeysByGuid('tvdb').get('111')).toBe('s1');
+    expect(ratingKeysByGuid('tmdb').get('222')).toBe('m1');
+    expect(ratingKeysByGuid('tvdb').has('222')).toBe(false);
   });
 });
 

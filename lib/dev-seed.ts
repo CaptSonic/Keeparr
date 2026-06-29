@@ -9,11 +9,14 @@ import {
   addSkip,
   libraryStats,
   recordJobRun,
+  replaceArrItems,
+  replaceArrUnmatched,
   replaceSeerrRequests,
   setJobState,
   upsertMediaBatch,
   upsertUser,
   upsertWatchBatch,
+  type ArrItemInput,
   type UpsertMediaInput,
 } from './queries';
 import {
@@ -21,6 +24,8 @@ import {
   setManagedSectionIds,
   setOpenSignin,
   setPlexSections,
+  setRadarrInstances,
+  setSonarrInstances,
   setStorageMappings,
   writeSetting,
 } from './settings';
@@ -138,8 +143,10 @@ function buildItems(): UpsertMediaInput[] {
       thumb: null, // no Plex → cards fall back to the title
       sizeBytes,
       addedAt: 1_700_000_000 - n * 43_200,
-      guidTmdb: null,
-      guidTvdb: null,
+      // Most items carry an external id (so arr matching works); leave every
+      // 13th null to demo the "Plex item missing tmdb/tvdb id" match-health case.
+      guidTmdb: kind === 'movie' && n % 13 !== 0 ? String(n) : null,
+      guidTvdb: kind === 'show' && n % 13 !== 0 ? String(n) : null,
     });
   };
 
@@ -151,6 +158,61 @@ function buildItems(): UpsertMediaInput[] {
   ANIME.forEach((t) => add(t, '4', 'show', 5, 120));
   return items;
 }
+
+// Two Sonarr instances (main + a separate Anime one) and one Radarr — exercises
+// the N-instances support and gives the Quality view real instance variety.
+const SONARR_MAIN = { id: 'sonarr-main', name: 'Sonarr' };
+const SONARR_ANIME = { id: 'sonarr-anime', name: 'Sonarr (Anime)' };
+const RADARR_MAIN = { id: 'radarr-main', name: 'Radarr' };
+
+const MOVIE_QUALITIES = ['Bluray-1080p', 'WEBDL-1080p', 'Bluray-720p', 'HDTV-720p'];
+const SHOW_PROFILES = ['HD-1080p', 'Ultra-HD', 'Any', 'SD'];
+
+/** Fabricate arr_items for the seeded media so /quality is populated offline.
+ *  Every 9th item is skipped (no arr row) → demos the "Not in *arr" bucket + the
+ *  Browse "unmatched" filter. Every 17th gets a divergent arr size → mismatch ⚠. */
+function buildArrItems(items: UpsertMediaInput[]): ArrItemInput[] {
+  const out: ArrItemInput[] = [];
+  items.forEach((m, i) => {
+    const n = i + 1;
+    if (n % 9 === 0) return; // leave some titles unmatched
+    const movie = m.libraryKind === 'movie';
+    const anime = m.sectionId === '4';
+    const inst = movie ? RADARR_MAIN : anime ? SONARR_ANIME : SONARR_MAIN;
+    const tags: string[] = [];
+    if (anime) tags.push('Anime');
+    if (n % 6 === 0) tags.push('Bounty');
+    if (movie && n % 10 === 0) tags.push('Kids');
+    out.push({
+      ratingKey: m.ratingKey,
+      source: movie ? 'radarr' : 'sonarr',
+      instanceId: inst.id,
+      instanceName: inst.name,
+      arrId: n,
+      monitored: n % 11 !== 0, // a few unmonitored to demo the filter
+      status: movie ? 'released' : n % 5 === 0 ? 'ended' : 'continuing',
+      quality: movie
+        ? m.sectionId === '2'
+          ? 'Bluray-2160p'
+          : MOVIE_QUALITIES[n % MOVIE_QUALITIES.length]
+        : SHOW_PROFILES[n % SHOW_PROFILES.length],
+      qualityKind: movie ? 'file' : 'profile',
+      rootFolder: movie ? '/movies' : anime ? '/anime' : '/tv',
+      // Usually matches Plex; every 17th diverges sharply to demo the ⚠ flag.
+      arrSizeBytes: n % 17 === 0 ? Math.round(m.sizeBytes * 0.3) : m.sizeBytes,
+      tags,
+    });
+  });
+  return out;
+}
+
+/** A few fake unmatched arr titles (no Plex match) to populate Match health. */
+const ARR_UNMATCHED = [
+  { source: 'sonarr', instanceName: 'Sonarr', title: 'Some Obscure Show', extKind: 'tvdb' as const, extId: '999001' },
+  { source: 'sonarr', instanceName: 'Sonarr (Anime)', title: 'Niche OVA', extKind: 'tvdb' as const, extId: '999002' },
+  { source: 'radarr', instanceName: 'Radarr', title: 'Unreleased Indie Film', extKind: 'tmdb' as const, extId: '999003' },
+  { source: 'radarr', instanceName: 'Radarr', title: 'Festival Short', extKind: 'tmdb' as const, extId: '999004' },
+];
 
 export interface SeedResult {
   seededMedia: boolean;
@@ -176,6 +238,15 @@ export function seedDevData(opts: { reset?: boolean } = {}): SeedResult {
   // are made — the seeded watch_history rows below stand in for synced history.
   writeSetting('tautulli_url', 'http://localhost:8181');
   writeSetting('tautulli_api_key', 'dev-tautulli-key');
+  // Fake Sonarr (×2: main + anime) and Radarr so the Quality view + N-instance
+  // filters are demoable. No real calls are made; arr_items is seeded below.
+  setSonarrInstances([
+    { ...SONARR_MAIN, url: 'http://localhost:8989', apiKey: 'dev-sonarr-key' },
+    { ...SONARR_ANIME, url: 'http://localhost:8990', apiKey: 'dev-sonarr-anime-key' },
+  ]);
+  setRadarrInstances([
+    { ...RADARR_MAIN, url: 'http://localhost:7878', apiKey: 'dev-radarr-key' },
+  ]);
   setPlexSections(SECTIONS.map((s) => ({ ...s, paths: [`/media/${s.title}`] })));
   setManagedSectionIds([]); // all libraries managed
   setOpenSignin(true);
@@ -197,7 +268,10 @@ export function seedDevData(opts: { reset?: boolean } = {}): SeedResult {
 
   const seededMedia = opts.reset || libraryStats().totalItems === 0;
   if (seededMedia) {
-    upsertMediaBatch(buildItems(), Math.floor(Date.now() / 1000));
+    const mediaItems = buildItems();
+    upsertMediaBatch(mediaItems, Math.floor(Date.now() / 1000));
+    replaceArrItems(buildArrItems(mediaItems));
+    replaceArrUnmatched(ARR_UNMATCHED);
 
     addKeep(DEV_USER_ID, 'dev-1');
     addKeep(DEV_USER_ID, 'dev-210');
@@ -252,22 +326,61 @@ export function seedDevData(opts: { reset?: boolean } = {}): SeedResult {
   const stats = libraryStats();
   writeSetting('dev_storage_total', String(Math.round(stats.totalBytes / 0.75)));
 
-  // A little job history so the scheduled-jobs + activity views aren't empty.
+  // Job history so the scheduled-jobs + activity views aren't empty. Last-status
+  // per job drives the Scheduled jobs list.
   const nowSec = Math.floor(Date.now() / 1000);
-  for (const [jobId, msg, result] of [
-    ['library', `Synced ${stats.totalItems} items.`, stats.totalItems],
-    ['requests', 'Cached Seerr requests for 1 user(s).', 1],
-  ] as const) {
+  const jobStates: [string, 'ok', string, number][] = [
+    ['recentlyAdded', 'ok', 'Synced 2 new items.', 2],
+    ['library', 'ok', `Synced ${stats.totalItems} items.`, stats.totalItems],
+    ['sizes', 'ok', 'Recomputed sizes for 96 series.', 96],
+    ['watch', 'ok', 'Refreshed 8 watch-history rows.', 8],
+    ['requests', 'ok', 'Cached Seerr requests for 1 user(s).', 1],
+    ['arr', 'ok', 'Matched 300 of 300 titles (0 unmatched).', 300],
+  ];
+  for (const [jobId, status, msg, result] of jobStates) {
     setJobState(jobId, {
-      lastStatus: 'ok',
+      lastStatus: status,
       lastRun: nowSec - 300,
       lastMessage: msg,
       lastDurationMs: 1500,
       lastResult: result,
     });
+  }
+
+  // Run history: a flood of recentlyAdded successes (these collapse to one
+  // expandable row) + one error + the daily jobs, so the Recent activity
+  // grouping is demoable rather than wall-to-wall identical rows.
+  const runs: {
+    jobId: string;
+    startedAt: number;
+    status: 'ok' | 'error';
+    message: string;
+    result: number;
+  }[] = [];
+  for (let i = 1; i <= 12; i++) {
+    runs.push({
+      jobId: 'recentlyAdded',
+      startedAt: nowSec - i * 300,
+      status: 'ok',
+      message: `Synced ${i % 3} new items.`,
+      result: i % 3,
+    });
+  }
+  runs.push({ jobId: 'recentlyAdded', startedAt: nowSec - 13 * 300, status: 'error', message: 'Plex unreachable — fetch failed.', result: 0 });
+  runs.push({ jobId: 'arr', startedAt: nowSec - 4000, status: 'ok', message: 'Matched 300 of 300 titles (0 unmatched).', result: 300 });
+  runs.push({ jobId: 'sizes', startedAt: nowSec - 7000, status: 'ok', message: 'Recomputed sizes for 96 series.', result: 96 });
+  runs.push({ jobId: 'watch', startedAt: nowSec - 9000, status: 'ok', message: 'Refreshed 8 watch-history rows.', result: 8 });
+  runs.push({ jobId: 'requests', startedAt: nowSec - 11000, status: 'ok', message: 'Cached Seerr requests for 1 user(s).', result: 1 });
+  runs.push({ jobId: 'library', startedAt: nowSec - 13000, status: 'ok', message: `Synced ${stats.totalItems} items.`, result: stats.totalItems });
+  for (const r of runs) {
     recordJobRun({
-      jobId, startedAt: nowSec - 302, endedAt: nowSec - 300,
-      status: 'ok', message: msg, durationMs: 1500, result,
+      jobId: r.jobId,
+      startedAt: r.startedAt,
+      endedAt: r.startedAt + 2,
+      status: r.status,
+      message: r.message,
+      durationMs: 1500,
+      result: r.result,
     });
   }
 

@@ -21,18 +21,27 @@ import {
   getManagedSectionIds,
   getManagedSections,
   setPlexSections,
+  getSonarrInstances,
+  getRadarrInstances,
+  isArrConfigured,
 } from './settings';
 import { aggregatedWatchHistory } from './tautulli';
 import { requestedRatingKeysForUser } from './seerr';
+import { fetchSonarr, fetchRadarr, type ArrRecord } from './arr';
 import {
   existingShowSizes,
   listUsers,
+  ratingKeysByGuid,
+  replaceArrItems,
+  replaceArrUnmatched,
   replaceSeerrRequests,
   showRatingKeys,
   tombstoneStale,
   updateItemSize,
   upsertMediaBatch,
   upsertWatchBatch,
+  type ArrItemInput,
+  type ArrUnmatchedInput,
   type UpsertMediaInput,
 } from './queries';
 import type { LibraryKind } from './types';
@@ -234,6 +243,100 @@ export async function syncSeerrRequestsForUser(
   );
   replaceSeerrRequests(plexUserId, [...keys]);
   return keys.size;
+}
+
+function toArrInput(ratingKey: string, r: ArrRecord): ArrItemInput {
+  return {
+    ratingKey,
+    source: r.source,
+    instanceId: r.instanceId,
+    instanceName: r.instanceName,
+    arrId: r.arrId,
+    monitored: r.monitored,
+    status: r.status,
+    quality: r.quality,
+    qualityKind: r.qualityKind,
+    rootFolder: r.rootFolder,
+    arrSizeBytes: r.sizeOnDisk,
+    tags: r.tags,
+  };
+}
+
+/**
+ * Sonarr/Radarr refresh: pull every instance's titles, match each to a Plex
+ * media item by stable external id (tvdb→show, tmdb→movie), and replace the
+ * arr_items cache. Skips cleanly when unconfigured; one failing instance doesn't
+ * abort the rest. First instance to claim a rating_key wins (rare collisions).
+ */
+export async function syncArr(): Promise<JobResult> {
+  if (!isArrConfigured()) {
+    return { result: 0, message: 'Sonarr/Radarr not configured.' };
+  }
+  const tvdbMap = ratingKeysByGuid('tvdb');
+  const tmdbMap = ratingKeysByGuid('tmdb');
+  const matched: ArrItemInput[] = [];
+  const unmatchedRecs: ArrUnmatchedInput[] = [];
+  const seen = new Set<string>();
+  let total = 0;
+  let errors = 0;
+  let ok = 0;
+
+  const ingest = (recs: ArrRecord[], idMap: Map<string, string>) => {
+    total += recs.length;
+    for (const r of recs) {
+      const rk = idMap.get(r.matchId);
+      if (!rk) {
+        // No Plex item carries this title's tvdb/tmdb id → record as unmatched.
+        unmatchedRecs.push({
+          source: r.source,
+          instanceName: r.instanceName,
+          title: r.title,
+          extKind: r.source === 'sonarr' ? 'tvdb' : 'tmdb',
+          extId: r.matchId,
+        });
+        continue;
+      }
+      if (seen.has(rk)) continue;
+      seen.add(rk);
+      matched.push(toArrInput(rk, r));
+    }
+  };
+
+  const instanceCount = getSonarrInstances().length + getRadarrInstances().length;
+  for (const inst of getSonarrInstances()) {
+    try {
+      ingest(await fetchSonarr(inst), tvdbMap);
+      ok++;
+    } catch {
+      errors++;
+    }
+  }
+  for (const inst of getRadarrInstances()) {
+    try {
+      ingest(await fetchRadarr(inst), tmdbMap);
+      ok++;
+    } catch {
+      errors++;
+    }
+  }
+
+  // Don't wipe the cache when nothing was reachable (every instance errored) —
+  // keep the last good data rather than blanking the Quality view.
+  if (ok === 0 && instanceCount > 0) {
+    return {
+      result: 0,
+      message: `No instances reachable (${errors} error(s)); kept existing cache.`,
+    };
+  }
+
+  replaceArrItems(matched);
+  replaceArrUnmatched(unmatchedRecs);
+  const unmatched = unmatchedRecs.length;
+  const errNote = errors ? ` (${errors} instance error(s))` : '';
+  return {
+    result: matched.length,
+    message: `Matched ${matched.length} of ${total} titles (${unmatched} unmatched)${errNote}.`,
+  };
 }
 
 function toInput(

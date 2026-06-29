@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { MediaCardData } from '@/lib/types';
 import { formatSize } from '@/lib/format';
+import { RES_ORDER, resolutionBucket } from '@/lib/quality';
 import {
   StackedBar,
   LegendRow,
@@ -87,6 +88,9 @@ export default function StatsView() {
       {overview && <StorageHero overview={overview} />}
       {overview && <ReviewProgress overview={overview} />}
       {overview && <LibraryGrid overview={overview} />}
+      {overview?.arr && overview.qualityBreakdown && (
+        <QualityReclaim overview={overview} />
+      )}
 
       {/* Ranked drill-down tables */}
       <div>
@@ -519,6 +523,79 @@ function LibraryGrid({ overview }: { overview: Overview }) {
           })}
         </div>
       </div>
+    </section>
+  );
+}
+
+/** Sonarr/Radarr "reclaim by quality": bytes/reclaimable/never-watched bucketed
+ *  by resolution, plus a "Not in *arr" row. Surfaces e.g. how much 4K is
+ *  reclaimable. Only rendered when arr is connected. */
+function QualityReclaim({ overview }: { overview: Overview }) {
+  const qb = overview.qualityBreakdown!;
+  // Bucket the per-quality rows by resolution (Unknown folds into Other).
+  const buckets = new Map<
+    string,
+    { titles: number; bytes: number; reclaimableBytes: number; unwatchedBytes: number }
+  >();
+  for (const r of qb.byQuality) {
+    const b = resolutionBucket(r.quality);
+    const acc = buckets.get(b) ?? { titles: 0, bytes: 0, reclaimableBytes: 0, unwatchedBytes: 0 };
+    acc.titles += r.titles;
+    acc.bytes += r.bytes;
+    acc.reclaimableBytes += r.reclaimableBytes;
+    acc.unwatchedBytes += r.unwatchedBytes;
+    buckets.set(b, acc);
+  }
+  const rows: {
+    label: string;
+    titles: number;
+    bytes: number;
+    reclaimableBytes: number;
+    unwatchedBytes: number;
+  }[] = RES_ORDER.filter((b) => buckets.has(b)).map((b) => ({ label: b, ...buckets.get(b)! }));
+  if (qb.notInArr.titles > 0) rows.push({ label: 'Not in *arr', ...qb.notInArr });
+  const showWatched = !!overview.tautulli;
+
+  return (
+    <section>
+      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">
+        By quality
+      </h2>
+      <div className="overflow-x-auto rounded-lg border border-slate-800">
+        <table className="w-full text-sm">
+          <thead className="bg-rail text-xs uppercase tracking-wide text-slate-500">
+            <tr>
+              <th className="px-3 py-2 text-left font-medium">Quality</th>
+              <th className="px-3 py-2 text-right font-medium">Titles</th>
+              <th className="px-3 py-2 text-right font-medium">On disk</th>
+              <th className="px-3 py-2 text-right font-medium">Not kept</th>
+              {showWatched && <th className="px-3 py-2 text-right font-medium">Never watched</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.label} className="border-t border-slate-800">
+                <td className="px-3 py-2 font-medium">{r.label}</td>
+                <td className="px-3 py-2 text-right text-slate-400">{r.titles}</td>
+                <td className="px-3 py-2 text-right font-mono">{formatSize(r.bytes)}</td>
+                <td className="px-3 py-2 text-right font-mono text-rose-300">
+                  {formatSize(r.reclaimableBytes)}
+                </td>
+                {showWatched && (
+                  <td className="px-3 py-2 text-right font-mono text-slate-300">
+                    {formatSize(r.unwatchedBytes)}
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-2 text-[11px] text-slate-500">
+        &ldquo;Not kept&rdquo; = nobody pressed Keep on it — the candidates to review for
+        freeing space (Keeparr never deletes). Scan the biggest high-resolution rows for
+        downgrades. &ldquo;Not in *arr&rdquo; = titles Keeparr couldn&apos;t match.
+      </p>
     </section>
   );
 }

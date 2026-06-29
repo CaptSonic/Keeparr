@@ -24,10 +24,54 @@ import {
   setAppTitle,
   setAppUrl,
   writeSetting,
+  getSonarrInstances,
+  getRadarrInstances,
+  setSonarrInstances,
+  setRadarrInstances,
+  type ArrInstance,
   type JobSchedule,
 } from '@/lib/settings';
 
 export const runtime = 'nodejs';
+
+/** Strip apiKey from instances before sending to the client; report hasKey only. */
+function sanitizeInstances(instances: ArrInstance[]) {
+  return instances.map((i) => ({
+    id: i.id,
+    name: i.name,
+    url: i.url,
+    hasKey: !!i.apiKey,
+  }));
+}
+
+interface IncomingInstance {
+  id?: string;
+  name?: string;
+  url: string;
+  apiKey?: string;
+}
+
+/** Merge incoming instances with the saved ones: a blank apiKey keeps the
+ *  existing key for that id (so the UI never has to round-trip secrets). */
+function mergeInstances(
+  incoming: IncomingInstance[],
+  existing: ArrInstance[]
+): ArrInstance[] {
+  const byId = new Map(existing.map((i) => [i.id, i]));
+  return incoming
+    .filter((i) => i && typeof i.url === 'string' && i.url.trim())
+    .map((i) => {
+      const url = i.url.trim().replace(/\/$/, '');
+      const id = (i.id && String(i.id).trim()) || url;
+      const prev = byId.get(id);
+      return {
+        id,
+        name: String(i.name ?? '').trim(),
+        url,
+        apiKey: (i.apiKey && String(i.apiKey).trim()) || prev?.apiKey || '',
+      };
+    });
+}
 
 /** Current settings (secrets are reported as booleans, never returned). */
 export async function GET() {
@@ -48,6 +92,8 @@ export async function GET() {
         url: getSeerrUrl(),
         configured: isSeerrConfigured(),
       },
+      sonarr: { instances: sanitizeInstances(getSonarrInstances()) },
+      radarr: { instances: sanitizeInstances(getRadarrInstances()) },
       jobSchedules: getJobSchedules(),
       sections: getPlexSections(),
       managedSectionIds: getManagedSectionIds(),
@@ -70,6 +116,8 @@ interface PutBody {
   };
   tautulli?: { url: string; apiKey?: string };
   seerr?: { url: string; apiKey?: string };
+  sonarrInstances?: IncomingInstance[];
+  radarrInstances?: IncomingInstance[];
   jobSchedules?: Record<string, JobSchedule>;
   storageMappings?: { sectionId: string; path: string }[];
   managedSectionIds?: string[];
@@ -106,6 +154,17 @@ export async function PUT(req: Request) {
     if (body.seerr) {
       writeSetting('seerr_url', body.seerr.url);
       if (body.seerr.apiKey) writeSetting('seerr_api_key', body.seerr.apiKey);
+    }
+
+    if (Array.isArray(body.sonarrInstances)) {
+      setSonarrInstances(
+        mergeInstances(body.sonarrInstances, getSonarrInstances())
+      );
+    }
+    if (Array.isArray(body.radarrInstances)) {
+      setRadarrInstances(
+        mergeInstances(body.radarrInstances, getRadarrInstances())
+      );
     }
 
     if (body.jobSchedules && typeof body.jobSchedules === 'object') {

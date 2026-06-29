@@ -6,11 +6,12 @@ import { getServerToken } from '@/lib/settings';
 import { logEvent } from '@/lib/queries';
 import { testTautulli } from '@/lib/tautulli';
 import { testSeerr } from '@/lib/seerr';
+import { testArr } from '@/lib/arr';
 
 export const runtime = 'nodejs';
 
 interface Body {
-  service: 'plex' | 'tautulli' | 'seerr';
+  service: 'plex' | 'tautulli' | 'seerr' | 'sonarr' | 'radarr';
   url: string;
   apiKey?: string;
   token?: string;
@@ -38,6 +39,8 @@ export async function POST(req: Request) {
       result = await testTautulli(body.url, body.apiKey ?? '');
     } else if (body.service === 'seerr') {
       result = await testSeerr(body.url, body.apiKey ?? '');
+    } else if (body.service === 'sonarr' || body.service === 'radarr') {
+      result = await testArr(body.url, body.apiKey ?? '');
     } else {
       return NextResponse.json({ error: 'bad_service' }, { status: 400 });
     }

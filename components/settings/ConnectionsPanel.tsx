@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { formatSize } from '@/lib/format';
 import { Card, CardColumns, btnCls, btnGhost, inputCls } from './ui';
+import MatchHealthCard from './MatchHealthCard';
 
 interface Parts {
   ssl: boolean;
@@ -111,6 +112,94 @@ function ServiceFields({
   );
 }
 
+interface ArrRow {
+  id: string;
+  name: string;
+  parts: Parts;
+  apiKey: string;
+  hasKey: boolean;
+}
+
+const emptyParts = (): Parts => ({ ssl: false, host: '', port: '', base: '' });
+
+/** Repeatable Sonarr/Radarr instances (N per app), each with its own Test. */
+function ArrCard({
+  title,
+  kind,
+  rows,
+  setRows,
+  test,
+  onTest,
+}: {
+  title: string;
+  kind: 'sonarr' | 'radarr';
+  rows: ArrRow[];
+  setRows: (rows: ArrRow[]) => void;
+  test: Record<string, string>;
+  onTest: (idx: number) => void;
+}) {
+  const update = (idx: number, patch: Partial<ArrRow>) =>
+    setRows(rows.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
+  const add = () =>
+    setRows([
+      ...rows,
+      { id: crypto.randomUUID(), name: '', parts: emptyParts(), apiKey: '', hasKey: false },
+    ]);
+  const remove = (idx: number) => setRows(rows.filter((_, i) => i !== idx));
+
+  return (
+    <Card title={title}>
+      {rows.length === 0 && (
+        <p className="mb-3 text-sm text-slate-400">
+          No instances. Add one to pull quality + tags into the Quality view.
+        </p>
+      )}
+      <div className="space-y-4">
+        {rows.map((row, idx) => (
+          <div key={row.id} className="rounded-lg border border-slate-700 p-3">
+            <div className="mb-2 flex items-center gap-2">
+              <input
+                className={`${inputCls} w-44`}
+                placeholder="Name (e.g. 4K, HD)"
+                value={row.name}
+                onChange={(e) => update(idx, { name: e.target.value })}
+              />
+              <button
+                onClick={() => remove(idx)}
+                className={`${btnGhost} ml-auto text-xs`}
+                type="button"
+              >
+                Remove
+              </button>
+            </div>
+            <ServiceFields parts={row.parts} setParts={(p) => update(idx, { parts: p })} showBase />
+            <label className="mt-3 mb-1 block text-sm text-slate-400">
+              API key {row.hasKey && '(saved — leave blank to keep)'}
+            </label>
+            <input
+              className={`${inputCls} max-w-md`}
+              type="password"
+              value={row.apiKey}
+              onChange={(e) => update(idx, { apiKey: e.target.value })}
+            />
+            <div className="mt-3 flex items-center gap-3">
+              <button onClick={() => onTest(idx)} className={btnGhost} type="button">
+                Test
+              </button>
+              {test[`${kind}-${row.id}`] && (
+                <span className="text-sm text-slate-400">{test[`${kind}-${row.id}`]}</span>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+      <button onClick={add} className={`${btnGhost} mt-3`} type="button">
+        + Add {kind === 'sonarr' ? 'Sonarr' : 'Radarr'} instance
+      </button>
+    </Card>
+  );
+}
+
 export default function ConnectionsPanel() {
   const [plex, setPlex] = useState<Parts>({ ssl: false, host: '', port: '', base: '' });
   const [plexConfigured, setPlexConfigured] = useState(false);
@@ -121,6 +210,8 @@ export default function ConnectionsPanel() {
   const [seerr, setSeerr] = useState<Parts>({ ssl: false, host: '', port: '', base: '' });
   const [seerrKey, setSeerrKey] = useState('');
   const [seerrConfigured, setSeerrConfigured] = useState(false);
+  const [sonarr, setSonarr] = useState<ArrRow[]>([]);
+  const [radarr, setRadarr] = useState<ArrRow[]>([]);
 
   const [servers, setServers] = useState<DiscoveredServer[] | null>(null);
   const [discovering, setDiscovering] = useState(false);
@@ -146,6 +237,16 @@ export default function ConnectionsPanel() {
     setTautConfigured(!!d.tautulli.configured);
     setSeerr(parseUrl(d.seerr.url));
     setSeerrConfigured(!!d.seerr.configured);
+    const toRows = (arr: { id: string; name: string; url: string; hasKey: boolean }[]) =>
+      (arr ?? []).map((i) => ({
+        id: i.id,
+        name: i.name,
+        parts: parseUrl(i.url),
+        apiKey: '',
+        hasKey: !!i.hasKey,
+      }));
+    setSonarr(toRows(d.sonarr?.instances));
+    setRadarr(toRows(d.radarr?.instances));
     setSections(d.sections ?? []);
     const mgd: string[] = d.managedSectionIds ?? [];
     setAllManaged(mgd.length === 0);
@@ -275,6 +376,32 @@ export default function ConnectionsPanel() {
     setTest((m) => ({ ...m, [service]: r.message ?? (r.ok ? 'OK' : 'Failed') }));
   }
 
+  async function testArrInstance(kind: 'sonarr' | 'radarr', idx: number) {
+    const row = (kind === 'sonarr' ? sonarr : radarr)[idx];
+    const key = `${kind}-${row.id}`;
+    if (!row.apiKey) {
+      setTest((m) => ({ ...m, [key]: 'Enter the API key to test.' }));
+      return;
+    }
+    setTest((m) => ({ ...m, [key]: 'Testing…' }));
+    const r = await fetch('/api/admin/test-connection', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ service: kind, url: buildUrl(row.parts), apiKey: row.apiKey }),
+    }).then((x) => x.json());
+    setTest((m) => ({ ...m, [key]: r.message ?? (r.ok ? 'OK' : 'Failed') }));
+  }
+
+  const toInstancesBody = (rows: ArrRow[]) =>
+    rows
+      .filter((r) => buildUrl(r.parts))
+      .map((r) => ({
+        id: r.id,
+        name: r.name.trim(),
+        url: buildUrl(r.parts),
+        apiKey: r.apiKey || undefined,
+      }));
+
   async function save() {
     setSaving(true);
     setMsg('');
@@ -289,6 +416,8 @@ export default function ConnectionsPanel() {
           ...(buildUrl(plex) ? { plexBaseUrl: buildUrl(plex) } : {}),
           tautulli: { url: buildUrl(taut), apiKey: tautKey || undefined },
           seerr: { url: buildUrl(seerr), apiKey: seerrKey || undefined },
+          sonarrInstances: toInstancesBody(sonarr),
+          radarrInstances: toInstancesBody(radarr),
           managedSectionIds: allManaged ? [] : [...managed],
           storageMappings,
         }),
@@ -391,6 +520,80 @@ export default function ConnectionsPanel() {
             )}
           </div>
         )}
+
+        {/* Managed libraries + storage are derived from Plex, so they live inside
+            the Plex section rather than as standalone connectors. */}
+        <div className="mt-4 border-t border-slate-800 pt-3">
+          <div className="mb-2 text-sm font-semibold text-slate-200">Managed libraries</div>
+          {sections.length === 0 ? (
+            <p className="text-sm text-slate-400">
+              Connect Plex and run a library scan to discover your libraries.
+            </p>
+          ) : (
+            <>
+              <p className="text-sm text-slate-400 mb-3">
+                Choose which Plex libraries Keeparr tracks. Unticked ones drop on the next scan.
+              </p>
+              <div className="space-y-2">
+                {sections.map((s) => (
+                  <label key={s.id} className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={isManaged(s.id)}
+                      onChange={(e) => toggleManaged(s.id, e.target.checked)}
+                      className="h-4 w-4 accent-brand"
+                    />
+                    {s.title}
+                    <span className="text-xs text-slate-600">({s.type})</span>
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="mt-4 border-t border-slate-800 pt-3">
+          <div className="mb-2 text-sm font-semibold text-slate-200">Storage / free space</div>
+          {sections.length === 0 ? (
+            <p className="text-sm text-slate-400">Discover libraries first.</p>
+          ) : (
+            <>
+              <p className="text-sm text-slate-400 mb-3">
+                Map each library to the path where its files live{' '}
+                <strong>inside the Keeparr container</strong> (mount your media share
+                read-only). Powers the free-space header.
+              </p>
+              <div className="space-y-3">
+                {sections.map((s) => (
+                  <div key={s.id}>
+                    <label className="block text-sm text-slate-400 mb-1">
+                      {s.title}
+                      {s.paths && s.paths.length > 0 && (
+                        <span className="text-slate-600"> — Plex: {s.paths.join(', ')}</span>
+                      )}
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        className={`${inputCls} flex-1`}
+                        placeholder="/media/…"
+                        value={storagePaths[s.id] ?? ''}
+                        onChange={(e) =>
+                          setStoragePaths((p) => ({ ...p, [s.id]: e.target.value }))
+                        }
+                      />
+                      <button onClick={() => checkPath(s.id)} className={btnGhost} type="button">
+                        Check
+                      </button>
+                    </div>
+                    {storageMsg[s.id] && (
+                      <p className="mt-1 text-xs text-slate-400">{storageMsg[s.id]}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
       </Card>
 
       <Card title="Tautulli (watch history)">
@@ -431,75 +634,26 @@ export default function ConnectionsPanel() {
         </div>
       </Card>
 
-      <Card title="Managed libraries">
-        {sections.length === 0 ? (
-          <p className="text-sm text-slate-400">
-            Connect Plex and run a library scan to discover your libraries.
-          </p>
-        ) : (
-          <>
-            <p className="text-sm text-slate-400 mb-3">
-              Choose which Plex libraries Keeparr tracks. Unticked ones drop on the next scan.
-            </p>
-            <div className="space-y-2">
-              {sections.map((s) => (
-                <label key={s.id} className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={isManaged(s.id)}
-                    onChange={(e) => toggleManaged(s.id, e.target.checked)}
-                    className="h-4 w-4 accent-brand"
-                  />
-                  {s.title}
-                  <span className="text-xs text-slate-600">({s.type})</span>
-                </label>
-              ))}
-            </div>
-          </>
-        )}
-      </Card>
+      <ArrCard
+        title="Sonarr (TV quality + tags)"
+        kind="sonarr"
+        rows={sonarr}
+        setRows={setSonarr}
+        test={test}
+        onTest={(idx) => testArrInstance('sonarr', idx)}
+      />
 
-      <Card title="Storage / free space">
-        {sections.length === 0 ? (
-          <p className="text-sm text-slate-400">Discover libraries first.</p>
-        ) : (
-          <>
-            <p className="text-sm text-slate-400 mb-3">
-              Map each library to the path where its files live{' '}
-              <strong>inside the Keeparr container</strong> (mount your media share
-              read-only). Powers the free-space header.
-            </p>
-            <div className="space-y-3">
-              {sections.map((s) => (
-                <div key={s.id}>
-                  <label className="block text-sm text-slate-400 mb-1">
-                    {s.title}
-                    {s.paths && s.paths.length > 0 && (
-                      <span className="text-slate-600"> — Plex: {s.paths.join(', ')}</span>
-                    )}
-                  </label>
-                  <div className="flex gap-2">
-                    <input
-                      className={`${inputCls} flex-1`}
-                      placeholder="/media/…"
-                      value={storagePaths[s.id] ?? ''}
-                      onChange={(e) =>
-                        setStoragePaths((p) => ({ ...p, [s.id]: e.target.value }))
-                      }
-                    />
-                    <button onClick={() => checkPath(s.id)} className={btnGhost} type="button">
-                      Check
-                    </button>
-                  </div>
-                  {storageMsg[s.id] && (
-                    <p className="mt-1 text-xs text-slate-400">{storageMsg[s.id]}</p>
-                  )}
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-      </Card>
+      <ArrCard
+        title="Radarr (movie quality + tags)"
+        kind="radarr"
+        rows={radarr}
+        setRows={setRadarr}
+        test={test}
+        onTest={(idx) => testArrInstance('radarr', idx)}
+      />
+
+      {(sonarr.length > 0 || radarr.length > 0) && <MatchHealthCard />}
+
       </CardColumns>
 
       <div className="flex items-center gap-3">

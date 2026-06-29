@@ -1,12 +1,18 @@
 import { NextResponse } from 'next/server';
 import { requireUser } from '@/lib/auth';
 import { errorResponse } from '@/lib/route-helpers';
-import { librarySummary, usedBytesBySection } from '@/lib/queries';
+import {
+  arrQualitySummary,
+  librarySummary,
+  unmatchedMediaSummary,
+  usedBytesBySection,
+} from '@/lib/queries';
 import { buildStorageReport } from '@/lib/storage';
 import {
   getDevStorageTotal,
   getManagedSections,
   getStorageMappings,
+  isArrConfigured,
   isTautulliConfigured,
 } from '@/lib/settings';
 
@@ -86,6 +92,11 @@ export async function GET() {
         }
       : { configured: false as const };
 
+    const arr = isArrConfigured();
+    const qualityBreakdown = arr
+      ? { byQuality: arrQualitySummary(), notInArr: unmatchedMediaSummary() }
+      : undefined;
+
     // Tracked media that lives on disk (= sum of library bytes); the disk bar
     // shows "other" = usedBytes - mediaUsedBytes for everything Keeparr can't see.
     return NextResponse.json({
@@ -96,6 +107,9 @@ export async function GET() {
       // Watch data (badges, never-watched metric) only makes sense when Tautulli
       // is connected — the UI hides those surfaces otherwise.
       tautulli: isTautulliConfigured(),
+      // Sonarr/Radarr-derived "reclaim by quality" breakdown (when connected).
+      arr,
+      qualityBreakdown,
     });
   } catch (e) {
     return errorResponse(e);

@@ -18,6 +18,9 @@ const SECRET_KEYS = new Set([
   'tautulli_api_key',
   'seerr_api_key',
   'api_key',
+  // Whole JSON blob encrypted at rest (each instance holds an apiKey).
+  'sonarr_instances',
+  'radarr_instances',
 ]);
 
 export function readSetting(key: string): string | null {
@@ -52,6 +55,47 @@ export const getSeerrUrl = () => readSetting('seerr_url');
 export const getSeerrKey = () => readSetting('seerr_api_key');
 export const isSeerrConfigured = () => !!getSeerrUrl() && !!getSeerrKey();
 
+// --- Sonarr / Radarr (N instances each; stored as an encrypted JSON array) ---
+export interface ArrInstance {
+  id: string;
+  name: string;
+  url: string;
+  apiKey: string;
+}
+
+function readArrInstances(key: string): ArrInstance[] {
+  const raw = readSetting(key);
+  if (!raw) return [];
+  try {
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .filter((i) => i && typeof i.url === 'string')
+      .map((i) => ({
+        id: String(i.id ?? i.url),
+        name: String(i.name ?? '').trim(),
+        url: String(i.url).trim().replace(/\/$/, ''),
+        apiKey: String(i.apiKey ?? ''),
+      }));
+  } catch {
+    return [];
+  }
+}
+
+export const getSonarrInstances = () => readArrInstances('sonarr_instances');
+export const getRadarrInstances = () => readArrInstances('radarr_instances');
+
+export function setSonarrInstances(instances: ArrInstance[]): void {
+  writeSetting('sonarr_instances', JSON.stringify(instances));
+}
+export function setRadarrInstances(instances: ArrInstance[]): void {
+  writeSetting('radarr_instances', JSON.stringify(instances));
+}
+
+/** True once at least one Sonarr or Radarr instance is configured. */
+export const isArrConfigured = () =>
+  getSonarrInstances().length > 0 || getRadarrInstances().length > 0;
+
 // --- Sync ---
 export function getSyncIntervalMinutes(): number {
   const v = Number(readSetting('sync_interval_minutes'));
@@ -68,7 +112,9 @@ export function getJobSchedules(): Record<string, JobSchedule> {
     try {
       const parsed = JSON.parse(raw) as Record<string, JobSchedule>;
       for (const [k, v] of Object.entries(parsed)) {
-        if (v && (v.type === 'interval' || v.type === 'daily')) out[k] = v;
+        if (v && (v.type === 'interval' || v.type === 'daily' || v.type === 'weekly')) {
+          out[k] = v;
+        }
       }
     } catch {
       /* fall back to defaults */
