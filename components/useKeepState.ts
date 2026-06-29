@@ -43,6 +43,9 @@ export function useKeepState(opts: {
 
   async function toggleKeep() {
     if (busy) return;
+    // Snapshot all three so a failed request restores the FULL prior state, not
+    // just the toggled flag (toggling one optimistically clears the others).
+    const prev = { keptByMe, skipped, markedForDelete };
     const next = !keptByMe;
     setKeptByMe(next); // optimistic
     if (next) {
@@ -63,7 +66,9 @@ export function useKeepState(opts: {
         onDeleteChange?.(ratingKey, false);
       }
     } catch {
-      setKeptByMe(!next); // revert
+      setKeptByMe(prev.keptByMe);
+      setSkipped(prev.skipped);
+      setMarkedForDelete(prev.markedForDelete);
     } finally {
       setBusy(false);
     }
@@ -71,6 +76,7 @@ export function useKeepState(opts: {
 
   async function toggleSkip() {
     if (skipBusy) return;
+    const prev = { keptByMe, skipped, markedForDelete };
     const next = !skipped;
     setSkipped(next); // optimistic
     if (next) {
@@ -91,7 +97,9 @@ export function useKeepState(opts: {
         onDeleteChange?.(ratingKey, false);
       }
     } catch {
-      setSkipped(!next); // revert
+      setKeptByMe(prev.keptByMe);
+      setSkipped(prev.skipped);
+      setMarkedForDelete(prev.markedForDelete);
     } finally {
       setSkipBusy(false);
     }
@@ -99,6 +107,7 @@ export function useKeepState(opts: {
 
   async function toggleDelete() {
     if (deleteBusy) return;
+    const prev = { keptByMe, skipped, markedForDelete };
     const next = !markedForDelete;
     setMarkedForDelete(next); // optimistic
     if (next) {
@@ -119,7 +128,9 @@ export function useKeepState(opts: {
         onSkipChange?.(ratingKey, false);
       }
     } catch {
-      setMarkedForDelete(!next); // revert
+      setKeptByMe(prev.keptByMe);
+      setSkipped(prev.skipped);
+      setMarkedForDelete(prev.markedForDelete);
     } finally {
       setDeleteBusy(false);
     }

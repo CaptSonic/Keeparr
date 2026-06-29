@@ -179,8 +179,12 @@ export default function LibraryBrowser({
 
   // Remember the Grid/List choice across visits.
   useEffect(() => {
-    const saved = localStorage.getItem(VIEW_KEY);
-    if (saved === 'grid' || saved === 'list') setView(saved);
+    try {
+      const saved = localStorage.getItem(VIEW_KEY);
+      if (saved === 'grid' || saved === 'list') setView(saved);
+    } catch {
+      /* localStorage can throw under strict privacy settings */
+    }
   }, []);
   function chooseView(next: View) {
     setView(next);
@@ -277,9 +281,12 @@ export default function LibraryBrowser({
       }
       params.set('offset', String(off));
       const data = await fetch(`/api/library?${params}`).then((r) => r.json());
-      setHasMore(data.hasMore);
-      setOffset(data.nextOffset);
-      setItems((prev) => (reset ? data.items : [...prev, ...data.items]));
+      // An error response (e.g. a 500) has no `items` — guard so the view doesn't
+      // crash on a spread/map of undefined.
+      const list = Array.isArray(data.items) ? data.items : [];
+      setHasMore(!!data.hasMore);
+      if (typeof data.nextOffset === 'number') setOffset(data.nextOffset);
+      setItems((prev) => (reset ? list : [...prev, ...list]));
       setLoading(false);
     },
     [selectedKey, debouncedQ, sort, dir, status, watch, tautulli, requestedByMe,

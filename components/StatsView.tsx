@@ -56,10 +56,12 @@ export default function StatsView() {
       setLoading(true);
       const off = reset ? 0 : offset;
       const data = await fetch(`/api/stats?view=${v}&offset=${off}`).then((r) => r.json());
-      setSummary(data.summary);
-      setHasMore(data.hasMore);
-      setOffset(data.nextOffset);
-      setItems((prev) => (reset ? data.items : [...prev, ...data.items]));
+      // An error response has no `items`/`summary` — guard against a crash.
+      const list = Array.isArray(data.items) ? data.items : [];
+      if (data.summary) setSummary(data.summary);
+      setHasMore(!!data.hasMore);
+      if (typeof data.nextOffset === 'number') setOffset(data.nextOffset);
+      setItems((prev) => (reset ? list : [...prev, ...list]));
       setLoading(false);
     },
     [offset]

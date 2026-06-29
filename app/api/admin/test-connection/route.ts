@@ -2,7 +2,13 @@ import { NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth';
 import { errorResponse } from '@/lib/route-helpers';
 import { getServerIdentity } from '@/lib/plex';
-import { getServerToken } from '@/lib/settings';
+import {
+  getRadarrInstances,
+  getSeerrKey,
+  getServerToken,
+  getSonarrInstances,
+  getTautulliKey,
+} from '@/lib/settings';
 import { logEvent } from '@/lib/queries';
 import { testTautulli } from '@/lib/tautulli';
 import { testSeerr } from '@/lib/seerr';
@@ -15,6 +21,8 @@ interface Body {
   url: string;
   apiKey?: string;
   token?: string;
+  /** For re-testing a saved Sonarr/Radarr instance without re-typing its key. */
+  instanceId?: string;
 }
 
 /** Probe a service's reachability with the provided (unsaved) credentials. The
@@ -36,11 +44,19 @@ export async function POST(req: Request) {
         result = { ok: false, message: String(e) };
       }
     } else if (body.service === 'tautulli') {
-      result = await testTautulli(body.url, body.apiKey ?? '');
+      // Blank key → fall back to the saved one (re-testing a saved connection).
+      result = await testTautulli(body.url, body.apiKey || getTautulliKey() || '');
     } else if (body.service === 'seerr') {
-      result = await testSeerr(body.url, body.apiKey ?? '');
+      result = await testSeerr(body.url, body.apiKey || getSeerrKey() || '');
     } else if (body.service === 'sonarr' || body.service === 'radarr') {
-      result = await testArr(body.url, body.apiKey ?? '');
+      // Blank key + a saved instance id → use that instance's stored key.
+      let key = body.apiKey ?? '';
+      if (!key && body.instanceId) {
+        const insts =
+          body.service === 'sonarr' ? getSonarrInstances() : getRadarrInstances();
+        key = insts.find((i) => i.id === body.instanceId)?.apiKey ?? '';
+      }
+      result = await testArr(body.url, key);
     } else {
       return NextResponse.json({ error: 'bad_service' }, { status: 400 });
     }

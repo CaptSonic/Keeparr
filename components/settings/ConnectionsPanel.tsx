@@ -5,6 +5,27 @@ import { formatSize } from '@/lib/format';
 import { Card, CardColumns, btnCls, btnGhost, inputCls } from './ui';
 import MatchHealthCard from './MatchHealthCard';
 
+/**
+ * A unique id for a new instance row. `crypto.randomUUID()` only exists in a
+ * secure context (HTTPS or localhost) — on a plain-HTTP LAN deployment it's
+ * undefined and would throw, so fall back to getRandomValues (available in
+ * insecure contexts) and finally a timestamp+random string.
+ */
+function newId(): string {
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+    if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+      const b = crypto.getRandomValues(new Uint8Array(16));
+      return Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+    }
+  } catch {
+    /* fall through */
+  }
+  return `id-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
+}
+
 interface Parts {
   ssl: boolean;
   host: string;
@@ -143,7 +164,7 @@ function ArrCard({
   const add = () =>
     setRows([
       ...rows,
-      { id: crypto.randomUUID(), name: '', parts: emptyParts(), apiKey: '', hasKey: false },
+      { id: newId(), name: '', parts: emptyParts(), apiKey: '', hasKey: false },
     ]);
   const remove = (idx: number) => setRows(rows.filter((_, i) => i !== idx));
 
@@ -379,7 +400,8 @@ export default function ConnectionsPanel() {
   async function testArrInstance(kind: 'sonarr' | 'radarr', idx: number) {
     const row = (kind === 'sonarr' ? sonarr : radarr)[idx];
     const key = `${kind}-${row.id}`;
-    if (!row.apiKey) {
+    // Need either a freshly-typed key or a saved one (re-test by instance id).
+    if (!row.apiKey && !row.hasKey) {
       setTest((m) => ({ ...m, [key]: 'Enter the API key to test.' }));
       return;
     }
@@ -387,7 +409,12 @@ export default function ConnectionsPanel() {
     const r = await fetch('/api/admin/test-connection', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ service: kind, url: buildUrl(row.parts), apiKey: row.apiKey }),
+      body: JSON.stringify({
+        service: kind,
+        url: buildUrl(row.parts),
+        apiKey: row.apiKey || undefined,
+        instanceId: row.id,
+      }),
     }).then((x) => x.json());
     setTest((m) => ({ ...m, [key]: r.message ?? (r.ok ? 'OK' : 'Failed') }));
   }

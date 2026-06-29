@@ -66,7 +66,12 @@ export default function KeepView({ libraries }: { libraries: Library[] }) {
 
   // Restore last filter.
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
+    let saved: string | null = null;
+    try {
+      saved = localStorage.getItem(STORAGE_KEY);
+    } catch {
+      /* localStorage can throw under strict privacy settings */
+    }
     if (
       saved &&
       (saved === 'all' || saved === 'largest' || libraries.some((l) => l.id === saved))
