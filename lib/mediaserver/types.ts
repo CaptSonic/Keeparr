@@ -25,6 +25,7 @@ export interface BackendItem {
   addedAt: number | null;
   guidTmdb: string | null;
   guidTvdb: string | null;
+  guidImdb: string | null;
   sizeBytes: number;
 }
 

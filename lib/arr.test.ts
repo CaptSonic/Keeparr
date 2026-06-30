@@ -58,6 +58,7 @@ describe('arr normalize (pure, no network)', () => {
         id: 7,
         title: 'Dune',
         tmdbId: 438631,
+        imdbId: 'tt1160419',
         monitored: false,
         status: 'released',
         sizeOnDisk: 80,
@@ -70,6 +71,7 @@ describe('arr normalize (pure, no network)', () => {
     expect(r).toMatchObject({
       source: 'radarr',
       matchId: '438631',
+      imdbId: 'tt1160419',
       quality: 'Bluray-2160p',
       qualityKind: 'file',
       monitored: false,

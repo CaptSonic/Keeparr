@@ -157,14 +157,19 @@ The chrome is a Sonarr/Radarr-style left rail (logo → Keep; Keep / Browse[expa
 
 The shared id across Plex/Tautulli/Seerr is the Plex **ratingKey** (mutable
 across Plex library rebuilds — treat as best-effort). Sonarr/Radarr instead match
-on the **stable** external ids `guid_tvdb` (shows) / `guid_tmdb` (movies), which
-Plex sync populates. **A Plex item can carry MULTIPLE tvdb/tmdb ids** (e.g. a show
-merged across two TheTVDB entries), so `extractGuids` keeps ALL of them as a CSV
-(`"376459,407505"`) and `ratingKeysByGuid` splits it so an arr id matching ANY of
-them resolves. (Keeping only one — the old behavior took the last — meant items
-matched the wrong id and showed as unmatched even though the right id was present.)
-`extractGuids` also falls back to the legacy single-`guid` string
-(`com.plexapp.agents.thetvdb://…`) when the modern `Guid[]` array is absent.
+on the **stable** external ids `guid_tvdb` (shows) / `guid_tmdb` (movies) / `guid_imdb`
+(both — the extra axis), which Plex sync populates. Matching tries the primary id
+(tvdb/tmdb) then falls back to **imdb** (`ArrRecord.imdbId`; both Sonarr & Radarr expose
+`imdbId`) — so an item Plex only matched to IMDb still resolves. **A Plex item can carry
+MULTIPLE ids of a kind** (e.g. a show merged across two TheTVDB entries), so
+`extractGuids` keeps ALL of them as a CSV (`"376459,407505"`) and `ratingKeysByGuid`
+splits it so an arr id matching ANY of them resolves. (`ratingKeysByGuid('imdb')` spans
+both kinds; `tvdb`/`tmdb` stay kind-scoped.) Keeping only one — the old behavior took the
+last — meant items matched the wrong id and showed as unmatched even though the right id
+was present. `extractGuids` also falls back to the legacy single-`guid` string
+(`com.plexapp.agents.thetvdb://…`, `…imdb://tt…`) when the modern `Guid[]` array is absent.
+`mediaMissingExternalIds` (the "can never match" count) treats an item as id-less only
+when it has no tvdb/tmdb **and** no imdb.
 
 ## API routes
 
@@ -374,12 +379,13 @@ backend-aware UI are clickable offline (default = Plex). All inert/absent in pro
   item id, so we match the request's `media.tmdbId` (movies) / `tvdbId` (tv) to
   `media_items.guid_tmdb`/`guid_tvdb` via `ratingKeysByGuid`.
 - **Sonarr/Radarr** (v3): base `{url}/api/v3`, header `X-Api-Key`. `GET /series`
-  (`tvdbId`, `monitored`, `status`, `qualityProfileId`, `statistics.sizeOnDisk`,
-  `tags:number[]`) / `GET /movie` (`tmdbId`, `monitored`, `status`, `sizeOnDisk`,
+  (`tvdbId`, `imdbId`, `monitored`, `status`, `qualityProfileId`, `statistics.sizeOnDisk`,
+  `tags:number[]`) / `GET /movie` (`tmdbId`, `imdbId`, `monitored`, `status`, `sizeOnDisk`,
   `movieFile.quality.quality.name`, `tags:number[]`); resolve `tags`/profiles via
   `GET /tag` + `GET /qualityprofile`; `GET /system/status` for the Test button.
-  Match `tvdbId→guid_tvdb` (shows) / `tmdbId→guid_tmdb` (movies). Series quality is
-  the profile name (target); movie quality is the actual file quality.
+  Match `tvdbId→guid_tvdb` (shows) / `tmdbId→guid_tmdb` (movies), falling back to
+  `imdbId→guid_imdb`. Series quality is the profile name (target); movie quality is the
+  actual file quality.
 
 A fuller source-verified reference is in the planning doc
 `~/.claude/plans/alright-this-is-a-mighty-brooks-agent-*.md`.

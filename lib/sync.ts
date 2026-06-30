@@ -260,6 +260,7 @@ export async function syncArr(): Promise<JobResult> {
   }
   const tvdbMap = ratingKeysByGuid('tvdb');
   const tmdbMap = ratingKeysByGuid('tmdb');
+  const imdbMap = ratingKeysByGuid('imdb'); // secondary axis (spans movies + shows)
   const matched: ArrItemInput[] = [];
   const unmatchedRecs: ArrUnmatchedInput[] = [];
   const seen = new Set<string>();
@@ -270,7 +271,9 @@ export async function syncArr(): Promise<JobResult> {
   const ingest = (recs: ArrRecord[], idMap: Map<string, string>) => {
     total += recs.length;
     for (const r of recs) {
-      const rk = idMap.get(r.matchId);
+      // Match on the primary id (tvdb/tmdb); fall back to imdb so items Plex only
+      // matched to IMDb (no tmdb/tvdb) still resolve.
+      const rk = idMap.get(r.matchId) ?? (r.imdbId ? imdbMap.get(r.imdbId) : undefined);
       if (!rk) {
         // No Plex item carries this title's tvdb/tmdb id. Only record it if it's
         // actually DOWNLOADED (has files on disk) — that's media on disk Plex
@@ -347,5 +350,6 @@ function toInput(
     addedAt: item.addedAt,
     guidTmdb: item.guidTmdb,
     guidTvdb: item.guidTvdb,
+    guidImdb: item.guidImdb,
   };
 }

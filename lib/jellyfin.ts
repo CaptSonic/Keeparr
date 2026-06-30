@@ -219,6 +219,7 @@ export function toBackendItem(it: JfItem, withSize: boolean): BackendItem {
     addedAt: isoToUnix(it.DateCreated),
     guidTmdb: providerId(it.ProviderIds, 'tmdb') ?? providerId(it.ProviderIds, 'themoviedb'),
     guidTvdb: providerId(it.ProviderIds, 'tvdb'),
+    guidImdb: providerId(it.ProviderIds, 'imdb'),
     sizeBytes: withSize ? sumMediaSources([it]) : 0,
   };
 }

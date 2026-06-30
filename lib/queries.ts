@@ -187,16 +187,18 @@ export interface UpsertMediaInput {
   addedAt: number | null;
   guidTmdb: string | null;
   guidTvdb: string | null;
+  /** imdb id(s) ("tt…"), CSV when Plex lists several. Optional for back-compat. */
+  guidImdb?: string | null;
 }
 
 const upsertMediaStmt = () =>
   getDb().prepare(
     `INSERT INTO media_items
        (rating_key, section_id, library_kind, title, year, thumb, size_bytes,
-        added_at, guid_tmdb, guid_tvdb, last_synced, removed)
+        added_at, guid_tmdb, guid_tvdb, guid_imdb, last_synced, removed)
      VALUES
        (@ratingKey, @sectionId, @libraryKind, @title, @year, @thumb, @sizeBytes,
-        @addedAt, @guidTmdb, @guidTvdb, @ts, 0)
+        @addedAt, @guidTmdb, @guidTvdb, @guidImdb, @ts, 0)
      ON CONFLICT(rating_key) DO UPDATE SET
        section_id   = excluded.section_id,
        library_kind = excluded.library_kind,
@@ -207,6 +209,7 @@ const upsertMediaStmt = () =>
        added_at     = excluded.added_at,
        guid_tmdb    = excluded.guid_tmdb,
        guid_tvdb    = excluded.guid_tvdb,
+       guid_imdb    = excluded.guid_imdb,
        last_synced  = excluded.last_synced,
        removed      = 0`
   );
@@ -226,7 +229,7 @@ export function upsertMediaBatch(
   const stmt = upsertMediaStmt();
   const run = db.transaction((rows: UpsertMediaInput[]) => {
     for (const r of rows) {
-      stmt.run({ ...r, ts: syncedAt });
+      stmt.run({ ...r, guidImdb: r.guidImdb ?? null, ts: syncedAt });
     }
   });
   run(items);
@@ -1527,16 +1530,21 @@ export function clearArrItems(): number {
 
 /** Rating keys of non-removed media items by external id (for arr matching). The
  *  stored guid may be a CSV ("376459,407505") when Plex lists several ids for one
- *  item — split it so a Sonarr/Radarr id matching ANY of them resolves. */
-export function ratingKeysByGuid(kind: 'tvdb' | 'tmdb'): Map<string, string> {
-  const col = kind === 'tvdb' ? 'guid_tvdb' : 'guid_tmdb';
-  const wantKind = kind === 'tvdb' ? 'show' : 'movie';
+ *  item — split it so a Sonarr/Radarr id matching ANY of them resolves. `tvdb` is
+ *  scoped to shows, `tmdb` to movies; `imdb` spans both (ids are globally unique). */
+export function ratingKeysByGuid(kind: 'tvdb' | 'tmdb' | 'imdb'): Map<string, string> {
+  const col = kind === 'tvdb' ? 'guid_tvdb' : kind === 'tmdb' ? 'guid_tmdb' : 'guid_imdb';
+  const kindFilter =
+    kind === 'tvdb' ? 'show' : kind === 'tmdb' ? 'movie' : null; // imdb: any kind
+  const where = kindFilter
+    ? `removed = 0 AND library_kind = @kind AND ${col} IS NOT NULL`
+    : `removed = 0 AND ${col} IS NOT NULL`;
   const rows = getDb()
-    .prepare(
-      `SELECT rating_key, ${col} AS guid FROM media_items
-       WHERE removed = 0 AND library_kind = @kind AND ${col} IS NOT NULL`
-    )
-    .all({ kind: wantKind }) as { rating_key: string; guid: string }[];
+    .prepare(`SELECT rating_key, ${col} AS guid FROM media_items WHERE ${where}`)
+    .all(kindFilter ? { kind: kindFilter } : {}) as {
+    rating_key: string;
+    guid: string;
+  }[];
   const map = new Map<string, string>();
   for (const r of rows) {
     for (const id of String(r.guid).split(',')) {
@@ -1661,19 +1669,22 @@ export function mediaMissingExternalIds(): {
   sample: { title: string; kind: string }[];
 } {
   const db = getDb();
+  // An item can match if it has its kind's id OR an imdb id — so "no id" means
+  // BOTH are null (truly unmatchable by Sonarr/Radarr).
   const count = (kind: 'show' | 'movie', col: string) =>
     (
       db
         .prepare(
           `SELECT COUNT(*) AS n FROM media_items
-           WHERE removed = 0 AND library_kind = @kind AND ${col} IS NULL`
+           WHERE removed = 0 AND library_kind = @kind
+             AND ${col} IS NULL AND guid_imdb IS NULL`
         )
         .get({ kind }) as { n: number }
     ).n;
   const sample = db
     .prepare(
       `SELECT title, library_kind AS kind FROM media_items
-       WHERE removed = 0 AND (
+       WHERE removed = 0 AND guid_imdb IS NULL AND (
          (library_kind = 'show' AND guid_tvdb IS NULL) OR
          (library_kind = 'movie' AND guid_tmdb IS NULL))
        ORDER BY size_bytes DESC LIMIT 20`

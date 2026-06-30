@@ -889,6 +889,18 @@ describe('ratingKeysByGuid (arr matching)', () => {
     expect(map.get('376459')).toBe('s2'); // Sonarr's id matches even though it's first of two
     expect(map.get('407505')).toBe('s2');
   });
+
+  it('imdb map spans movies AND shows (the extra match axis)', () => {
+    upsertMediaBatch([
+      media('mv', { libraryKind: 'movie', guidTmdb: null, guidImdb: 'tt9032390' }),
+      media('sh', { libraryKind: 'show', guidTvdb: null, guidImdb: 'tt11704040' }),
+    ]);
+    const imdb = ratingKeysByGuid('imdb');
+    expect(imdb.get('tt9032390')).toBe('mv'); // imdb-only movie now resolvable
+    expect(imdb.get('tt11704040')).toBe('sh');
+    // the tmdb map doesn't contain imdb ids (kept separate)
+    expect(ratingKeysByGuid('tmdb').has('tt9032390')).toBe(false);
+  });
 });
 
 describe('queryLibrary keptByMeOnly', () => {

@@ -16,8 +16,10 @@ export interface ArrRecord {
   instanceId: string;
   instanceName: string;
   arrId: number;
-  /** External id used to match a Plex item: tvdbId (Sonarr) / tmdbId (Radarr). */
+  /** Primary external id to match a Plex item: tvdbId (Sonarr) / tmdbId (Radarr). */
   matchId: string;
+  /** Secondary match axis: the imdb id ("tt…"), if the *arr instance has one. */
+  imdbId: string | null;
   title: string;
   monitored: boolean;
   status: string | null;
@@ -33,6 +35,7 @@ interface SonarrSeries {
   id: number;
   title: string;
   tvdbId?: number;
+  imdbId?: string;
   monitored?: boolean;
   status?: string;
   qualityProfileId?: number;
@@ -44,6 +47,7 @@ interface RadarrMovie {
   id: number;
   title: string;
   tmdbId?: number;
+  imdbId?: string;
   monitored?: boolean;
   status?: string;
   rootFolderPath?: string;
@@ -80,6 +84,7 @@ export function normalizeSonarr(
     instanceName: inst.name || inst.url,
     arrId: s.id,
     matchId: String(s.tvdbId),
+    imdbId: s.imdbId || null,
     title: s.title,
     monitored: !!s.monitored,
     status: s.status ?? null,
@@ -104,6 +109,7 @@ export function normalizeRadarr(
     instanceName: inst.name || inst.url,
     arrId: m.id,
     matchId: String(m.tmdbId),
+    imdbId: m.imdbId || null,
     title: m.title,
     monitored: !!m.monitored,
     status: m.status ?? null,

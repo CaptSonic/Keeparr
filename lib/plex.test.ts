@@ -78,19 +78,20 @@ describe('sumPartSizes / sumLeafSizes', () => {
 });
 
 describe('extractGuids', () => {
-  it('pulls tmdb and tvdb ids from Guid[]', () => {
+  it('pulls tmdb, tvdb and imdb ids from Guid[]', () => {
     const node: PlexMetadata = {
       ratingKey: '1',
       title: 'x',
       Guid: [{ id: 'tmdb://12345' }, { id: 'tvdb://67890' }, { id: 'imdb://tt1' }],
     };
-    expect(extractGuids(node)).toEqual({ tmdb: '12345', tvdb: '67890' });
+    expect(extractGuids(node)).toEqual({ tmdb: '12345', tvdb: '67890', imdb: 'tt1' });
   });
 
   it('returns nulls when no guids', () => {
     expect(extractGuids({ ratingKey: '1', title: 'x' })).toEqual({
       tmdb: null,
       tvdb: null,
+      imdb: null,
     });
   });
 
@@ -108,20 +109,24 @@ describe('extractGuids', () => {
         { id: 'tvdb://407505' },
       ],
     };
-    expect(extractGuids(node)).toEqual({ tmdb: '99353', tvdb: '376459,407505' });
+    expect(extractGuids(node)).toEqual({
+      tmdb: '99353',
+      tvdb: '376459,407505',
+      imdb: 'tt11704040',
+    });
   });
 
   it('falls back to the legacy single-guid string when Guid[] is absent', () => {
     expect(
       extractGuids({ ratingKey: '1', title: 'x', guid: 'com.plexapp.agents.thetvdb://376459?lang=en' })
-    ).toEqual({ tmdb: null, tvdb: '376459' });
+    ).toEqual({ tmdb: null, tvdb: '376459', imdb: null });
     expect(
-      extractGuids({ ratingKey: '1', title: 'x', guid: 'com.plexapp.agents.themoviedb://550' })
-    ).toEqual({ tmdb: '550', tvdb: null });
+      extractGuids({ ratingKey: '1', title: 'x', guid: 'com.plexapp.agents.imdb://tt0093629' })
+    ).toEqual({ tmdb: null, tvdb: null, imdb: 'tt0093629' });
     // Modern plex:// guid carries no external id → ignored.
     expect(
       extractGuids({ ratingKey: '1', title: 'x', guid: 'plex://show/abc' })
-    ).toEqual({ tmdb: null, tvdb: null });
+    ).toEqual({ tmdb: null, tvdb: null, imdb: null });
   });
 });
 

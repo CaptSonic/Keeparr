@@ -404,12 +404,15 @@ export function sumLeafSizes(nodes: PlexMetadata[]): number {
 export function extractGuids(node: PlexMetadata): {
   tmdb: string | null;
   tvdb: string | null;
+  imdb: string | null;
 } {
   const tmdb = new Set<string>();
   const tvdb = new Set<string>();
+  const imdb = new Set<string>();
   for (const g of node.Guid ?? []) {
     if (g.id?.startsWith('tmdb://')) tmdb.add(g.id.slice('tmdb://'.length));
     else if (g.id?.startsWith('tvdb://')) tvdb.add(g.id.slice('tvdb://'.length));
+    else if (g.id?.startsWith('imdb://')) imdb.add(g.id.slice('imdb://'.length));
   }
   // Legacy-agent fallback: the external id is inline in the single `guid` string.
   // `thetvdb` contains "tvdb" / `themoviedb` is the tmdb agent — match either form.
@@ -422,10 +425,15 @@ export function extractGuids(node: PlexMetadata): {
       const m = /(?:themoviedb|tmdb):\/\/(\d+)/i.exec(node.guid);
       if (m) tmdb.add(m[1]);
     }
+    if (imdb.size === 0) {
+      const m = /imdb:\/\/(tt\d+)/i.exec(node.guid);
+      if (m) imdb.add(m[1]);
+    }
   }
   return {
     tmdb: tmdb.size ? [...tmdb].join(',') : null,
     tvdb: tvdb.size ? [...tvdb].join(',') : null,
+    imdb: imdb.size ? [...imdb].join(',') : null,
   };
 }
 

@@ -19,8 +19,9 @@ function applySchema(database: Database.Database): void {
       thumb         TEXT,                       -- relative Plex thumb path
       size_bytes    INTEGER NOT NULL DEFAULT 0,
       added_at      INTEGER,
-      guid_tmdb     TEXT,                       -- for Seerr/Tautulli fallback joins
+      guid_tmdb     TEXT,                       -- external ids (CSV when Plex lists several)
       guid_tvdb     TEXT,
+      guid_imdb     TEXT,                       -- imdb id(s) ("tt…"); extra arr-match axis
       last_synced   INTEGER NOT NULL,
       removed       INTEGER NOT NULL DEFAULT 0  -- tombstone if gone from Plex
     );
@@ -204,6 +205,15 @@ function migrate(database: Database.Database): void {
     database.exec(
       `ALTER TABLE arr_unmatched ADD COLUMN size_bytes INTEGER NOT NULL DEFAULT 0`
     );
+  }
+
+  // media_items gained guid_imdb (an extra arr-match axis). Backfilled to NULL;
+  // the next library scan populates it. Additive, no data touched.
+  const mediaCols = database
+    .prepare(`PRAGMA table_info(media_items)`)
+    .all() as { name: string }[];
+  if (mediaCols.length > 0 && !mediaCols.some((c) => c.name === 'guid_imdb')) {
+    database.exec(`ALTER TABLE media_items ADD COLUMN guid_imdb TEXT`);
   }
 
   // Migrate the legacy global keeps table (rating_key PK, kept_by) to per-user

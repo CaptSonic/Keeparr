@@ -20,7 +20,7 @@ function creds(): { baseUrl: string; token: string } {
 }
 
 function mapItem(m: PlexMetadata, sizeBytes: number): BackendItem {
-  const { tmdb, tvdb } = extractGuids(m);
+  const { tmdb, tvdb, imdb } = extractGuids(m);
   return {
     ratingKey: String(m.ratingKey),
     title: m.title,
@@ -29,6 +29,7 @@ function mapItem(m: PlexMetadata, sizeBytes: number): BackendItem {
     addedAt: m.addedAt ?? null,
     guidTmdb: tmdb,
     guidTvdb: tvdb,
+    guidImdb: imdb,
     sizeBytes,
   };
 }
