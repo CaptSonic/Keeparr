@@ -153,6 +153,7 @@ function applySchema(database: Database.Database): void {
       title         TEXT NOT NULL,
       ext_kind      TEXT NOT NULL,              -- 'tvdb' | 'tmdb'
       ext_id        TEXT NOT NULL,
+      size_bytes    INTEGER NOT NULL DEFAULT 0, -- on-disk size in *arr (only "downloaded" rows are stored)
       last_synced   INTEGER NOT NULL
     );
 
@@ -191,6 +192,17 @@ function migrate(database: Database.Database): void {
   if (!cols.some((c) => c.name === 'enabled')) {
     database.exec(
       `ALTER TABLE users ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1`
+    );
+  }
+
+  // arr_unmatched gained size_bytes (to show downloaded-but-not-in-Plex sizes).
+  // It's a cache table the 'arr' job rebuilds wholesale, so a default 0 is fine.
+  const arrUnCols = database
+    .prepare(`PRAGMA table_info(arr_unmatched)`)
+    .all() as { name: string }[];
+  if (arrUnCols.length > 0 && !arrUnCols.some((c) => c.name === 'size_bytes')) {
+    database.exec(
+      `ALTER TABLE arr_unmatched ADD COLUMN size_bytes INTEGER NOT NULL DEFAULT 0`
     );
   }
 

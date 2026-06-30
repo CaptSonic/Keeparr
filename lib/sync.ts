@@ -272,14 +272,20 @@ export async function syncArr(): Promise<JobResult> {
     for (const r of recs) {
       const rk = idMap.get(r.matchId);
       if (!rk) {
-        // No Plex item carries this title's tvdb/tmdb id → record as unmatched.
-        unmatchedRecs.push({
-          source: r.source,
-          instanceName: r.instanceName,
-          title: r.title,
-          extKind: r.source === 'sonarr' ? 'tvdb' : 'tmdb',
-          extId: r.matchId,
-        });
+        // No Plex item carries this title's tvdb/tmdb id. Only record it if it's
+        // actually DOWNLOADED (has files on disk) — that's media on disk Plex
+        // can't see (actionable). Wanted-but-not-downloaded titles are just
+        // missing media and aren't Keeparr's concern, so we skip them.
+        if (r.sizeOnDisk > 0) {
+          unmatchedRecs.push({
+            source: r.source,
+            instanceName: r.instanceName,
+            title: r.title,
+            extKind: r.source === 'sonarr' ? 'tvdb' : 'tmdb',
+            extId: r.matchId,
+            sizeBytes: r.sizeOnDisk,
+          });
+        }
         continue;
       }
       if (seen.has(rk)) continue;
@@ -321,7 +327,7 @@ export async function syncArr(): Promise<JobResult> {
   const errNote = errors ? ` (${errors} instance error(s))` : '';
   return {
     result: matched.length,
-    message: `Matched ${matched.length} of ${total} titles (${unmatched} unmatched)${errNote}.`,
+    message: `Matched ${matched.length} of ${total} titles (${unmatched} downloaded but not in Plex)${errNote}.`,
   };
 }
 

@@ -114,8 +114,10 @@ manually in Plex / Jellyfin / Emby / Sonarr / Radarr.
   1080p variant). Sort by size to find the biggest, highest-quality titles to
   downgrade; Grid view shows a small quality badge. **Big Picture** gains a **By
   quality** table (how much 2160p/1080p/… is on disk, not kept, and never watched),
-  and **Settings → Match health** shows what matched vs not and which Plex items are
-  missing a tmdb/tvdb id (so you can fix them). Report-only; Keeparr never changes
+  and **Settings → Match health** shows how many matched, the titles that are
+  **downloaded in *arr but not in Plex** (largest-first with sizes + a total — media on
+  disk Plex can't see, so you can rescan/fix it), and a count of Plex items missing a
+  tmdb/tvdb id (so you can fix them). Report-only; Keeparr never changes
   anything in *arr. Titles match on stable tvdb/tmdb ids; unmatched titles are fine
   to leave. All of this stays hidden until you connect an instance.
 - **Watch history** — powers the Browse **Watched** filter, a small "watched" badge on
@@ -188,10 +190,26 @@ npm run verify    # test + build (the same checks the Docker image gates on)
 
 ## Deploy to Unraid (Docker)
 
+`docker compose` reads `SESSION_SECRET` from a `.env` file in the repo, so set it **once**
+and never pass it inline (regenerating it on every run would rotate the key and invalidate
+your stored tokens + sessions).
+
 ```bash
-# On the server, from the repo:
-SESSION_SECRET="$(openssl rand -hex 32)" docker compose up -d --build
+# First time only — on the server, from the repo:
+cp .env.example .env
+# edit .env and set SESSION_SECRET, e.g.:
+#   echo "SESSION_SECRET=$(openssl rand -hex 32)" >> .env   (then remove the change-me line)
+docker compose up -d --build
 ```
+
+```bash
+# Every update afterwards — pull the new code and rebuild/recreate the container:
+git pull
+docker compose up -d --build
+```
+
+`--build` rebuilds the image from the pulled source; `-d` runs it detached. The `.env`
+secret is reused, so your data and stored tokens carry over untouched.
 
 - Published on host port **8767** (`8767:3000`) — change in `docker-compose.yml`
   or put behind your reverse proxy.

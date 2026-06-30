@@ -210,12 +210,12 @@ function buildArrItems(items: UpsertMediaInput[]): ArrItemInput[] {
   return out;
 }
 
-/** A few fake unmatched arr titles (no Plex match) to populate Match health. */
+/** A few fake unmatched arr titles (downloaded but no Plex match) for Match health. */
 const ARR_UNMATCHED = [
-  { source: 'sonarr', instanceName: 'Sonarr', title: 'Some Obscure Show', extKind: 'tvdb' as const, extId: '999001' },
-  { source: 'sonarr', instanceName: 'Sonarr (Anime)', title: 'Niche OVA', extKind: 'tvdb' as const, extId: '999002' },
-  { source: 'radarr', instanceName: 'Radarr', title: 'Unreleased Indie Film', extKind: 'tmdb' as const, extId: '999003' },
-  { source: 'radarr', instanceName: 'Radarr', title: 'Festival Short', extKind: 'tmdb' as const, extId: '999004' },
+  { source: 'sonarr', instanceName: 'Sonarr', title: 'Some Obscure Show', extKind: 'tvdb' as const, extId: '999001', sizeBytes: Math.round(42 * GB) },
+  { source: 'sonarr', instanceName: 'Sonarr (Anime)', title: 'Niche OVA', extKind: 'tvdb' as const, extId: '999002', sizeBytes: Math.round(3.5 * GB) },
+  { source: 'radarr', instanceName: 'Radarr', title: 'Unreleased Indie Film', extKind: 'tmdb' as const, extId: '999003', sizeBytes: Math.round(8 * GB) },
+  { source: 'radarr', instanceName: 'Radarr', title: 'Festival Short', extKind: 'tmdb' as const, extId: '999004', sizeBytes: Math.round(0.9 * GB) },
 ];
 
 export interface SeedResult {

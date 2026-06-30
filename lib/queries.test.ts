@@ -833,11 +833,14 @@ describe('arr match health + quality summary', () => {
     // s2 has no arr row → "Not in *arr"
   });
 
-  it('replaceArrUnmatched / getArrUnmatched / clearArrUnmatched round-trip', () => {
+  it('replaceArrUnmatched / getArrUnmatched / clearArrUnmatched round-trip (largest first)', () => {
     replaceArrUnmatched([
-      { source: 'sonarr', instanceName: 'S', title: 'Ghost', extKind: 'tvdb', extId: '999' },
+      { source: 'sonarr', instanceName: 'S', title: 'Ghost', extKind: 'tvdb', extId: '999', sizeBytes: 1_000 },
+      { source: 'radarr', instanceName: 'R', title: 'Big Orphan', extKind: 'tmdb', extId: '42', sizeBytes: 9_000 },
     ]);
-    expect(getArrUnmatched().map((u) => u.title)).toEqual(['Ghost']);
+    const rows = getArrUnmatched();
+    expect(rows.map((u) => u.title)).toEqual(['Big Orphan', 'Ghost']); // size DESC
+    expect(rows[0].sizeBytes).toBe(9_000);
     clearArrUnmatched();
     expect(getArrUnmatched()).toEqual([]);
   });

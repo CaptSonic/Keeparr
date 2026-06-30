@@ -141,11 +141,13 @@ The chrome is a Sonarr/Radarr-style left rail (logo → Keep; Keep / Browse[expa
   `quality_kind` file|profile, `root_folder`, `arr_size_bytes`, `tags` JSON). Keyed
   by `rating_key`; replaced wholesale by the `arr` job. LEFT-JOINed by `queryLibrary`
   to power Browse's List view + quality/tag/monitored/status/size-mismatch filters.
-- `arr_unmatched` — Sonarr/Radarr titles that matched no Plex item (no Plex item
-  carries their tvdb/tmdb id). Replaced by the `arr` job; surfaced in Settings →
-  Match health. (`mediaMissingExternalIds()` reports the inverse: Plex items with a
-  null `guid_tvdb`/`guid_tmdb` that can never match.)
-  Matched via `media_items.guid_tvdb`/`guid_tmdb` (now indexed).
+- `arr_unmatched` — Sonarr/Radarr titles that matched no Plex item. Only
+  **downloaded** ones (`sizeOnDisk > 0`, stored as `size_bytes`) are recorded — they're
+  media on disk Plex can't see (actionable); wanted-but-not-downloaded titles are skipped
+  (just missing media). Replaced by the `arr` job; surfaced in Settings → Match health
+  largest-first with sizes + a total. (`mediaMissingExternalIds()` reports the inverse:
+  Plex items with a null `guid_tvdb`/`guid_tmdb` that can never match.) Matched via
+  `media_items.guid_tvdb`/`guid_tmdb` (indexed). `size_bytes` added via guarded `ALTER`.
 - `settings` — key/value; secret values encrypted.
 - `job_state` — one row per scheduled job (`recentlyAdded`/`library`/`sizes`/`watch`/
   `requests`/`arr`): last run/status/message/duration/result.
@@ -261,7 +263,8 @@ Plex sync populates as raw numeric strings.
   `GET /api/admin/cache` + `POST /api/admin/cache {target:images|requests|watch|arr}`
   (`arr` clears both `arr_items` + `arr_unmatched`),
   `GET /api/admin/arr-health` (`{matched, unmatched[], missing, arrJob}` — Match
-  health panel),
+  health panel; `unmatched[]` = titles DOWNLOADED in *arr but not in Plex, with
+  `sizeBytes`, largest-first),
   `GET/PUT /api/admin/users` (list + grant/revoke admin + enable/disable + the
   `openSignin` toggle; Owner can't be demoted or disabled),
   `POST /api/admin/users/import` (import the Plex shared-user list).

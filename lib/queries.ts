@@ -1591,6 +1591,8 @@ export interface ArrUnmatchedInput {
   title: string;
   extKind: 'tvdb' | 'tmdb';
   extId: string;
+  /** On-disk size in *arr. Only "downloaded" titles (size > 0) are recorded. */
+  sizeBytes: number;
 }
 export interface ArrUnmatchedRow extends ArrUnmatchedInput {
   lastSynced: number;
@@ -1600,8 +1602,8 @@ export interface ArrUnmatchedRow extends ArrUnmatchedInput {
 export function replaceArrUnmatched(rows: ArrUnmatchedInput[]): number {
   const db = getDb();
   const ins = db.prepare(
-    `INSERT INTO arr_unmatched (source, instance_name, title, ext_kind, ext_id, last_synced)
-     VALUES (@source, @instanceName, @title, @extKind, @extId, @ts)`
+    `INSERT INTO arr_unmatched (source, instance_name, title, ext_kind, ext_id, size_bytes, last_synced)
+     VALUES (@source, @instanceName, @title, @extKind, @extId, @sizeBytes, @ts)`
   );
   const ts = now();
   db.transaction(() => {
@@ -1615,11 +1617,12 @@ export function clearArrUnmatched(): number {
   return getDb().prepare('DELETE FROM arr_unmatched').run().changes;
 }
 
+/** Unmatched titles, largest first (so the biggest orphaned downloads lead). */
 export function getArrUnmatched(): ArrUnmatchedRow[] {
   const rows = getDb()
     .prepare(
-      `SELECT source, instance_name, title, ext_kind, ext_id, last_synced
-       FROM arr_unmatched ORDER BY title COLLATE NOCASE`
+      `SELECT source, instance_name, title, ext_kind, ext_id, size_bytes, last_synced
+       FROM arr_unmatched ORDER BY size_bytes DESC, title COLLATE NOCASE`
     )
     .all() as {
     source: string;
@@ -1627,6 +1630,7 @@ export function getArrUnmatched(): ArrUnmatchedRow[] {
     title: string;
     ext_kind: 'tvdb' | 'tmdb';
     ext_id: string;
+    size_bytes: number;
     last_synced: number;
   }[];
   return rows.map((r) => ({
@@ -1635,6 +1639,7 @@ export function getArrUnmatched(): ArrUnmatchedRow[] {
     title: r.title,
     extKind: r.ext_kind,
     extId: r.ext_id,
+    sizeBytes: r.size_bytes,
     lastSynced: r.last_synced,
   }));
 }
