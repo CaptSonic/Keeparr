@@ -23,12 +23,15 @@ import {
 import {
   setAppTitle,
   setManagedSectionIds,
+  setMediaServerType,
   setOpenSignin,
   setPlexSections,
   setRadarrInstances,
+  setServerField,
   setSonarrInstances,
   setStorageMappings,
   writeSetting,
+  type MediaServerType,
 } from './settings';
 import { DEV_USER_ID } from './dev-constants';
 
@@ -234,6 +237,22 @@ export function seedDevData(opts: { reset?: boolean } = {}): SeedResult {
   writeSetting('plex_server_token', 'dev-token');
   writeSetting('plex_server_name', 'Dev Server');
   writeSetting('plex_owner_id', DEV_USER_ID);
+
+  // Demo a non-Plex backend with `KEEPARR_DEV_SERVER=jellyfin|emby npm run seed`.
+  // Reuses the seeded media (ids/guids/keeps all work the same); watch comes
+  // "native" (the seeded watch_history rows stand in). Default = Plex.
+  const devServer = process.env.KEEPARR_DEV_SERVER as MediaServerType | undefined;
+  if (devServer === 'jellyfin' || devServer === 'emby') {
+    setMediaServerType(devServer);
+    setServerField(devServer, 'url', 'http://localhost:8096');
+    setServerField(devServer, 'token', 'dev-mediaserver-token');
+    setServerField(devServer, 'id', 'dev-mediaserver');
+    setServerField(devServer, 'name', devServer === 'emby' ? 'Dev Emby' : 'Dev Jellyfin');
+    setServerField(devServer, 'ownerId', DEV_USER_ID);
+    setServerField(devServer, 'adminToken', 'dev-mediaserver-token');
+  } else {
+    setMediaServerType('plex');
+  }
   // Fake Tautulli so the watch surfaces (Browse "Watched" filter, the watched
   // badge, Big Picture "never watched") are visible in the demo. No real calls
   // are made — the seeded watch_history rows below stand in for synced history.

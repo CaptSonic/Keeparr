@@ -1,16 +1,5 @@
+import { getBackend, type BackendItem } from './mediaserver';
 import {
-  extractGuids,
-  getAllLeaves,
-  getRecentlyAdded,
-  getSectionItems,
-  getSections,
-  sumLeafSizes,
-  sumPartSizes,
-  type PlexMetadata,
-} from './plex';
-import {
-  getServerToken,
-  getPlexBaseUrl,
   isServerConfigured,
   isTautulliConfigured,
   getTautulliUrl,
@@ -54,65 +43,54 @@ export interface JobResult {
   message: string;
 }
 
-function requirePlex(): { baseUrl: string; token: string } {
-  if (!isServerConfigured()) throw new Error('Plex server not configured');
-  return { baseUrl: getPlexBaseUrl()!, token: getServerToken()! };
+function requireServer(): void {
+  if (!isServerConfigured()) throw new Error('Media server not configured');
 }
 
 /**
  * Library inventory refresh (cheap): sections + items + adds/removes. Movie
  * sizes are read inline; show sizes are preserved from the existing cache and
- * only computed (via allLeaves) for newly-seen shows. The expensive full
- * recompute lives in the separate `syncSizes` job.
+ * only computed (per-series) for newly-seen shows. The expensive full recompute
+ * lives in the separate `syncSizes` job. Backend-agnostic via getBackend().
  */
 export async function syncLibrary(): Promise<JobResult> {
-  const { baseUrl, token } = requirePlex();
+  requireServer();
+  const backend = getBackend();
   const syncStart = nowSec();
 
-  const sections = await getSections(baseUrl, token);
-  const wanted = sections.filter((s) => s.type === 'movie' || s.type === 'show');
+  const sections = await backend.listSections();
   // Persist every discovered section so the admin can choose which to manage…
   setPlexSections(
-    wanted.map((s) => ({
-      id: s.key,
-      title: s.title,
-      type: s.type,
-      paths: (s.Location ?? []).map((l) => l.path),
-    }))
+    sections.map((s) => ({ id: s.id, title: s.title, type: s.kind, paths: s.paths }))
   );
 
   // …but only scan the managed ones (empty = all). Unmanaged sections aren't
   // touched, so their rows tombstone via tombstoneStale below and drop out.
   const managed = new Set(getManagedSectionIds());
-  const scanned = managed.size === 0 ? wanted : wanted.filter((s) => managed.has(s.key));
+  const scanned = managed.size === 0 ? sections : sections.filter((s) => managed.has(s.id));
 
   const knownSizes = existingShowSizes();
   let itemsSynced = 0;
 
   for (const section of scanned) {
-    const kind: LibraryKind = section.type === 'movie' ? 'movie' : 'show';
-    const type = kind === 'movie' ? 1 : 2;
-    const items = await getSectionItems(baseUrl, token, section.key, type);
+    const items = await backend.listSectionItems(section.id, section.kind);
 
-    if (kind === 'movie') {
-      const batch = items.map((m) =>
-        toInput(m, section.key, 'movie', sumPartSizes(m))
-      );
+    if (section.kind === 'movie') {
+      const batch = items.map((m) => toInput(m, section.id, 'movie'));
       itemsSynced += upsertMediaBatch(batch, syncStart);
     } else {
       const batch: UpsertMediaInput[] = [];
       for (const show of items) {
-        const rk = String(show.ratingKey);
-        let size = knownSizes.get(rk);
+        let size = knownSizes.get(show.ratingKey);
         if (size == null) {
           // New show — compute its size now so it never shows as 0 GB.
           try {
-            size = sumLeafSizes(await getAllLeaves(baseUrl, token, rk));
+            size = await backend.showSize(show.ratingKey);
           } catch {
             size = 0;
           }
         }
-        batch.push(toInput(show, section.key, 'show', size));
+        batch.push(toInput({ ...show, sizeBytes: size }, section.id, 'show'));
       }
       itemsSynced += upsertMediaBatch(batch, syncStart);
     }
@@ -131,37 +109,34 @@ export async function syncLibrary(): Promise<JobResult> {
  * Does NOT tombstone (removals are handled by the full Library scan).
  */
 export async function syncRecentlyAdded(): Promise<JobResult> {
-  const { baseUrl, token } = requirePlex();
+  requireServer();
+  const backend = getBackend();
   const syncStart = nowSec();
   const knownSizes = existingShowSizes();
   let added = 0;
 
   for (const section of getManagedSections()) {
     const kind: LibraryKind = section.type === 'movie' ? 'movie' : 'show';
-    const type = kind === 'movie' ? 1 : 2;
-    let items: PlexMetadata[];
+    let items: BackendItem[];
     try {
-      items = await getRecentlyAdded(baseUrl, token, section.id, type, 50);
+      items = await backend.recentItems(section.id, kind, 50);
     } catch {
       continue; // skip a failing section
     }
     const batch: UpsertMediaInput[] = [];
     for (const node of items) {
-      let size: number;
-      if (kind === 'movie') {
-        size = sumPartSizes(node);
-      } else {
-        const rk = String(node.ratingKey);
-        size = knownSizes.get(rk) ?? 0;
+      let size = node.sizeBytes;
+      if (kind === 'show') {
+        size = knownSizes.get(node.ratingKey) ?? 0;
         if (size === 0) {
           try {
-            size = sumLeafSizes(await getAllLeaves(baseUrl, token, rk));
+            size = await backend.showSize(node.ratingKey);
           } catch {
             size = 0;
           }
         }
       }
-      batch.push(toInput(node, section.id, kind, size));
+      batch.push(toInput({ ...node, sizeBytes: size }, section.id, kind));
     }
     added += upsertMediaBatch(batch, syncStart);
   }
@@ -174,13 +149,13 @@ export async function syncRecentlyAdded(): Promise<JobResult> {
  * `syncLibrary`, so this job only touches shows.
  */
 export async function syncSizes(): Promise<JobResult> {
-  const { baseUrl, token } = requirePlex();
+  requireServer();
+  const backend = getBackend();
   const keys = showRatingKeys();
   let updated = 0;
   for (const rk of keys) {
     try {
-      const size = sumLeafSizes(await getAllLeaves(baseUrl, token, rk));
-      updateItemSize(rk, size);
+      updateItemSize(rk, await backend.showSize(rk));
       updated++;
     } catch {
       // a single failing show shouldn't abort the recompute
@@ -189,10 +164,21 @@ export async function syncSizes(): Promise<JobResult> {
   return { result: updated, message: `Recomputed sizes for ${updated} series.` };
 }
 
-/** Tautulli watch-history refresh. No-op (clear message) when unconfigured. */
+/**
+ * Watch-history refresh. Jellyfin/Emby expose their own watch data (native), so
+ * we use that; Plex has none of its own, so it falls back to Tautulli. No-op
+ * (clear message) when neither source is available.
+ */
 export async function syncWatchHistory(): Promise<JobResult> {
+  if (isServerConfigured()) {
+    const native = await getBackend().getWatchData();
+    if (native) {
+      const n = upsertWatchBatch(native);
+      return { result: n, message: `Refreshed ${n} watch-history rows (native).` };
+    }
+  }
   if (!isTautulliConfigured()) {
-    return { result: 0, message: 'Tautulli not configured.' };
+    return { result: 0, message: 'No watch source configured.' };
   }
   const rows = await aggregatedWatchHistory(getTautulliUrl()!, getTautulliKey()!);
   const n = upsertWatchBatch(rows);
@@ -340,22 +326,20 @@ export async function syncArr(): Promise<JobResult> {
 }
 
 function toInput(
-  node: PlexMetadata,
+  item: BackendItem,
   sectionId: string,
-  kind: LibraryKind,
-  sizeBytes: number
+  kind: LibraryKind
 ): UpsertMediaInput {
-  const { tmdb, tvdb } = extractGuids(node);
   return {
-    ratingKey: String(node.ratingKey),
+    ratingKey: item.ratingKey,
     sectionId,
     libraryKind: kind,
-    title: node.title,
-    year: node.year ?? null,
-    thumb: node.thumb ?? null,
-    sizeBytes,
-    addedAt: node.addedAt ?? null,
-    guidTmdb: tmdb,
-    guidTvdb: tvdb,
+    title: item.title,
+    year: item.year,
+    thumb: item.thumb,
+    sizeBytes: item.sizeBytes,
+    addedAt: item.addedAt,
+    guidTmdb: item.guidTmdb,
+    guidTvdb: item.guidTvdb,
   };
 }

@@ -3,8 +3,9 @@
 A self-hosted web app that makes it dead-simple for a household to decide **what
 media to keep** — and to find what can be safely deleted to reclaim disk space.
 
-Users log in with their **Plex account** (Overseerr-style PIN OAuth). Keeparr
-reads whatever Plex libraries you have, along with each series'/movie's
+Pick your media server — **Plex, Jellyfin, or Emby** — and users log in with that
+server's account (Plex via Overseerr-style PIN OAuth; Jellyfin/Emby via username +
+password). Keeparr reads whatever libraries you have, along with each series'/movie's
 **total size on disk**, and shows simple poster cards. Tap the things worth
 keeping; keeps are **per-user but protective** — an item is kept (safe) if
 **anyone** keeps it, and you can only remove your own keep. Keep and "don't
@@ -12,14 +13,24 @@ care" are mutually exclusive per person. Everything nobody keeps shows up in a
 **Reclaimable** report, largest first.
 
 Keeparr **never deletes anything** — it only tags and reports. You delete
-manually in Plex / Sonarr / Radarr.
+manually in Plex / Jellyfin / Emby / Sonarr / Radarr.
+
+> [!NOTE]
+> **Plex is the maturely-tested backend.** Jellyfin and Emby support is built to
+> their documented APIs (and mirrors Seerr's client) but has **not yet been verified
+> against a live Jellyfin/Emby server** — treat it as beta and please report issues.
+> Existing Plex installs are unaffected: the backend defaults to Plex and upgrading
+> requires no reconfiguration.
 
 ## Features
 
-- **Plex login** — PIN OAuth, like Overseerr/Jellyseerr. Only accounts with
-  access to your Plex server can get in. The first user to log in becomes the
-  **Owner** (admin). There are no local accounts and no sign-up — everyone uses
-  their Plex account.
+- **Choose your media server** — at first-run setup you pick **Plex, Jellyfin, or
+  Emby**; Keeparr targets one server (like Seerr's `mediaServerType`). Plex uses PIN
+  OAuth (only accounts with access to your server can get in); Jellyfin/Emby use a
+  username/password login against your server. The first user to log in becomes the
+  **Owner** (admin). No local accounts, no sign-up — everyone uses their media-server
+  account. Existing Plex installs upgrade with no reconfiguration (the type defaults
+  to Plex).
 - **Admins & access control** — the Owner can promote any Plex user to admin
   (and revoke it). Only admins see/change Settings, connections, and users. Turn
   off **Open sign-in** to admit only accounts you've enabled, and **Import users
@@ -52,7 +63,8 @@ manually in Plex / Sonarr / Radarr.
   **Undecided**, hiding what you've already kept or marked "I don't care"/"OK to
   delete"; switch to **Kept by anyone**, **Kept by you**, **I don't care**, — when
   Seerr is connected — **OK to delete (by you)** / **(by anyone)**, or All), and — when
-  **Tautulli is connected** — a **Watched** filter: watched / not watched **by
+  **watch data is available** (Tautulli for Plex; native for Jellyfin/Emby) — a
+  **Watched** filter: watched / not watched **by
   you**, **not watched by anyone** (server-wide), watched in the last 30·60·90 days,
   or not watched in 90+ days (great paired with size sort to surface the biggest
   stuff nobody's touched). Plus **requested by me** in Seerr. Switch between a
@@ -106,10 +118,11 @@ manually in Plex / Sonarr / Radarr.
   missing a tmdb/tvdb id (so you can fix them). Report-only; Keeparr never changes
   anything in *arr. Titles match on stable tvdb/tmdb ids; unmatched titles are fine
   to leave. All of this stays hidden until you connect an instance.
-- **Tautulli** (optional) — pulls watch history, powering the Browse **Watched**
-  filter, a small "watched" badge on cards, and the Big Picture **never watched by
-  anyone** reclaim metric. All of these watch surfaces stay hidden until Tautulli
-  is connected, so there's no dead UI if you don't run it.
+- **Watch history** — powers the Browse **Watched** filter, a small "watched" badge on
+  cards, and the Big Picture **never watched by anyone** reclaim metric. On **Plex** this
+  needs **Tautulli** (optional connector); on **Jellyfin/Emby** it comes natively from the
+  server's own play data — no extra setup. All watch surfaces stay hidden when no watch
+  source is available, so there's no dead UI.
 - **Seerr/Overseerr** (optional) — badges titles you requested, and unlocks **"OK to
   delete"** so the original requester can release a title they're done with (see
   above). Cached locally and refreshed by the *Requests* job (so badges/requests
@@ -135,11 +148,14 @@ npm run dev                 # http://localhost:3000
 
 The SQLite db lives at `./data/keeparr.db` locally (gitignored).
 
-First run: log in with Plex (you become the Owner/admin) → **Settings → Connections**
-→ Discover & connect your Plex server (or set host/port/SSL manually) → optionally add
-Tautulli/Seerr and any number of Sonarr/Radarr instances → on the same **Connections** page pick which libraries to track and
-map each to its on-disk path (for the free-space header) → in **Settings → Jobs &
-Cache** hit **Run all now** (or run individual jobs).
+First run: a setup step asks which media server you use — **Plex, Jellyfin, or Emby**.
+Plex → sign in with Plex, then **Settings → Connections** → Discover & connect your
+server (or host/port/SSL manually). Jellyfin/Emby → enter your server URL, then sign in
+with a server account (the first user becomes the Owner/admin). Then optionally add
+Seerr and any number of Sonarr/Radarr instances (and Tautulli, for Plex watch history —
+Jellyfin/Emby report watch data natively) → on the **Connections** page pick which
+libraries to track and map each to its on-disk path (for the free-space header) → in
+**Settings → Jobs & Cache** hit **Run all now** (or run individual jobs).
 
 ## Local demo data (no Plex)
 
@@ -149,6 +165,10 @@ the dev auto-login:
 ```bash
 npm run seed                       # fills ./data with ~100 movies / TV / anime
 KEEPARR_DEV_LOGIN=1 npm run dev    # auto-logged-in at http://localhost:3000
+
+# To click through the app as a Jellyfin (or Emby) backend instead of Plex:
+KEEPARR_DEV_SERVER=jellyfin npm run seed
+KEEPARR_DEV_LOGIN=1 npm run dev
 ```
 
 - Posters are blank (no Plex to proxy), but everything else works — keep, "don't
@@ -181,8 +201,8 @@ SESSION_SECRET="$(openssl rand -hex 32)" docker compose up -d --build
   container path under **Settings → Connections** (Storage / free space). See the commented examples in
   `docker-compose.yml`. Without this, the storage header just prompts to configure.
 - `SESSION_SECRET` is **required** (compose fails without it). It also encrypts
-  the stored Plex/Tautulli/Seerr tokens at rest — rotating it means re-entering
-  them.
+  the stored media-server / Tautulli / Seerr / *arr tokens at rest — rotating it means
+  re-entering them.
 - Optional `APP_URL` sets the Plex auth `forwardUrl` for redirect-style logins.
 - **Plain HTTP vs HTTPS:** the session cookie is only marked `Secure` when the
   request arrives over HTTPS (detected via `x-forwarded-proto` from a TLS reverse
@@ -199,11 +219,25 @@ Plex stores file size on `Media[].Part[].size` (bytes). Movies have it inline;
 series do not, so Keeparr calls `/library/metadata/{ratingKey}/allLeaves` once
 per show and sums every episode's parts — counting each **physical file once**, so
 a multi-episode file (where Plex reports the full size on every episode it holds)
-isn't multiplied. Results are cached in SQLite, so pages read instantly. Because the per-show calls are the expensive part, the **Series
+isn't multiplied. Jellyfin/Emby work the same way via `MediaSources[].Size` (summed
+across a series' episodes, deduped by file path). Results are cached in SQLite, so
+pages read instantly. Because the per-show calls are the expensive part, the **Series
 sizes** job is separate from the cheap **Library data** job — schedule the size
 recompute less often (default every 12h) and the inventory refresh more often
 (default hourly), or run either on demand. Jobs are checked each minute and fire
 when due.
+
+## Media item IDs (one backend per instance)
+
+Keeparr targets a **single** media server per install (like Seerr's `mediaServerType`).
+Internally every item is keyed by an opaque **`rating_key`** (a `TEXT` column): for Plex
+that's the Plex `ratingKey`, for Jellyfin/Emby it's the stable Jellyfin item id. Nothing
+parses or assumes a format, and only one backend is ever active in a database, so the ids
+are always internally consistent — **no schema change is needed to support the three
+backends** (cross-server matching for Sonarr/Radarr/Seerr uses the stable `tmdb`/`tvdb`
+ids instead). Switching an existing install to a *different* backend would leave the old
+backend's ids (and the keeps/watch tied to them) unmatched — so choose your backend at
+setup and stick with it.
 
 ## Contributing
 

@@ -59,11 +59,19 @@ lib/
   settings.ts        typed settings accessors (+ secret encryption)
   login.ts           pure access-control decision (decideAccess) — unit tested
   plex.ts            plex.tv OAuth + PMS read API + size summation helpers
+  jellyfin.ts        Jellyfin/Emby client (MediaBrowser API): auth + server info +
+                     users (+ library/item/watch reads added in later phases)
   tautulli.ts        watch-history client
   seerr.ts           requests client
   arr.ts             Sonarr/Radarr v3 client (shared) + pure normalize fns (fetchSonarr/fetchRadarr/testArr)
   quality.ts         pure resolutionBucket()/RES_ORDER (shared by Browse + Big Picture quality grouping)
-  sync.ts            job runners: syncRecentlyAdded / syncLibrary / syncSizes / syncWatchHistory / syncSeerrRequests / syncArr
+  mediaserver/       backend read seam: types.ts (MediaBackend interface + BackendSection/
+                     BackendItem), plex.ts (adapter over lib/plex), jellyfin.ts (adapter over
+                     lib/jellyfin; serves Jellyfin AND Emby), index.ts getBackend() factory
+                     (by media_server_type). The sync engine reads through this, never a
+                     backend directly.
+  sync.ts            job runners (backend-agnostic via getBackend()): syncRecentlyAdded /
+                     syncLibrary / syncSizes / syncWatchHistory / syncSeerrRequests / syncArr
                      (+ syncSeerrRequestsForUser: warm one user's request cache on first login)
   jobs.ts            job registry + runJob/runWithState (single-flight) + isDue/dueJobs
   scheduler.ts       per-job scheduler (interval or daily HH:MM); fires due jobs each minute
@@ -114,12 +122,16 @@ The chrome is a Sonarr/Radarr-style left rail (logo → Keep; Keep / Browse[expa
   user's keep/skip. Indexed by user (`idx_deletes_user`) and item (`idx_deletes_item`,
   for the by-anyone view + the attribution join to `users`). Excluded from that
   user's feed (`FEED_ELIGIBILITY`).
-- `users` — Plex accounts; `is_admin` (first login / server owner), `enabled`
-  (admin can block an account; Owner is exempt). Migrated via guarded `ALTER TABLE`.
+- `users` — media-server accounts (`plex_user_id` is the internal id — historically
+  Plex, now the Plex/Jellyfin/Emby account id); `is_admin` (first login / server owner),
+  `enabled` (admin can block an account; Owner is exempt). Migrated via guarded `ALTER TABLE`.
 - `watch_history` — `(plex_user_id, rating_key)` `plays` + `last_watched`, from
-  Tautulli. Powers the Browse **Watched** filter + the per-card watched badge (by
-  you) and the Big Picture **never watched by anyone** metric. Indexed by user
-  (`idx_watch_user`) and by item (`idx_watch_item`, for the by-anyone lookup).
+  **Tautulli (Plex)** or **native `UserData` (Jellyfin/Emby)** — `syncWatchHistory` uses
+  `getBackend().getWatchData()` (native) and falls back to Tautulli when the backend has
+  none. Powers the Browse **Watched** filter + the per-card watched badge (by you) and the
+  Big Picture **never watched by anyone** metric. Indexed by user (`idx_watch_user`) and by
+  item (`idx_watch_item`, for the by-anyone lookup). UI watch surfaces gate on
+  `isWatchAvailable()` (Tautulli for Plex, native otherwise).
 - `seerr_requests` — `(plex_user_id, rating_key)`; cached Seerr requests (refreshed
   by the `requests` job; badges/filters read this, not live Seerr). Also warmed
   for a single user on their **first login** via `syncSeerrRequestsForUser`, so
@@ -148,9 +160,14 @@ Plex sync populates as raw numeric strings.
 
 ## API routes
 
-- `POST /api/auth/plex/pin` → `{id, authUrl}`; `GET /api/auth/plex/check?id=` →
-  `{status: pending|authorized|denied, needsSetup, isAdmin}`; `POST
-  /api/auth/logout`; `GET /api/auth/me`.
+- **Auth is backend-aware** (`media_server_type`): Plex uses PIN OAuth; Jellyfin/Emby
+  use username+password. `POST /api/auth/plex/pin` → `{id, authUrl}`; `GET
+  /api/auth/plex/check?id=` → `{status: pending|authorized|denied, needsSetup, isAdmin}`
+  (Plex). `POST /api/auth/setup {type, url?}` — first-run only (403 once an admin exists):
+  records the chosen server type, and for Jellyfin/Emby tests+stores the server URL.
+  `POST /api/auth/login {username, password}` — Jellyfin/Emby credential login (a
+  successful auth IS server access; first user bootstraps owner and their access token
+  becomes the server read token). `POST /api/auth/logout`; `GET /api/auth/me`.
 - `GET /api/feed/random?limit=&section=&largest=1` → home batch. Default (no
   params) = screen-fill mix across **all Plex libraries**, weighted toward big
   series with a guaranteed few movies. `section=<id>` limits to one Plex library;
@@ -227,15 +244,17 @@ Plex sync populates as raw numeric strings.
   shown). Accepts a session user **or** the API key (`X-Api-Key`).
 - `GET /api/requests` — current user's Seerr rating keys for badges, read from the
   `seerr_requests` cache (refreshed by the `requests` job, not live).
-- `GET /api/image?path=&w=&h=` — proxies Plex thumbs (token stays server-side).
+- `GET /api/image?path=&w=&h=` — proxies posters (token stays server-side); backend-aware
+  (`path` = Plex relative thumb, or a Jellyfin/Emby item id → `/Items/{id}/Images/Primary`).
 - `GET /api/health` — public liveness probe (used by the Docker healthcheck).
 - Admin (require `is_admin`): `GET/PUT /api/admin/settings` (PUT accepts
   `storageMappings`, `managedSectionIds`, `appTitle`, `appUrl`, `apiKey`, `plexBaseUrl`,
   `jobSchedules`, `plexServer`, `tautulli`, `seerr`, `sonarrInstances`,
   `radarrInstances` — GET returns instances as `[{id,name,url,hasKey}]`, never the apiKey),
   `GET /api/admin/plex-servers`, `POST /api/admin/test-connection` (services
-  `plex`/`tautulli`/`seerr`/`sonarr`/`radarr`),
-  `POST /api/admin/sync-libraries` (discover sections only, fast),
+  `plex`/`jellyfin`/`emby`/`tautulli`/`seerr`/`sonarr`/`radarr`),
+  `POST /api/admin/sync-libraries` (discover sections only, fast — backend-agnostic
+  via `getBackend().listSections()`),
   `GET /api/admin/storage-check?path=`, `GET /api/admin/jobs` (status + recent runs)
   + `POST /api/admin/jobs {job}` (trigger one/`all`) — both also accept `X-Api-Key`,
   `GET /api/admin/logs?level=` + `DELETE /api/admin/logs`,
@@ -249,9 +268,16 @@ Plex sync populates as raw numeric strings.
 
 ## Settings keys (all via `lib/settings.ts`)
 
+`media_server_type` (`'plex'|'jellyfin'|'emby'`; **defaults to `'plex'`** when unset, so
+existing installs are unchanged — chosen once at first-run setup), `media_device_id`
+(stable id for the Jellyfin/Emby MediaBrowser auth header). Per-backend connection keys
+resolve through type-aware accessors (`getServerBaseUrl/Token/Name/Id`, `getOwnerId`,
+`getAdminToken`, `isServerConfigured`): Plex keeps its historical names —
 `plex_client_id`, `plex_owner_id`, `plex_admin_token`*, `plex_machine_id`,
-`plex_base_url`, `plex_server_token`*, `plex_server_name`, `plex_sections` (json;
-includes each section's Plex `paths[]`), `tautulli_url`, `tautulli_api_key`*,
+`plex_base_url`, `plex_server_token`*, `plex_server_name`; Jellyfin/Emby use a uniform
+scheme — `<type>_url`, `<type>_token`*, `<type>_admin_token`*, `<type>_server_id`,
+`<type>_server_name`, `<type>_owner_id` (`<type>` = `jellyfin`|`emby`). `plex_sections` (json;
+includes each section's `paths[]`; reused for all backends), `tautulli_url`, `tautulli_api_key`*,
 `seerr_url`, `seerr_api_key`*, `sonarr_instances`*, `radarr_instances`* (json
 arrays of `{id,name,url,apiKey}` — N instances each; the whole blob is encrypted),
 `job_schedules` (json per job: `{type:'interval',minutes}`,
@@ -266,16 +292,25 @@ at rest.
 
 **Local demo mode**: `npm run seed` (`lib/dev-seed.ts` + `scripts/seed.ts`) fills
 `./data` with fake libraries; `KEEPARR_DEV_LOGIN=1` makes `middleware.ts` auto-mint a
-dev session (no Plex/login). Both are inert/absent in production.
+dev session (no Plex/login). `KEEPARR_DEV_SERVER=jellyfin|emby npm run seed` configures
+the demo as that backend (fake connection) instead of Plex, so the setup/login branch +
+backend-aware UI are clickable offline (default = Plex). All inert/absent in production.
 
 ## Auth / access control
 
-- PIN OAuth: create pin → user authorizes at app.plex.tv → poll → token →
-  identity (`/api/v2/user`) → access decision (`lib/login.ts decideAccess`).
-- First-ever login = **bootstrap_admin** (claims admin, stores owner id + account
-  token, must connect a server). Owner is always allowed. Other users must
-  appear in the server's shared-users list (`checkServerAccess`, which parses the
-  XML from `plex.tv/api/users` via `parseSharedUsers`).
+- **Backend is selectable** (`media_server_type`, default `'plex'`). The login page
+  (`app/login/page.tsx` server component → `LoginClient`) reads the type and renders the
+  right flow; a server-type chooser appears only on a brand-new install (no type chosen +
+  no admin). `decideAccess` (`lib/login.ts`) is backend-agnostic — it only takes booleans.
+- **Plex** — PIN OAuth: create pin → user authorizes at app.plex.tv → poll → token →
+  identity (`/api/v2/user`) → `decideAccess`. Other users must appear in the server's
+  shared-users list (`checkServerAccess`, parsing `plex.tv/api/users` via `parseSharedUsers`).
+- **Jellyfin/Emby** — credential login (`/api/auth/login` → `authenticateByName`): a
+  successful auth IS server access (no shared-user list). The first-run flow collects the
+  server URL via `/api/auth/setup` (bootstrap-only) before login; the bootstrap admin's
+  access token becomes the server read token.
+- First-ever login = **bootstrap_admin** (claims admin, stores owner id + token; for Plex
+  must then connect a server). Owner is always allowed.
 - Admin is **binary** (`users.is_admin`). Shared users log in with `is_admin=0`;
   any admin can promote/revoke others from the Users screen via `setUserAdmin`
   (the explicit counterpart to `upsertUser`, whose `MAX(is_admin, …)` only raises).
@@ -306,13 +341,29 @@ dev session (no Plex/login). Both are inert/absent in production.
   `app.plex.tv/auth#?clientID=&code=&context[device][product]=`, poll
   `GET plex.tv/api/v2/pins/{id}` until `authToken`. Reuse a stable
   `X-Plex-Client-Identifier` (persisted as `plex_client_id`).
+- **Jellyfin / Emby** (MediaBrowser API, verified against Seerr's `jellyfin.ts`): auth
+  `POST /Users/AuthenticateByName {Username,Pw}` with the `MediaBrowser Client=…,
+  Device=…, DeviceId=…, Version=…[, Token=…]` header (sent on both `Authorization` and
+  `X-Emby-Authorization`; device id persisted as `media_device_id`) → `{AccessToken,
+  User:{Id,Name,Policy.IsAdministrator}}`. Libraries `GET /Library/MediaFolders`
+  (CollectionType movies→movie, tvshows→show). Items `GET /Items?Recursive=true&
+  IncludeItemTypes=Movie|Series&ParentId=&fields=ProviderIds,MediaSources,DateCreated`
+  (paged via StartIndex/Limit + TotalRecordCount). Series size = `GET
+  /Items?ParentId={id}&Recursive=true&IncludeItemTypes=Episode&fields=MediaSources`,
+  summing `MediaSources[].Size` deduped by `Path` (multi-episode files). Size on disk =
+  `MediaSources[].Size`; ids = `ProviderIds.{Tmdb,Tvdb}` → `guid_tmdb/guid_tvdb`; added =
+  `DateCreated`; poster = `GET /Items/{id}/Images/Primary?fillWidth=&fillHeight=&api_key=`.
+  Emby is the same API (only the auth-header version string differs). Unverified against a
+  live server — built to the documented API + Seerr's client.
 - **Tautulli**: `GET {url}/api/v2?apikey=&cmd=&out_type=json`; envelope
   `response.{result,message,data}`. `get_history` rows are at
   `response.data.data[]` (object); aggregate by `grandparent_rating_key`
   (episodes) / `rating_key` (movies).
-- **Seerr**: base `/api/v1`, header `X-Api-Key`. `media.ratingKey` IS the Plex
-  rating key (direct join). We match the Plex user to a Seerr user by email /
-  plex username, then read `/user/{id}/requests`.
+- **Seerr**: base `/api/v1`, header `X-Api-Key`. Match the user to a Seerr user by
+  email / plex / jellyfin username, then read `/user/{id}/requests`. On Plex,
+  `media.ratingKey` IS the rating key (direct join); on Jellyfin/Emby that isn't our
+  item id, so we match the request's `media.tmdbId` (movies) / `tvdbId` (tv) to
+  `media_items.guid_tmdb`/`guid_tvdb` via `ratingKeysByGuid`.
 - **Sonarr/Radarr** (v3): base `{url}/api/v3`, header `X-Api-Key`. `GET /series`
   (`tvdbId`, `monitored`, `status`, `qualityProfileId`, `statistics.sizeOnDisk`,
   `tags:number[]`) / `GET /movie` (`tmdbId`, `monitored`, `status`, `sizeOnDisk`,

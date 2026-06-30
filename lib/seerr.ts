@@ -1,19 +1,28 @@
 /**
  * Overseerr / Seerr API client (base /api/v1, auth header X-Api-Key).
- * We use it read-only: test the connection and find which items a given Plex
- * user has requested (joined to Plex via media.ratingKey).
+ * We use it read-only: test the connection and find which items a given user has
+ * requested. On Plex we join via `media.ratingKey`; on Jellyfin/Emby (where that
+ * key isn't our item id) we match by tmdb/tvdb id → `media_items.guid_*`.
  */
 import { fetchJson } from './http';
+import { getMediaServerType } from './settings';
+import { ratingKeysByGuid } from './queries';
 
 interface SeerrUser {
   id: number;
   email?: string | null;
   plexUsername?: string | null;
   username?: string | null;
+  jellyfinUsername?: string | null;
 }
 
 interface SeerrRequest {
-  media?: { ratingKey?: string | number | null };
+  media?: {
+    ratingKey?: string | number | null;
+    tmdbId?: number | null;
+    tvdbId?: number | null;
+    mediaType?: string | null;
+  };
 }
 
 async function seerrGet<T>(
@@ -63,15 +72,18 @@ async function findSeerrUserId(
     (u) =>
       (lcEmail && u.email?.toLowerCase() === lcEmail) ||
       (lcUser && u.plexUsername?.toLowerCase() === lcUser) ||
+      (lcUser && u.jellyfinUsername?.toLowerCase() === lcUser) ||
       (lcUser && u.username?.toLowerCase() === lcUser)
   );
   return found?.id ?? null;
 }
 
 /**
- * Set of Plex rating keys the given user has requested via Seerr. Returns empty
- * set if the user can't be matched or has no requests. Best-effort (never throws
- * into the caller's render path — caller should try/catch).
+ * Set of our rating keys the given user has requested via Seerr. Empty if the
+ * user can't be matched or has no requests. Best-effort (never throws into the
+ * caller's render path — caller should try/catch). On Plex this is `media.ratingKey`
+ * directly; on Jellyfin/Emby it resolves the request's tmdb/tvdb id to the matching
+ * media item (`media_items.guid_tmdb/guid_tvdb`), so it works without Plex ids.
  */
 export async function requestedRatingKeysForUser(
   base: string,
@@ -85,10 +97,32 @@ export async function requestedRatingKeysForUser(
     apiKey,
     `/user/${userId}/requests?take=200`
   );
+  const requests = data.results ?? [];
   const keys = new Set<string>();
-  for (const r of data.results ?? []) {
-    const rk = r.media?.ratingKey;
-    if (rk != null && String(rk).length > 0) keys.add(String(rk));
+
+  if (getMediaServerType() === 'plex') {
+    for (const r of requests) {
+      const rk = r.media?.ratingKey;
+      if (rk != null && String(rk).length > 0) keys.add(String(rk));
+    }
+    return keys;
+  }
+
+  // Jellyfin/Emby: match by external id → our media item.
+  const tmdb = ratingKeysByGuid('tmdb');
+  const tvdb = ratingKeysByGuid('tvdb');
+  for (const r of requests) {
+    const m = r.media;
+    if (!m) continue;
+    const isTv = m.mediaType === 'tv';
+    const rk = isTv
+      ? m.tvdbId != null
+        ? tvdb.get(String(m.tvdbId))
+        : undefined
+      : m.tmdbId != null
+        ? tmdb.get(String(m.tmdbId))
+        : undefined;
+    if (rk) keys.add(rk);
   }
   return keys;
 }

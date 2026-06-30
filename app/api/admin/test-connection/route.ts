@@ -13,11 +13,12 @@ import { logEvent } from '@/lib/queries';
 import { testTautulli } from '@/lib/tautulli';
 import { testSeerr } from '@/lib/seerr';
 import { testArr } from '@/lib/arr';
+import { testJellyfin } from '@/lib/jellyfin';
 
 export const runtime = 'nodejs';
 
 interface Body {
-  service: 'plex' | 'tautulli' | 'seerr' | 'sonarr' | 'radarr';
+  service: 'plex' | 'jellyfin' | 'emby' | 'tautulli' | 'seerr' | 'sonarr' | 'radarr';
   url: string;
   apiKey?: string;
   token?: string;
@@ -43,6 +44,8 @@ export async function POST(req: Request) {
       } catch (e) {
         result = { ok: false, message: String(e) };
       }
+    } else if (body.service === 'jellyfin' || body.service === 'emby') {
+      result = await testJellyfin(body.url);
     } else if (body.service === 'tautulli') {
       // Blank key → fall back to the saved one (re-testing a saved connection).
       result = await testTautulli(body.url, body.apiKey || getTautulliKey() || '');

@@ -15,7 +15,7 @@ import {
   getStorageMappings,
   isArrConfigured,
   isSeerrConfigured,
-  isTautulliConfigured,
+  isWatchAvailable,
 } from '@/lib/settings';
 
 export const runtime = 'nodejs';
@@ -111,9 +111,10 @@ export async function GET() {
       mediaUsedBytes: totals.bytes,
       libraries,
       totals,
-      // Watch data (badges, never-watched metric) only makes sense when Tautulli
-      // is connected — the UI hides those surfaces otherwise.
-      tautulli: isTautulliConfigured(),
+      // Watch data (badges, never-watched metric) only makes sense when a watch
+      // source is available (Tautulli for Plex, native for Jellyfin/Emby) — the UI
+      // hides those surfaces otherwise. (Field name kept as `tautulli` for the client.)
+      tautulli: isWatchAvailable(),
       // Sonarr/Radarr-derived "reclaim by quality" breakdown (when connected).
       arr,
       qualityBreakdown,

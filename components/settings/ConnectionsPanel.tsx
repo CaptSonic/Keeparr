@@ -221,7 +221,15 @@ function ArrCard({
   );
 }
 
+type ServerType = 'plex' | 'jellyfin' | 'emby';
+const SERVER_LABEL: Record<ServerType, string> = {
+  plex: 'Plex',
+  jellyfin: 'Jellyfin',
+  emby: 'Emby',
+};
+
 export default function ConnectionsPanel() {
+  const [serverType, setServerType] = useState<ServerType>('plex');
   const [plex, setPlex] = useState<Parts>({ ssl: false, host: '', port: '', base: '' });
   const [plexConfigured, setPlexConfigured] = useState(false);
   const [plexName, setPlexName] = useState<string | null>(null);
@@ -251,9 +259,12 @@ export default function ConnectionsPanel() {
 
   const load = useCallback(async () => {
     const d = await fetch('/api/admin/settings').then((r) => r.json());
+    setServerType((d.mediaServerType as ServerType) ?? 'plex');
     setPlex(parseUrl(d.plex.baseUrl));
     setPlexConfigured(!!d.plex.configured);
-    setPlexName(d.plex.serverName ?? d.plex.machineId ?? null);
+    setPlexName(
+      d.mediaServer?.name ?? d.plex.serverName ?? d.plex.machineId ?? null
+    );
     setTaut(parseUrl(d.tautulli.url));
     setTautConfigured(!!d.tautulli.configured);
     setSeerr(parseUrl(d.seerr.url));
@@ -475,55 +486,69 @@ export default function ConnectionsPanel() {
   return (
     <div>
       <CardColumns>
-      <Card title="Plex">
+      <Card title={SERVER_LABEL[serverType]}>
         {plexConfigured ? (
           <p className="text-sm text-slate-300 mb-3">
             Connected to <span className="text-white font-medium">{plexName}</span>.
           </p>
         ) : (
-          <p className="text-sm text-amber-400 mb-3">No Plex server connected yet.</p>
-        )}
-        <button onClick={discover} disabled={discovering} className={btnGhost}>
-          {discovering ? 'Discovering…' : 'Discover servers'}
-        </button>
-        {servers && servers.length === 0 && (
-          <p className="text-sm text-slate-400 mt-3">No servers found.</p>
-        )}
-        {servers && servers.length > 0 && (
-          <div className="mt-4 space-y-3">
-            {servers.map((s) => (
-              <div key={s.machineId} className="rounded-lg border border-slate-700 p-3">
-                <div className="font-medium">
-                  {s.name} {s.owned && <span className="text-xs text-brand">(owned)</span>}
-                </div>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {s.connections.map((c) => (
-                    <button
-                      key={c.uri}
-                      onClick={() => connectServer(s, c.uri)}
-                      disabled={saving}
-                      className={`${btnGhost} text-xs`}
-                      title={c.uri}
-                    >
-                      {c.local ? 'Local' : c.relay ? 'Relay' : 'Remote'}: {new URL(c.uri).host}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
+          <p className="text-sm text-amber-400 mb-3">
+            No {SERVER_LABEL[serverType]} server connected yet.
+          </p>
         )}
 
-        <div className="mt-4 border-t border-slate-800 pt-3">
-          <p className="text-sm text-slate-400 mb-2">Or set the connection manually:</p>
-          <ServiceFields parts={plex} setParts={setPlex} />
-          <div className="mt-3 flex items-center gap-3">
-            <button onClick={() => testConn('plex')} className={btnGhost} type="button">
-              Test
+        {/* Plex connects here (discover or manual). Jellyfin/Emby are connected
+            during sign-in (URL at setup + the owner's token), so there's no
+            connect form — just library sync below. */}
+        {serverType === 'plex' ? (
+          <>
+            <button onClick={discover} disabled={discovering} className={btnGhost}>
+              {discovering ? 'Discovering…' : 'Discover servers'}
             </button>
-            {test.plex && <span className="text-sm text-slate-400">{test.plex}</span>}
-          </div>
-        </div>
+            {servers && servers.length === 0 && (
+              <p className="text-sm text-slate-400 mt-3">No servers found.</p>
+            )}
+            {servers && servers.length > 0 && (
+              <div className="mt-4 space-y-3">
+                {servers.map((s) => (
+                  <div key={s.machineId} className="rounded-lg border border-slate-700 p-3">
+                    <div className="font-medium">
+                      {s.name} {s.owned && <span className="text-xs text-brand">(owned)</span>}
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {s.connections.map((c) => (
+                        <button
+                          key={c.uri}
+                          onClick={() => connectServer(s, c.uri)}
+                          disabled={saving}
+                          className={`${btnGhost} text-xs`}
+                          title={c.uri}
+                        >
+                          {c.local ? 'Local' : c.relay ? 'Relay' : 'Remote'}: {new URL(c.uri).host}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="mt-4 border-t border-slate-800 pt-3">
+              <p className="text-sm text-slate-400 mb-2">Or set the connection manually:</p>
+              <ServiceFields parts={plex} setParts={setPlex} />
+              <div className="mt-3 flex items-center gap-3">
+                <button onClick={() => testConn('plex')} className={btnGhost} type="button">
+                  Test
+                </button>
+                {test.plex && <span className="text-sm text-slate-400">{test.plex}</span>}
+              </div>
+            </div>
+          </>
+        ) : (
+          <p className="text-xs text-slate-500 mb-1">
+            Connected at sign-in. Re-sync libraries below if you add a new one.
+          </p>
+        )}
 
         {plexConfigured && (
           <div className="mt-4 border-t border-slate-800 pt-3 flex flex-wrap items-center gap-3">
@@ -623,24 +648,28 @@ export default function ConnectionsPanel() {
         </div>
       </Card>
 
-      <Card title="Tautulli (watch history)">
-        <ServiceFields parts={taut} setParts={setTaut} showBase />
-        <label className="block text-sm text-slate-400 mt-3 mb-1">
-          API key {tautConfigured && '(saved — leave blank to keep)'}
-        </label>
-        <input
-          className={`${inputCls} max-w-md`}
-          type="password"
-          value={tautKey}
-          onChange={(e) => setTautKey(e.target.value)}
-        />
-        <div className="mt-3 flex items-center gap-3">
-          <button onClick={() => testConn('tautulli')} className={btnGhost} type="button">
-            Test
-          </button>
-          {test.tautulli && <span className="text-sm text-slate-400">{test.tautulli}</span>}
-        </div>
-      </Card>
+      {/* Tautulli is the Plex watch-history source. Jellyfin/Emby have native
+          watch data, so the card is hidden for them. */}
+      {serverType === 'plex' && (
+        <Card title="Tautulli (watch history)">
+          <ServiceFields parts={taut} setParts={setTaut} showBase />
+          <label className="block text-sm text-slate-400 mt-3 mb-1">
+            API key {tautConfigured && '(saved — leave blank to keep)'}
+          </label>
+          <input
+            className={`${inputCls} max-w-md`}
+            type="password"
+            value={tautKey}
+            onChange={(e) => setTautKey(e.target.value)}
+          />
+          <div className="mt-3 flex items-center gap-3">
+            <button onClick={() => testConn('tautulli')} className={btnGhost} type="button">
+              Test
+            </button>
+            {test.tautulli && <span className="text-sm text-slate-400">{test.tautulli}</span>}
+          </div>
+        </Card>
+      )}
 
       <Card title="Overseerr / Seerr (requests)">
         <ServiceFields parts={seerr} setParts={setSeerr} showBase />

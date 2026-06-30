@@ -15,6 +15,11 @@ import {
 const SECRET_KEYS = new Set([
   'plex_admin_token',
   'plex_server_token',
+  // Jellyfin / Emby access tokens (mirror the Plex token keys per backend).
+  'jellyfin_token',
+  'jellyfin_admin_token',
+  'emby_token',
+  'emby_admin_token',
   'tautulli_api_key',
   'seerr_api_key',
   'api_key',
@@ -33,22 +38,96 @@ export function writeSetting(key: string, value: string): void {
   setSetting(key, SECRET_KEYS.has(key) ? encryptSecret(value) : value);
 }
 
-// --- Plex ---
-export const getOwnerId = () => readSetting('plex_owner_id');
-export const getAdminToken = () => readSetting('plex_admin_token');
+// --- Media server (Plex / Jellyfin / Emby) ---
+// Keeparr targets ONE media server at a time, chosen at setup (like Seerr's
+// `mediaServerType`). Existing installs predate this key, so it defaults to
+// 'plex' — a Plex deployment keeps reading its `plex_*` keys with no migration.
+export type MediaServerType = 'plex' | 'jellyfin' | 'emby';
+
+export function getMediaServerType(): MediaServerType {
+  const v = readSetting('media_server_type');
+  return v === 'jellyfin' || v === 'emby' ? v : 'plex';
+}
+
+export function setMediaServerType(type: MediaServerType): void {
+  writeSetting('media_server_type', type);
+}
+
+// Per-backend settings-key map. Plex keeps its historical key names (so nothing
+// changes for existing installs); Jellyfin/Emby use a uniform `<type>_*` scheme.
+export type ServerField = 'url' | 'token' | 'id' | 'name' | 'ownerId' | 'adminToken';
+const SERVER_KEYS: Record<MediaServerType, Record<ServerField, string>> = {
+  plex: {
+    url: 'plex_base_url',
+    token: 'plex_server_token',
+    id: 'plex_machine_id',
+    name: 'plex_server_name',
+    ownerId: 'plex_owner_id',
+    adminToken: 'plex_admin_token',
+  },
+  jellyfin: {
+    url: 'jellyfin_url',
+    token: 'jellyfin_token',
+    id: 'jellyfin_server_id',
+    name: 'jellyfin_server_name',
+    ownerId: 'jellyfin_owner_id',
+    adminToken: 'jellyfin_admin_token',
+  },
+  emby: {
+    url: 'emby_url',
+    token: 'emby_token',
+    id: 'emby_server_id',
+    name: 'emby_server_name',
+    ownerId: 'emby_owner_id',
+    adminToken: 'emby_admin_token',
+  },
+};
+const skey = (field: ServerField) => SERVER_KEYS[getMediaServerType()][field];
+
+/** Write a backend connection field by logical name (keeps key names centralized). */
+export function setServerField(
+  type: MediaServerType,
+  field: ServerField,
+  value: string
+): void {
+  writeSetting(SERVER_KEYS[type][field], value);
+}
+
+// Generic, backend-aware accessors. For 'plex' (the default) these resolve to the
+// exact same keys/values as before, so Plex behavior is unchanged.
+export const getServerBaseUrl = () => readSetting(skey('url'));
+export const getServerToken = () => readSetting(skey('token'));
+export const getServerId = () => readSetting(skey('id'));
+export const getServerName = () => readSetting(skey('name'));
+export const getOwnerId = () => readSetting(skey('ownerId'));
+export const getAdminToken = () => readSetting(skey('adminToken'));
+
+// Plex-specific aliases kept for the Plex-only code paths (discovery, identity).
 export const getMachineId = () => readSetting('plex_machine_id');
 export const getPlexBaseUrl = () => readSetting('plex_base_url');
-export const getServerToken = () => readSetting('plex_server_token');
 
-/** True once an admin has connected a Plex server. */
-export const isServerConfigured = () =>
-  !!getMachineId() && !!getPlexBaseUrl() && !!getServerToken();
+/** True once an admin has connected a media server (per the configured type). */
+export function isServerConfigured(): boolean {
+  if (getMediaServerType() === 'plex') {
+    return !!getMachineId() && !!getPlexBaseUrl() && !!getServerToken();
+  }
+  // Jellyfin/Emby: a base URL + access token is enough to read the server.
+  return !!getServerBaseUrl() && !!getServerToken();
+}
 
 // --- Tautulli ---
 export const getTautulliUrl = () => readSetting('tautulli_url');
 export const getTautulliKey = () => readSetting('tautulli_api_key');
 export const isTautulliConfigured = () =>
   !!getTautulliUrl() && !!getTautulliKey();
+
+/**
+ * Whether watch data is available for the configured backend (drives the Watched
+ * filter, the watched badge, and the Big Picture never-watched metric): Plex needs
+ * Tautulli; Jellyfin/Emby have native watch data once connected.
+ */
+export const isWatchAvailable = () =>
+  getMediaServerType() === 'plex' ? isTautulliConfigured() : isServerConfigured();
 
 // --- Seerr ---
 export const getSeerrUrl = () => readSetting('seerr_url');

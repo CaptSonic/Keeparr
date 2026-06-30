@@ -5,7 +5,7 @@ import {
   isArrConfigured,
   isSeerrConfigured,
   isServerConfigured,
-  isTautulliConfigured,
+  isWatchAvailable,
 } from '@/lib/settings';
 import { sectionSizeSummary } from '@/lib/queries';
 import AppShell from '@/components/AppShell';
@@ -37,7 +37,7 @@ export default async function LibraryPage() {
       ) : (
         <LibraryBrowser
           sections={sections}
-          tautulli={isTautulliConfigured()}
+          tautulli={isWatchAvailable()}
           arr={isArrConfigured()}
           seerr={isSeerrConfigured()}
         />

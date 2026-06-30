@@ -1,20 +1,15 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth';
 import { errorResponse } from '@/lib/route-helpers';
-import { getSections } from '@/lib/plex';
-import {
-  getPlexBaseUrl,
-  getServerToken,
-  isServerConfigured,
-  setPlexSections,
-} from '@/lib/settings';
+import { getBackend } from '@/lib/mediaserver';
+import { isServerConfigured, setPlexSections } from '@/lib/settings';
 import { logEvent } from '@/lib/queries';
 
 export const runtime = 'nodejs';
 
 /**
- * Refresh just the library LIST from Plex (fast) — so newly created libraries
- * show up to manage/map without a full content scan.
+ * Refresh just the library LIST from the configured media server (fast) — so
+ * newly created libraries show up to manage/map without a full content scan.
  */
 export async function POST() {
   try {
@@ -22,18 +17,12 @@ export async function POST() {
     if (!isServerConfigured()) {
       return NextResponse.json({ error: 'not_configured' }, { status: 400 });
     }
-    const sections = await getSections(getPlexBaseUrl()!, getServerToken()!);
-    const wanted = sections.filter((s) => s.type === 'movie' || s.type === 'show');
+    const sections = await getBackend().listSections();
     setPlexSections(
-      wanted.map((s) => ({
-        id: s.key,
-        title: s.title,
-        type: s.type,
-        paths: (s.Location ?? []).map((l) => l.path),
-      }))
+      sections.map((s) => ({ id: s.id, title: s.title, type: s.kind, paths: s.paths }))
     );
-    logEvent('info', 'plex', `Synced ${wanted.length} libraries.`);
-    return NextResponse.json({ count: wanted.length });
+    logEvent('info', 'mediaserver', `Synced ${sections.length} libraries.`);
+    return NextResponse.json({ count: sections.length });
   } catch (e) {
     return errorResponse(e);
   }

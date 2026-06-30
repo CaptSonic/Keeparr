@@ -4,6 +4,9 @@ import { errorResponse } from '@/lib/route-helpers';
 import {
   getPlexBaseUrl,
   getMachineId,
+  getMediaServerType,
+  getServerBaseUrl,
+  getServerName,
   getPlexSections,
   getSeerrUrl,
   getStorageMappings,
@@ -78,6 +81,13 @@ export async function GET() {
   try {
     await requireAdmin();
     return NextResponse.json({
+      mediaServerType: getMediaServerType(),
+      mediaServer: {
+        type: getMediaServerType(),
+        configured: isServerConfigured(),
+        url: getServerBaseUrl(),
+        name: getServerName(),
+      },
       plex: {
         configured: isServerConfigured(),
         baseUrl: getPlexBaseUrl(),
