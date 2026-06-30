@@ -1525,7 +1525,9 @@ export function clearArrItems(): number {
   return getDb().prepare('DELETE FROM arr_items').run().changes;
 }
 
-/** Rating keys of non-removed media items by external id (for arr matching). */
+/** Rating keys of non-removed media items by external id (for arr matching). The
+ *  stored guid may be a CSV ("376459,407505") when Plex lists several ids for one
+ *  item — split it so a Sonarr/Radarr id matching ANY of them resolves. */
 export function ratingKeysByGuid(kind: 'tvdb' | 'tmdb'): Map<string, string> {
   const col = kind === 'tvdb' ? 'guid_tvdb' : 'guid_tmdb';
   const wantKind = kind === 'tvdb' ? 'show' : 'movie';
@@ -1535,7 +1537,14 @@ export function ratingKeysByGuid(kind: 'tvdb' | 'tmdb'): Map<string, string> {
        WHERE removed = 0 AND library_kind = @kind AND ${col} IS NOT NULL`
     )
     .all({ kind: wantKind }) as { rating_key: string; guid: string }[];
-  return new Map(rows.map((r) => [r.guid, r.rating_key]));
+  const map = new Map<string, string>();
+  for (const r of rows) {
+    for (const id of String(r.guid).split(',')) {
+      const t = id.trim();
+      if (t && !map.has(t)) map.set(t, r.rating_key); // first item to claim an id wins
+    }
+  }
+  return map;
 }
 
 /** Sonarr/Radarr "monitored" filter (reused by queryLibrary's arr filters). */

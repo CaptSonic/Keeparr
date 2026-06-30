@@ -158,7 +158,13 @@ The chrome is a Sonarr/Radarr-style left rail (logo → Keep; Keep / Browse[expa
 The shared id across Plex/Tautulli/Seerr is the Plex **ratingKey** (mutable
 across Plex library rebuilds — treat as best-effort). Sonarr/Radarr instead match
 on the **stable** external ids `guid_tvdb` (shows) / `guid_tmdb` (movies), which
-Plex sync populates as raw numeric strings.
+Plex sync populates. **A Plex item can carry MULTIPLE tvdb/tmdb ids** (e.g. a show
+merged across two TheTVDB entries), so `extractGuids` keeps ALL of them as a CSV
+(`"376459,407505"`) and `ratingKeysByGuid` splits it so an arr id matching ANY of
+them resolves. (Keeping only one — the old behavior took the last — meant items
+matched the wrong id and showed as unmatched even though the right id was present.)
+`extractGuids` also falls back to the legacy single-`guid` string
+(`com.plexapp.agents.thetvdb://…`) when the modern `Guid[]` array is absent.
 
 ## API routes
 

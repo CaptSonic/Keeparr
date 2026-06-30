@@ -83,10 +83,27 @@ export default function MatchHealthCard() {
       </div>
 
       {missingTotal > 0 && (
-        <p className="mb-3 text-sm text-amber-400">
-          {missing!.shows} show(s) / {missing!.movies} movie(s) have no tmdb/tvdb id on the Plex
-          side — they can never match Sonarr/Radarr.
-        </p>
+        <div className="mb-3">
+          <p className="text-sm text-amber-400">
+            {missing!.shows} show(s) / {missing!.movies} movie(s) have no tmdb/tvdb id on the Plex
+            side — they can never match Sonarr/Radarr.
+          </p>
+          {(missing!.sample?.length ?? 0) > 0 && (
+            <div className="mt-1.5 max-h-40 overflow-y-auto rounded border border-slate-800 bg-slate-900/40 p-2 text-xs">
+              {missing!.sample.map((m, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate text-slate-400">{m.title}</span>
+                  <span className="shrink-0 uppercase text-slate-600">{m.kind}</span>
+                </div>
+              ))}
+              {missingTotal > missing!.sample.length && (
+                <div className="mt-1 text-slate-600">
+                  …and {missingTotal - missing!.sample.length} more
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       )}
 
       {data && unmatched.length === 0 ? (

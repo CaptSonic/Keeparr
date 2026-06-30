@@ -347,6 +347,9 @@ export interface PlexMetadata {
   thumb?: string;
   addedAt?: number;
   type?: string;
+  /** Legacy single-guid string (older agents), e.g.
+   *  "com.plexapp.agents.thetvdb://376459?lang=en". The modern agent uses Guid[]. */
+  guid?: string;
   Guid?: { id: string }[];
   Media?: { Part?: { id?: number; file?: string; size?: number }[] }[];
 }
@@ -387,18 +390,43 @@ export function sumLeafSizes(nodes: PlexMetadata[]): number {
   return total;
 }
 
-/** Extract tmdb/tvdb ids from a node's Guid[] (modern Plex agent). */
+/**
+ * Extract tmdb/tvdb ids from a node, as comma-joined lists (or null). A single
+ * Plex item can legitimately carry MULTIPLE tvdb/tmdb ids in its `Guid[]` (e.g.
+ * a show merged across two TheTVDB entries) — and Sonarr/Radarr may key on any
+ * of them, so we keep them ALL. Keeping only one (the old behavior took the last)
+ * meant items matched the wrong id and showed up as unmatched even though the
+ * right id was right there. Falls back to the legacy single-`guid` string used by
+ * older agents (`com.plexapp.agents.thetvdb://376459`) when the modern array is
+ * absent. The stored value may be a CSV like "376459,407505"; `ratingKeysByGuid`
+ * splits it so any id matches.
+ */
 export function extractGuids(node: PlexMetadata): {
   tmdb: string | null;
   tvdb: string | null;
 } {
-  let tmdb: string | null = null;
-  let tvdb: string | null = null;
+  const tmdb = new Set<string>();
+  const tvdb = new Set<string>();
   for (const g of node.Guid ?? []) {
-    if (g.id?.startsWith('tmdb://')) tmdb = g.id.slice('tmdb://'.length);
-    else if (g.id?.startsWith('tvdb://')) tvdb = g.id.slice('tvdb://'.length);
+    if (g.id?.startsWith('tmdb://')) tmdb.add(g.id.slice('tmdb://'.length));
+    else if (g.id?.startsWith('tvdb://')) tvdb.add(g.id.slice('tvdb://'.length));
   }
-  return { tmdb, tvdb };
+  // Legacy-agent fallback: the external id is inline in the single `guid` string.
+  // `thetvdb` contains "tvdb" / `themoviedb` is the tmdb agent — match either form.
+  if (node.guid) {
+    if (tvdb.size === 0) {
+      const m = /(?:thetvdb|tvdb):\/\/(\d+)/i.exec(node.guid);
+      if (m) tvdb.add(m[1]);
+    }
+    if (tmdb.size === 0) {
+      const m = /(?:themoviedb|tmdb):\/\/(\d+)/i.exec(node.guid);
+      if (m) tmdb.add(m[1]);
+    }
+  }
+  return {
+    tmdb: tmdb.size ? [...tmdb].join(',') : null,
+    tvdb: tvdb.size ? [...tvdb].join(',') : null,
+  };
 }
 
 /**

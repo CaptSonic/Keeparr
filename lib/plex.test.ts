@@ -93,6 +93,36 @@ describe('extractGuids', () => {
       tvdb: null,
     });
   });
+
+  it('keeps ALL ids when Plex lists several (real "Love is Blind" case)', () => {
+    // Plex carried two tvdb ids; the old code kept only the LAST (407505),
+    // so it never matched Sonarr's 376459. Now we keep both (CSV).
+    const node: PlexMetadata = {
+      ratingKey: '122531',
+      title: 'Love is Blind',
+      guid: 'plex://show/5e4d2531',
+      Guid: [
+        { id: 'imdb://tt11704040' },
+        { id: 'tmdb://99353' },
+        { id: 'tvdb://376459' },
+        { id: 'tvdb://407505' },
+      ],
+    };
+    expect(extractGuids(node)).toEqual({ tmdb: '99353', tvdb: '376459,407505' });
+  });
+
+  it('falls back to the legacy single-guid string when Guid[] is absent', () => {
+    expect(
+      extractGuids({ ratingKey: '1', title: 'x', guid: 'com.plexapp.agents.thetvdb://376459?lang=en' })
+    ).toEqual({ tmdb: null, tvdb: '376459' });
+    expect(
+      extractGuids({ ratingKey: '1', title: 'x', guid: 'com.plexapp.agents.themoviedb://550' })
+    ).toEqual({ tmdb: '550', tvdb: null });
+    // Modern plex:// guid carries no external id → ignored.
+    expect(
+      extractGuids({ ratingKey: '1', title: 'x', guid: 'plex://show/abc' })
+    ).toEqual({ tmdb: null, tvdb: null });
+  });
 });
 
 describe('getServerIdentity', () => {

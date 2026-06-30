@@ -882,6 +882,13 @@ describe('ratingKeysByGuid (arr matching)', () => {
     expect(ratingKeysByGuid('tmdb').get('222')).toBe('m1');
     expect(ratingKeysByGuid('tvdb').has('222')).toBe(false);
   });
+
+  it('splits a CSV guid so ANY of an item\'s ids matches (multi-id Plex items)', () => {
+    upsertMediaBatch([media('s2', { libraryKind: 'show', guidTvdb: '376459,407505' })]);
+    const map = ratingKeysByGuid('tvdb');
+    expect(map.get('376459')).toBe('s2'); // Sonarr's id matches even though it's first of two
+    expect(map.get('407505')).toBe('s2');
+  });
 });
 
 describe('queryLibrary keptByMeOnly', () => {
