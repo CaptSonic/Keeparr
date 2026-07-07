@@ -10,8 +10,11 @@ services:
       # host:container — change the host port to taste / put behind your reverse proxy
       - "8767:3000"
     environment:
-      # REQUIRED in production — set a real value (see .env.example).
-      SESSION_SECRET: "${SESSION_SECRET:?set SESSION_SECRET}"
+      # OPTIONAL — leave unset and the container auto-generates a secret on
+      # first boot, persisted at /data/.session-secret (set it only to manage
+      # the secret yourself; never change it once data exists — it encrypts
+      # your stored service tokens).
+      SESSION_SECRET: "${SESSION_SECRET:-}"
       # Optional: public URL of this app, used to build the Plex auth forwardUrl.
       # APP_URL: "https://keeparr.example.net"
     volumes:

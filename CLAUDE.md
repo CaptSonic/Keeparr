@@ -474,7 +474,12 @@ A fuller source-verified reference is in the planning doc
   `ghcr.io/drohack/keeparr:{latest,X.Y.Z,X.Y}`. `ci.yml` runs tests on every
   PR/push and publishes a `develop` image on pushes to main. Tests are NOT in
   the Dockerfile (hoisted to CI); the Dockerfile must copy `public/`
-  explicitly (standalone output omits it). Unraid users install via the
+  explicitly (standalone output omits it). `docker-entrypoint.sh`
+  auto-generates SESSION_SECRET into `$DATA_DIR/.session-secret` when the env
+  var is unset (env wins; it runs BEFORE node so the Edge middleware sees the
+  same process.env — never move this into app code, Edge can't read files).
+  Shell scripts are forced LF via .gitattributes (CRLF breaks alpine sh).
+  Unraid users install via the
   Community Applications template (github.com/drohack/unraid-templates,
   `keeparr.xml`) — keep its port/paths/vars in sync with the Dockerfile when
   they change.

@@ -211,9 +211,9 @@ immutable version tags (`0.3.1`, `0.3`). A `develop` tag tracks the main
 branch.
 
 **Unraid**: install **Keeparr** from Community Applications (search "Keeparr")
-— the template preconfigures the port, `/data` appdata path, and
-`SESSION_SECRET`. Updates appear in the Docker tab like any other container
-(pair with the *CA Auto Update Applications* plugin for hands-off updates).
+— just pick the port and appdata path; there are no required secrets (see
+below). Updates appear in the Docker tab like any other container (pair with
+the *CA Auto Update Applications* plugin for hands-off updates).
 
 **Docker run** (any host):
 
@@ -221,29 +221,26 @@ branch.
 docker run -d --name keeparr \
   -p 8767:3000 \
   -v /path/to/appdata/keeparr:/data \
-  -e SESSION_SECRET=$(openssl rand -hex 32) \
   ghcr.io/drohack/keeparr:latest
 ```
-
-…but persist `SESSION_SECRET` somewhere (an env file) rather than generating
-it inline like that, or every recreate rotates it.
 
 **Docker compose**: use the repo's `docker-compose.yml` with the published
 image (or build from source for development):
 
 ```bash
-cp .env.example .env
-# set SESSION_SECRET once, e.g.: echo "SESSION_SECRET=$(openssl rand -hex 32)" >> .env
 docker compose up -d          # pulls ghcr.io/drohack/keeparr:latest
 docker compose pull && docker compose up -d   # to update
 ```
 
 Notes for every install method:
 
-- **`SESSION_SECRET` is required** — set it **once and never rotate it**: it
-  signs sessions AND encrypts the stored media-server / Tautulli / Seerr /
-  *arr tokens at rest. Rotating it means re-entering all of them.
-- Persist `/data` (the SQLite database + poster cache + backups).
+- **Secrets are auto-generated.** On first start the container creates a
+  session secret and stores it at `/data/.session-secret` — it signs logins
+  AND encrypts the stored media-server / Tautulli / Seerr / *arr tokens at
+  rest, and it travels with your appdata. Set the `SESSION_SECRET` env var
+  only if you want to manage it yourself, and **never change it once in
+  use** (stored tokens would need re-entering).
+- Persist `/data` (the SQLite database + poster cache + backups + secret).
 - For the free-space header, mount media share(s) **read-only** (e.g.
   `/mnt/user/Movies:/media/movies:ro`) and map each library to its container
   path under **Settings → Connections**. Optional.
@@ -254,9 +251,11 @@ Notes for every install method:
 
 **Migrating from a source-built deploy** (the old `docker compose up --build`
 flow): stop the old container, copy its `data/` directory to the new `/data`
-mount location (e.g. `/mnt/user/appdata/keeparr`), and set `SESSION_SECRET`
-to the **same value** from your old `.env` — with those two carried over,
-everything (keeps, users, connections) survives intact.
+mount location (e.g. `/mnt/user/appdata/keeparr`), and carry the secret over —
+either keep setting `SESSION_SECRET` to the **same value** from your old
+`.env`, or write that value into `<appdata>/.session-secret` and drop the env
+var. With those two carried over, everything (keeps, users, connections)
+survives intact.
 
 CI runs the full test suite before any image is built or pushed, so a failing
 test never ships.

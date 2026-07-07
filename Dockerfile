@@ -50,6 +50,10 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 
+# Entrypoint auto-generates SESSION_SECRET into /data on first boot when the
+# env var isn't provided (no required secrets at install — the Seerr pattern).
+COPY --chmod=755 docker-entrypoint.sh /docker-entrypoint.sh
+
 USER nextjs
 EXPOSE 3000
 VOLUME ["/data"]
@@ -58,4 +62,5 @@ VOLUME ["/data"]
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
   CMD node -e "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
+ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["node", "server.js"]
