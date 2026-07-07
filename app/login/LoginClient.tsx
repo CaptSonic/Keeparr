@@ -97,7 +97,7 @@ function ChooseServer({
       <div className="flex flex-col gap-3">
         <button
           onClick={onPlex}
-          className="w-full rounded-lg bg-brand hover:bg-brand-light text-slate-900 font-semibold py-3 transition-colors"
+          className="w-full rounded-lg bg-brand hover:bg-brand-light text-ink font-semibold py-3 transition-colors"
         >
           Plex
         </button>
@@ -169,7 +169,7 @@ function ConnectServer({
       <button
         type="submit"
         disabled={busy || !url.trim()}
-        className="w-full rounded-lg bg-brand hover:bg-brand-light disabled:opacity-60 text-slate-900 font-semibold py-3 transition-colors"
+        className="w-full rounded-lg bg-brand hover:bg-brand-light disabled:opacity-60 text-ink font-semibold py-3 transition-colors"
       >
         {busy ? 'Connecting…' : 'Continue'}
       </button>
@@ -243,7 +243,7 @@ function CredentialsLogin({
       <button
         type="submit"
         disabled={busy || !username}
-        className="w-full rounded-lg bg-brand hover:bg-brand-light disabled:opacity-60 text-slate-900 font-semibold py-3 transition-colors"
+        className="w-full rounded-lg bg-brand hover:bg-brand-light disabled:opacity-60 text-ink font-semibold py-3 transition-colors"
       >
         {busy ? 'Signing in…' : 'Sign in'}
       </button>
@@ -298,7 +298,7 @@ function PlexLogin({
       <button
         onClick={startLogin}
         disabled={phase === 'waiting'}
-        className="w-full rounded-lg bg-brand hover:bg-brand-light disabled:opacity-60 text-slate-900 font-semibold py-3 transition-colors"
+        className="w-full rounded-lg bg-brand hover:bg-brand-light disabled:opacity-60 text-ink font-semibold py-3 transition-colors"
       >
         {phase === 'waiting' ? 'Waiting for Plex…' : 'Sign in with Plex'}
       </button>

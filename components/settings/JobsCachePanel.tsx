@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { formatSize } from '@/lib/format';
+import { formatRelative, formatSize } from '@/lib/format';
+import { useToast } from '../Toaster';
 import { Card, btnCls, btnGhost } from './ui';
 import BackupsCard from './BackupsCard';
 import HealthCard from './HealthCard';
@@ -74,7 +75,7 @@ function groupRuns(runs: RunRow[]): RunGroup[] {
   return groups;
 }
 
-const runTime = (s: number) => new Date(s * 1000).toLocaleString();
+const absTime = (s: number) => new Date(s * 1000).toLocaleString();
 
 export default function JobsCachePanel() {
   const [jobs, setJobs] = useState<JobRow[]>([]);
@@ -88,6 +89,7 @@ export default function JobsCachePanel() {
   // Per-job interval unit (min/hr) — UI-only; the schedule still stores minutes.
   const [units, setUnits] = useState<Record<string, 'min' | 'hr'>>({});
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const toast = useToast();
 
   const loadJobs = useCallback(async () => {
     const d = await fetch('/api/admin/jobs').then((r) => r.json());
@@ -149,11 +151,12 @@ export default function JobsCachePanel() {
   }
 
   async function runJob(job: string) {
-    await fetch('/api/admin/jobs', {
+    const res = await fetch('/api/admin/jobs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ job }),
     });
+    if (!res.ok) toast(`Couldn't start the ${job} job.`, 'error');
     await loadJobs();
   }
 
@@ -395,7 +398,9 @@ export default function JobsCachePanel() {
                         ×{g.runs.length}
                       </span>
                     )}
-                    <span className="ml-auto shrink-0 text-slate-600">{runTime(head.startedAt)}</span>
+                    <span className="ml-auto shrink-0 text-slate-600" title={absTime(head.startedAt)}>
+                      {formatRelative(head.startedAt)}
+                    </span>
                   </div>
                   {head.message && !open && (
                     <div className="truncate pl-5 text-xs text-slate-500">{head.message}</div>
@@ -406,7 +411,7 @@ export default function JobsCachePanel() {
                         <div key={run.id} className="text-[11px] text-slate-500">
                           <div className="flex items-center gap-2">
                             <span className="ml-auto shrink-0 text-slate-600">
-                              {runTime(run.startedAt)}
+                              {absTime(run.startedAt)}
                             </span>
                           </div>
                           {run.message && <div className="truncate">{run.message}</div>}

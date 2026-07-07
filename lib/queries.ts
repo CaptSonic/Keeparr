@@ -1406,17 +1406,27 @@ export function logEvent(
   ).run();
 }
 
-/** Recent log lines, newest first, optionally filtered by level. */
-export function recentLogs(opts: { level?: string; limit?: number } = {}): LogRow[] {
-  const limit = opts.limit ?? 200;
-  const rows = (
-    opts.level && opts.level !== 'all'
-      ? getDb()
-          .prepare('SELECT * FROM logs WHERE level = ? ORDER BY ts DESC LIMIT ?')
-          .all(opts.level, limit)
-      : getDb().prepare('SELECT * FROM logs ORDER BY ts DESC LIMIT ?').all(limit)
-  ) as LogRow[];
-  return rows;
+/** Recent log lines, newest first; optional level + keyword filters. */
+export function recentLogs(
+  opts: { level?: string; limit?: number; q?: string } = {}
+): LogRow[] {
+  const where: string[] = [];
+  const params: Record<string, unknown> = { limit: opts.limit ?? 200 };
+  if (opts.level && opts.level !== 'all') {
+    where.push('level = @level');
+    params.level = opts.level;
+  }
+  // Keyword search across message + source (SQLite LIKE is already
+  // case-insensitive for ASCII).
+  if (opts.q && opts.q.trim()) {
+    where.push('(message LIKE @q OR source LIKE @q)');
+    params.q = `%${opts.q.trim()}%`;
+  }
+  // id DESC tiebreaks same-second entries (ts has second resolution).
+  const sql = `SELECT * FROM logs${
+    where.length ? ` WHERE ${where.join(' AND ')}` : ''
+  } ORDER BY ts DESC, id DESC LIMIT @limit`;
+  return getDb().prepare(sql).all(params) as LogRow[];
 }
 
 export function clearLogs(): void {

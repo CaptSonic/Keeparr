@@ -14,6 +14,7 @@ import {
   pct,
   type Overview,
 } from './breakdown';
+import { useToast } from './Toaster';
 
 interface Library {
   id: string;
@@ -59,6 +60,7 @@ export default function KeepView({ libraries }: { libraries: Library[] }) {
   // from the skip-the-rest batch so we don't also mark them "don't care".
   const [deleted, setDeleted] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+  const toast = useToast();
   const [dims, setDims] = useState(estimateDims);
   const [overview, setOverview] = useState<Overview | null>(null);
 
@@ -130,13 +132,18 @@ export default function KeepView({ libraries }: { libraries: Library[] }) {
     const params = new URLSearchParams({ limit: String(FETCH_LIMIT) });
     if (selection === 'largest') params.set('largest', '1');
     else if (selection !== 'all') params.set('section', selection);
-    const data = await fetch(`/api/feed/random?${params}`).then((r) => r.json());
-    setItems(data.items ?? []);
-    setRemaining(data.remaining ?? null);
-    setKept(new Set());
-    setDeleted(new Set());
-    setLoading(false);
-  }, [selection]);
+    try {
+      const data = await fetch(`/api/feed/random?${params}`).then((r) => r.json());
+      setItems(data.items ?? []);
+      setRemaining(data.remaining ?? null);
+      setKept(new Set());
+      setDeleted(new Set());
+    } catch {
+      toast("Couldn't load the feed — is the server reachable?", 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [selection, toast]);
 
   useEffect(() => {
     loadFeed();
@@ -260,7 +267,7 @@ export default function KeepView({ libraries }: { libraries: Library[] }) {
               <button
                 onClick={next}
                 disabled={loading}
-                className="shrink-0 rounded-lg bg-brand hover:bg-brand-light text-slate-900 font-semibold px-6 py-2.5 disabled:opacity-60"
+                className="shrink-0 rounded-lg bg-brand hover:bg-brand-light text-ink font-semibold px-6 py-2.5 disabled:opacity-60"
               >
                 {loading ? 'Loading…' : 'Next →'}
               </button>

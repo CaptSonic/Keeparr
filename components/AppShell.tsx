@@ -5,6 +5,9 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import type { SessionUser } from '@/lib/types';
 import SearchBox from './SearchBox';
+import ShortcutsOverlay from './ShortcutsOverlay';
+import ThemeMenu from './ThemeMenu';
+import { ToastProvider } from './Toaster';
 
 interface Library {
   id: string;
@@ -45,6 +48,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [health, setHealth] = useState<HealthIssue[]>(shellCache.health);
   const [browseOpen, setBrowseOpen] = useState(pathname.startsWith('/library'));
   const [menuOpen, setMenuOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -89,6 +93,30 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     return () => document.removeEventListener('mousedown', onClick);
   }, []);
 
+  // Global shortcuts: `?` toggles the cheat sheet, `/` focuses search,
+  // Escape closes the overlay. Ignored while typing in a field.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const t = e.target as HTMLElement | null;
+      const typing =
+        t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
+      if (e.key === 'Escape') {
+        setShortcutsOpen(false);
+        return;
+      }
+      if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === '?') {
+        e.preventDefault();
+        setShortcutsOpen((o) => !o);
+      } else if (e.key === '/') {
+        e.preventDefault();
+        document.getElementById('global-search')?.focus();
+      }
+    }
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, []);
+
   async function logout() {
     await fetch('/api/auth/logout', { method: 'POST' });
     router.push('/login');
@@ -131,6 +159,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   );
 
   return (
+    <ToastProvider>
     <div className="h-screen overflow-hidden bg-app text-slate-200 flex">
       {/* Left rail */}
       <aside className="w-60 shrink-0 bg-rail border-r border-slate-800 flex flex-col">
@@ -138,7 +167,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           href="/"
           className="flex items-center gap-2 h-14 px-4 border-b border-slate-800 shrink-0"
         >
-          <span className="grid h-7 w-7 place-items-center rounded-md bg-brand text-slate-900 font-black">
+          <span className="grid h-7 w-7 place-items-center rounded-md bg-brand text-ink font-black">
             K
           </span>
           <span className="text-lg font-bold text-brand truncate">{appTitle}</span>
@@ -255,6 +284,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                     Admin
                   </div>
                 )}
+                <ThemeMenu />
                 <p className="mt-2 text-[11px] text-slate-500">
                   Profile is managed by your Plex account.
                 </p>
@@ -272,5 +302,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         <main className="flex-1 overflow-y-auto">{children}</main>
       </div>
     </div>
+    {shortcutsOpen && <ShortcutsOverlay onClose={() => setShortcutsOpen(false)} />}
+    </ToastProvider>
   );
 }

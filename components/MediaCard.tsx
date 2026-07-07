@@ -164,11 +164,11 @@ export default function MediaCard({
       {/* Status badge: my keep wins, then my "OK to delete", then don't care,
           then released-by-someone-else (name-less), then kept-by-others. */}
       {keptByMe ? (
-        <div className="absolute right-2 top-2 rounded-full bg-brand px-2 py-0.5 text-xs font-bold text-slate-900">
+        <div className="absolute right-2 top-2 rounded-full bg-brand px-2 py-0.5 text-xs font-bold text-ink">
           ✓ Keep
         </div>
       ) : markedForDelete ? (
-        <div className="absolute right-2 top-2 rounded-full bg-rose-600 px-2 py-0.5 text-[10px] font-bold text-white">
+        <div className="absolute right-2 top-2 rounded-full bg-rose-600 px-2 py-0.5 text-[10px] font-bold text-paper">
           🗑 OK to delete
         </div>
       ) : skipped ? (
@@ -185,7 +185,7 @@ export default function MediaCard({
         </div>
       ) : null}
       {requested && (
-        <div className="absolute left-2 top-2 rounded-full bg-sky-600 px-2 py-0.5 text-[10px] font-semibold text-white">
+        <div className="absolute left-2 top-2 rounded-full bg-sky-600 px-2 py-0.5 text-[10px] font-semibold text-paper">
           Requested
         </div>
       )}

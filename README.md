@@ -137,6 +137,13 @@ manually in Plex / Jellyfin / Emby / Sonarr / Radarr.
   out, scheduled [database backups](#backups) with one-click restore, an
   [API](#api) with interactive docs at `/api-docs`, first-class
   [reverse-proxy](#reverse-proxy) support, and **zero telemetry**.
+- **UI polish** — **Auto / Light / Dark theme** plus a **color-impaired mode**
+  (both per-user, in the avatar menu — no admin needed), toast feedback when an
+  action fails or a backup finishes, relative timestamps with the exact time on
+  hover, a searchable **Logs** viewer (level + keyword filters, auto-refresh with
+  pause, copy-a-line, download as .txt), **installable as an app** (PWA manifest
+  with Keep / Browse / Big Picture shortcuts), and press <kbd>?</kbd> anywhere for
+  the keyboard-shortcuts cheat sheet (<kbd>/</kbd> jumps to search).
 
 ## Tech stack
 

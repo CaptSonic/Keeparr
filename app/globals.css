@@ -2,14 +2,169 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
+/*
+ * Theme palettes. Every themed color is a `--c-*` variable holding
+ * space-separated RGB channels (consumed by tailwind.config.ts as
+ * `rgb(var(--c-…) / <alpha-value>)`). `data-theme` on <html> selects the
+ * theme (set pre-hydration by the inline script in app/layout.tsx);
+ * `data-cim="1"` layers the color-impaired palette on top of either theme.
+ *
+ * DARK is the canonical theme — its values are Tailwind's stock shades
+ * (byte-identical to the pre-theming UI).
+ */
+:root,
+[data-theme='dark'] {
   color-scheme: dark;
+
+  --c-brand: 229 160 13; /* #e5a00d */
+  --c-brand-light: 245 197 66; /* #f5c542 */
+  --c-brand-dark: 185 129 10; /* #b9810a */
+
+  --c-app: 11 17 32; /* #0b1120 */
+  --c-rail: 15 23 42; /* #0f172a */
+  --c-panel: 19 28 46; /* #131c2e */
+  --c-white: 255 255 255;
+
+  --c-slate-200: 226 232 240;
+  --c-slate-300: 203 213 225;
+  --c-slate-400: 148 163 184;
+  --c-slate-500: 100 116 139;
+  --c-slate-600: 71 85 105;
+  --c-slate-700: 51 65 85;
+  --c-slate-800: 30 41 59;
+  --c-slate-900: 15 23 42;
+  --c-slate-950: 2 6 23;
+
+  --c-amber-200: 253 230 138;
+  --c-amber-300: 252 211 77;
+  --c-amber-400: 251 191 36;
+  --c-amber-500: 245 158 11;
+  --c-amber-700: 180 83 9;
+  --c-amber-900: 120 53 15;
+
+  --c-blue-400: 96 165 250;
+  --c-blue-500: 59 130 246;
+
+  --c-emerald-400: 52 211 153;
+  --c-emerald-500: 16 185 129;
+
+  --c-red-300: 252 165 165;
+  --c-red-400: 248 113 113;
+  --c-red-500: 239 68 68;
+  --c-red-950: 69 10 10;
+
+  --c-rose-100: 255 228 230;
+  --c-rose-200: 254 205 211;
+  --c-rose-300: 253 164 175;
+  --c-rose-400: 251 113 133;
+  --c-rose-500: 244 63 94;
+  --c-rose-600: 225 29 72;
+  --c-rose-700: 190 18 60;
+  --c-rose-800: 159 18 57;
+  --c-rose-900: 136 19 55;
+  --c-rose-950: 76 5 25;
+
+  --c-sky-600: 2 132 199;
+
+  --scrollbar-thumb: #334155; /* slate-700 */
+}
+
+/*
+ * LIGHT: the slate ladder inverts (dark text tokens become dark-on-light,
+ * dark surface tokens become light surfaces); status text hues shift ~2 steps
+ * darker for contrast on white; vivid accent shades (500/600) stay put.
+ */
+[data-theme='light'] {
+  color-scheme: light;
+
+  --c-app: 241 245 249; /* slate-100 */
+  --c-rail: 248 250 252; /* slate-50 */
+  --c-panel: 255 255 255;
+  --c-white: 15 23 42; /* max-contrast fg = slate-900 */
+
+  --c-slate-200: 30 41 59; /* ← slate-800 */
+  --c-slate-300: 51 65 85; /* ← slate-700 */
+  --c-slate-400: 71 85 105; /* ← slate-600 */
+  --c-slate-500: 100 116 139; /* pivot */
+  --c-slate-600: 148 163 184; /* ← slate-400 */
+  --c-slate-700: 203 213 225; /* ← slate-300 */
+  --c-slate-800: 226 232 240; /* ← slate-200 */
+  --c-slate-900: 241 245 249; /* ← slate-100 */
+  --c-slate-950: 248 250 252; /* ← slate-50 */
+
+  --c-amber-200: 146 64 14; /* ← amber-800 */
+  --c-amber-300: 180 83 9; /* ← amber-700 */
+  --c-amber-400: 217 119 6; /* ← amber-600 */
+  --c-amber-900: 253 230 138; /* ← amber-200 (tint backgrounds) */
+
+  --c-blue-400: 37 99 235; /* ← blue-600 */
+
+  --c-emerald-400: 5 150 105; /* ← emerald-600 */
+
+  --c-red-300: 185 28 28; /* ← red-700 */
+  --c-red-400: 220 38 38; /* ← red-600 */
+  --c-red-950: 254 226 226; /* ← red-100 (tint backgrounds) */
+
+  --c-rose-100: 76 5 25; /* ← rose-950 */
+  --c-rose-200: 136 19 55; /* ← rose-900 */
+  --c-rose-300: 159 18 57; /* ← rose-800 */
+  --c-rose-400: 225 29 72; /* ← rose-600 */
+  --c-rose-800: 253 164 175; /* ← rose-300 (muted accents) */
+  --c-rose-900: 254 205 211; /* ← rose-200 (tint backgrounds) */
+  --c-rose-950: 255 228 230; /* ← rose-100 (tint backgrounds) */
+
+  --scrollbar-thumb: #cbd5e1; /* slate-300 */
+}
+
+/*
+ * COLOR-IMPAIRED MODE (Okabe-Ito-inspired): remaps only the meaning-bearing
+ * hues — "don't care / OK to delete" rose → reddish purple, "free/success"
+ * emerald → bluish green, "error" red → vermillion. Amber (kept/warning) and
+ * blue (undecided) are already distinguishable and stay. Declared after the
+ * theme blocks so it wins the cascade over either theme.
+ */
+[data-cim='1'] {
+  --c-rose-100: 245 224 236;
+  --c-rose-200: 236 198 221;
+  --c-rose-300: 224 167 201;
+  --c-rose-400: 214 139 184;
+  --c-rose-500: 204 121 167; /* #CC79A7 */
+  --c-rose-600: 178 93 142;
+  --c-rose-700: 148 71 111;
+  --c-rose-800: 122 58 92;
+  --c-rose-900: 94 44 71;
+  --c-rose-950: 58 26 44;
+
+  --c-emerald-400: 0 184 132;
+  --c-emerald-500: 0 158 115; /* #009E73 */
+
+  --c-red-300: 235 148 100;
+  --c-red-400: 228 122 64;
+  --c-red-500: 213 94 0; /* #D55E00 */
+  --c-red-950: 62 28 0;
+}
+
+[data-theme='light'][data-cim='1'] {
+  /* Text shades need the darker end of each ladder on white. */
+  --c-rose-100: 58 26 44;
+  --c-rose-200: 94 44 71;
+  --c-rose-300: 122 58 92;
+  --c-rose-400: 178 93 142;
+  --c-rose-800: 224 167 201;
+  --c-rose-900: 236 198 221;
+  --c-rose-950: 245 224 236;
+
+  --c-emerald-400: 0 132 96;
+
+  --c-red-300: 150 66 0;
+  --c-red-400: 184 81 0;
+  --c-red-950: 250 233 222;
 }
 
 html,
 body {
-  background-color: #0b1120; /* app */
-  color: #e2e8f0; /* slate-200 */
+  background-color: rgb(var(--c-app));
+  color: rgb(var(--c-slate-200));
   -webkit-font-smoothing: antialiased;
 }
 
@@ -22,8 +177,8 @@ body {
   }
 }
 
-/* Thin scrollbars that match the dark theme. */
+/* Thin scrollbars that match the theme. */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #334155 transparent;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
 }

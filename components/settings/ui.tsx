@@ -7,7 +7,7 @@ import { usePathname } from 'next/navigation';
 export const inputCls =
   'w-full rounded-md bg-slate-800 border border-slate-700 px-3 py-2 text-sm focus:outline-none focus:border-brand';
 export const btnCls =
-  'rounded-md bg-brand hover:bg-brand-light text-slate-900 font-semibold px-4 py-2 text-sm disabled:opacity-60';
+  'rounded-md bg-brand hover:bg-brand-light text-ink font-semibold px-4 py-2 text-sm disabled:opacity-60';
 export const btnGhost =
   'rounded-md border border-slate-700 hover:border-slate-500 px-4 py-2 text-sm disabled:opacity-60';
 

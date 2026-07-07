@@ -59,6 +59,7 @@ export default function SearchBox() {
   return (
     <div ref={boxRef} className="relative w-full">
       <input
+        id="global-search"
         value={q}
         onChange={(e) => setQ(e.target.value)}
         onFocus={() => suggestions.length && setOpen(true)}

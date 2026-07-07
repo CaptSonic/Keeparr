@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useToast } from './Toaster';
 
 /**
  * Per-user keep / "don't care" / "OK to delete" state for one title, with
@@ -40,6 +41,8 @@ export function useKeepState(opts: {
   const [busy, setBusy] = useState(false);
   const [skipBusy, setSkipBusy] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  // No-op when no ToastProvider is mounted, so the hook stays test-safe.
+  const toast = useToast();
 
   async function toggleKeep() {
     if (busy) return;
@@ -69,6 +72,7 @@ export function useKeepState(opts: {
       setKeptByMe(prev.keptByMe);
       setSkipped(prev.skipped);
       setMarkedForDelete(prev.markedForDelete);
+      toast("Couldn't save the keep — change reverted.", 'error');
     } finally {
       setBusy(false);
     }
@@ -100,6 +104,7 @@ export function useKeepState(opts: {
       setKeptByMe(prev.keptByMe);
       setSkipped(prev.skipped);
       setMarkedForDelete(prev.markedForDelete);
+      toast("Couldn't save \"don't care\" — change reverted.", 'error');
     } finally {
       setSkipBusy(false);
     }
@@ -131,6 +136,7 @@ export function useKeepState(opts: {
       setKeptByMe(prev.keptByMe);
       setSkipped(prev.skipped);
       setMarkedForDelete(prev.markedForDelete);
+      toast("Couldn't save \"OK to delete\" — change reverted.", 'error');
     } finally {
       setDeleteBusy(false);
     }

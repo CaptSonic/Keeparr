@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { copyText } from '@/lib/clipboard';
 import { Card, CardColumns, btnCls, btnGhost, inputCls } from './ui';
 
 export default function GeneralPanel() {
@@ -33,26 +34,11 @@ export default function GeneralPanel() {
   }
 
   async function copyApiKey() {
-    // navigator.clipboard needs a secure context — plain-HTTP LAN deploys don't
-    // have one, so fall back to the classic hidden-textarea trick.
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(apiKey);
-      } else {
-        const ta = document.createElement('textarea');
-        ta.value = apiKey;
-        ta.style.position = 'fixed';
-        ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-      }
+    if (await copyText(apiKey)) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    } catch {
-      /* leave the field visible for manual copy */
     }
+    // On failure the field stays visible for manual copy.
   }
 
   async function save() {

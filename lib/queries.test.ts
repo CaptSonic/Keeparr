@@ -210,6 +210,24 @@ describe('logs', () => {
     clearLogs();
     expect(recentLogs()).toHaveLength(0);
   });
+
+  it('keyword search matches message OR source, case-insensitively', () => {
+    logEvent('info', 'job:library', 'Synced 300 items');
+    logEvent('error', 'job:arr', 'Sonarr unreachable');
+    logEvent('warn', 'backup', 'pruned 2 old');
+    expect(recentLogs({ q: 'SYNCED' })).toHaveLength(1); // message, wrong case
+    expect(recentLogs({ q: 'job:' })).toHaveLength(2); // source
+    expect(recentLogs({ q: 'sonarr' }).map((l) => l.level)).toEqual(['error']);
+    expect(recentLogs({ q: 'nope' })).toHaveLength(0);
+    // combines with the level filter
+    expect(recentLogs({ q: 'job:', level: 'error' })).toHaveLength(1);
+  });
+
+  it('respects the limit', () => {
+    for (let i = 0; i < 5; i++) logEvent('info', 's', `m${i}`);
+    expect(recentLogs({ limit: 2 })).toHaveLength(2);
+    expect(recentLogs({ limit: 2 })[0].message).toBe('m4'); // newest first
+  });
 });
 
 describe('cache clears', () => {

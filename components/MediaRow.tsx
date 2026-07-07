@@ -135,7 +135,7 @@ export default function MediaRow({
             title={keptByOthers && !keptByMe ? 'Kept by someone else — keep it yourself too' : undefined}
             className={`w-16 shrink-0 rounded px-2 py-1 text-center text-[11px] disabled:opacity-60 ${
               keptByMe
-                ? 'bg-brand font-semibold text-slate-900'
+                ? 'bg-brand font-semibold text-ink'
                 : keptByOthers
                   ? 'border border-amber-700/60 text-amber-200'
                   : 'border border-slate-700 text-slate-300 hover:border-slate-500'

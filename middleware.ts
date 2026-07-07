@@ -13,8 +13,11 @@ import { DEV_USER_ID } from '@/lib/dev-constants';
  * endpoints, and the health probe. Per-route admin checks (is_admin) happen in
  * the admin route handlers / pages, which can read the DB (Node runtime).
  */
-const PUBLIC_PATHS = ['/login'];
-const PUBLIC_PREFIXES = ['/api/auth/', '/api/health'];
+// The manifest + icons must be public: browsers fetch the PWA manifest
+// WITHOUT credentials (unless crossorigin=use-credentials), and favicons are
+// fetched pre-login on the login page itself.
+const PUBLIC_PATHS = ['/login', '/manifest.webmanifest', '/icon.svg', '/icon.png'];
+const PUBLIC_PREFIXES = ['/api/auth/', '/api/health', '/icons/'];
 
 function isPublic(pathname: string): boolean {
   if (PUBLIC_PATHS.includes(pathname)) return true;

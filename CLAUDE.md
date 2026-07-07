@@ -291,7 +291,8 @@ when it has no tvdb/tmdb **and** no imdb.
   via `getBackend().listSections()`),
   `GET /api/admin/storage-check?path=`, `GET /api/admin/jobs` (status + recent runs)
   + `POST /api/admin/jobs {job}` (trigger one/`all`) — both also accept `X-Api-Key`,
-  `GET /api/admin/logs?level=` + `DELETE /api/admin/logs`,
+  `GET /api/admin/logs?level=&q=&limit=` (keyword search over message+source;
+  limit ≤ 1000 for the .txt export) + `DELETE /api/admin/logs`,
   `GET /api/admin/cache` + `POST /api/admin/cache {target:images|requests|watch|arr}`
   (`arr` clears both `arr_items` + `arr_unmatched`),
   `GET /api/admin/health` (`{issues: HealthIssue[]}` — standing warnings from
@@ -420,7 +421,36 @@ A fuller source-verified reference is in the planning doc
 
 ## Conventions
 
-- Dark theme, Plex-amber accent (`brand` in `tailwind.config.ts`).
+- **Theming is CSS-variable-driven**: every used color family (slate ladder,
+  brand, app/rail/panel surfaces, status hues) resolves through `--c-*`
+  variables (`tailwind.config.ts` → `rgb(var(--c-…) / <alpha-value>)`), with
+  the palettes in `app/globals.css` — `:root`/`[data-theme='dark']` (canonical,
+  stock Tailwind values), `[data-theme='light']` (inverted slate ladder), and
+  `[data-cim='1']` (color-impaired remap of rose/emerald/red only). A new
+  color+shade needs a variable in every theme block. `data-theme`/`data-cim`
+  are stamped on `<html>` pre-paint by the inline script in `app/layout.tsx`
+  (localStorage `keeparr.theme` = auto|light|dark, `keeparr.colorImpaired`);
+  `components/ThemeMenu.tsx` (in the AppShell user menu) edits them live.
+  Two NON-themed constants: `ink` (dark text on brand-amber buttons/badges)
+  and `paper` (true white on saturated badges over posters) — use these, not
+  `text-slate-900`/`text-white`, when the surface doesn't change with theme.
+- Plex-amber accent (`brand` in `tailwind.config.ts`).
+- **Toasts**: `components/Toaster.tsx` — `ToastProvider` mounts once in
+  AppShell; `useToast()(msg, 'info'|'success'|'error')` anywhere below it
+  (no-op fallback without a provider, so hooks stay test-safe). Used for
+  silent-failure paths (keep/skip/delete revert, feed/library load errors,
+  job/backup actions); settings panels keep their inline `msg` text.
+- **Dates in lists**: `formatRelative(unixSec)` from `lib/format.ts` as the
+  visible text with the absolute `toLocaleString()` in `title` (hover).
+- `lib/clipboard.ts copyText()` for all copy-to-clipboard (has the
+  plain-HTTP fallback).
+- **PWA**: `app/manifest.ts` (dynamic, uses `getAppTitle()`); icons in
+  `public/icons/` are generated from `app/icon.svg` by
+  `npx tsx scripts/gen-icons.mts` (rerun only when the logo changes). The
+  manifest + `/icons/` are public in `middleware.ts` (credential-less fetch).
+- **Keyboard**: global keys live in AppShell (`?` overlay, `/` focuses
+  `#global-search`); add new shortcuts there + list them in
+  `components/ShortcutsOverlay.tsx`.
 - Server components guard admin pages and pass to client components that fetch
   their own data.
 - Optimistic UI for keep toggles (revert on failure).

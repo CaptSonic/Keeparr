@@ -21,20 +21,21 @@ features self-hosters expect.
 - [x] **API docs** — hand-written `openapi.json` served at `/api/openapi.json`,
   rendered by Scalar at `/api-docs`; API-key regenerate already existed.
 
-## Tier 2 — planned next
+## Tier 2 — done (v0.3.0)
 
-- [ ] **Logs viewer upgrades** — keyword search, source/component column,
-  copy-per-row, auto-refresh with pause, download raw log file. (Benchmark:
-  Seerr's Settings → Logs.)
-- [ ] **Theme: Auto / Light / Dark** (`prefers-color-scheme`) + a
-  color-impaired accessibility mode. (Servarr Settings → UI.)
-- [ ] **Toasts** for action feedback (keep/skip/save errors currently mostly
-  silent) + **relative dates** ("Today", "2 days ago") as a UI preference.
-- [ ] **PWA manifest** — standalone display, maskable icons, app shortcuts
-  (Keep / Browse / Big Picture). (Seerr pattern.)
-- [ ] **`?` keyboard-shortcuts overlay.** (Servarr pattern.)
-- [ ] **"Show Advanced Settings" toggle** — progressive disclosure once the
-  Settings surface grows enough to warrant it.
+- [x] **Logs viewer upgrades** — keyword search (`?q=`), auto-refresh with
+  pause, copy-per-row, download as .txt (exports the DB log; there is no
+  on-disk file), relative timestamps.
+- [x] **Theme: Auto / Light / Dark** + **color-impaired mode** — CSS-variable
+  palette remap (`data-theme`/`data-cim` on <html>), per-user via the avatar
+  menu; zero per-component churn.
+- [x] **Toasts** (dependency-free Toaster) for silent-failure paths +
+  **relative dates** with absolute-on-hover (no extra preference needed).
+- [x] **PWA manifest** — `app/manifest.ts` + generated icons (incl. maskable
+  + apple-touch), Keep/Browse/Big Picture shortcuts.
+- [x] **`?` keyboard-shortcuts overlay** (+ `/` focuses search).
+- [ ] **"Show Advanced Settings" toggle** — still deferred; the Settings
+  surface doesn't warrant it yet.
 
 ## Tier 3 — parked (not needed for now)
 

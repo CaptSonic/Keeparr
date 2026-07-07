@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { formatSize } from '@/lib/format';
+import { formatRelative, formatSize } from '@/lib/format';
+import { useToast } from '../Toaster';
 import { Card, btnCls, btnGhost } from './ui';
 
 interface BackupRow {
@@ -22,6 +23,7 @@ export default function BackupsCard() {
   const [retention, setRetention] = useState(14);
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
+  const toast = useToast();
 
   const load = useCallback(async () => {
     const d = await fetch('/api/admin/backups').then((r) => r.json());
@@ -51,6 +53,7 @@ export default function BackupsCard() {
       await new Promise((res) => setTimeout(res, 1200));
       await load();
       setMsg('Backup created.');
+      toast('Backup created.', 'success');
     } finally {
       setBusy(false);
     }
@@ -78,6 +81,7 @@ export default function BackupsCard() {
       } else {
         const d = await r.json().catch(() => ({}));
         setMsg(`Restore failed: ${d.error ?? r.status}`);
+        toast(`Restore failed: ${d.error ?? r.status}`, 'error');
       }
     } finally {
       setBusy(false);
@@ -136,8 +140,11 @@ export default function BackupsCard() {
             <div key={b.name} className="flex items-center gap-3 py-1.5">
               <div className="min-w-0 flex-1">
                 <div className="truncate font-mono text-xs">{b.name}</div>
-                <div className="text-[11px] text-slate-500">
-                  {new Date(b.createdAt * 1000).toLocaleString()} · {formatSize(b.sizeBytes)}
+                <div
+                  className="text-[11px] text-slate-500"
+                  title={new Date(b.createdAt * 1000).toLocaleString()}
+                >
+                  {formatRelative(b.createdAt)} · {formatSize(b.sizeBytes)}
                 </div>
               </div>
               <a

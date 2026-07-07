@@ -7,6 +7,7 @@ import { formatSize } from '@/lib/format';
 import MediaCard, { CARD_GRID_CLASS } from './MediaCard';
 import MediaRow from './MediaRow';
 import MultiSelect, { type MSGroup } from './MultiSelect';
+import { useToast } from './Toaster';
 import { RES_ORDER, resolutionBucket } from '@/lib/quality';
 
 type Sort =
@@ -148,6 +149,7 @@ export default function LibraryBrowser({
   const [sizeMismatch, setSizeMismatch] = useState(false);
   const [facets, setFacets] = useState<Facets>({ instances: [], tags: [], qualities: [], statuses: [] });
   const [view, setView] = useState<View>('grid');
+  const toast = useToast();
 
   const [items, setItems] = useState<MediaCardData[]>([]);
   const [offset, setOffset] = useState(0);
@@ -265,17 +267,22 @@ export default function LibraryBrowser({
         if (sizeMismatch) params.set('sizeMismatch', '1');
       }
       params.set('offset', String(off));
-      const data = await fetch(`/api/library?${params}`).then((r) => r.json());
-      // An error response (e.g. a 500) has no `items` — guard so the view doesn't
-      // crash on a spread/map of undefined.
-      const list = Array.isArray(data.items) ? data.items : [];
-      setHasMore(!!data.hasMore);
-      if (typeof data.nextOffset === 'number') setOffset(data.nextOffset);
-      setItems((prev) => (reset ? list : [...prev, ...list]));
-      setLoading(false);
+      try {
+        const data = await fetch(`/api/library?${params}`).then((r) => r.json());
+        // An error response (e.g. a 500) has no `items` — guard so the view
+        // doesn't crash on a spread/map of undefined.
+        const list = Array.isArray(data.items) ? data.items : [];
+        setHasMore(!!data.hasMore);
+        if (typeof data.nextOffset === 'number') setOffset(data.nextOffset);
+        setItems((prev) => (reset ? list : [...prev, ...list]));
+      } catch {
+        toast("Couldn't load the library — is the server reachable?", 'error');
+      } finally {
+        setLoading(false);
+      }
     },
     [selectedKey, debouncedQ, sort, dir, states, watch, tautulli, requestedByMe,
-     arr, sources, instanceIds, tags, qualities, statuses, monitoredSel, match, sizeMismatch, offset]
+     arr, sources, instanceIds, tags, qualities, statuses, monitoredSel, match, sizeMismatch, offset, toast]
   );
 
   // Reset + reload whenever a filter (or the rail selection) changes. (View
