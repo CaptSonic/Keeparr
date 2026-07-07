@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { formatSize } from '@/lib/format';
 import { Card, btnCls, btnGhost } from './ui';
+import BackupsCard from './BackupsCard';
+import HealthCard from './HealthCard';
 
 type JobSchedule =
   | { type: 'interval'; minutes: number }
@@ -178,6 +180,8 @@ export default function JobsCachePanel() {
   const groups = groupRuns(recent);
 
   return (
+    <div className="space-y-5">
+    <HealthCard />
     <div className="grid gap-5 lg:grid-cols-2">
       <div className="min-w-0">
       <Card title="Scheduled jobs">
@@ -363,7 +367,8 @@ export default function JobsCachePanel() {
       </Card>
       </div>
 
-      <div className="min-w-0">
+      <div className="min-w-0 space-y-5">
+      <BackupsCard />
       <Card title="Recent activity">
         {groups.length === 0 ? (
           <p className="text-sm text-slate-500">No job runs yet.</p>
@@ -416,6 +421,7 @@ export default function JobsCachePanel() {
         )}
       </Card>
       </div>
+    </div>
     </div>
   );
 }

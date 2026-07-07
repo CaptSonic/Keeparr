@@ -256,6 +256,21 @@ export function getDb(): Database.Database {
 }
 
 /**
+ * Close the singleton so the database file can be swapped (backup restore).
+ * The next getDb() reopens it — and runs applySchema()/migrate(), so restoring
+ * an older backup upgrades it automatically. Safe because better-sqlite3 is
+ * synchronous: no statement is ever held across an await, so nothing can be
+ * mid-query when this runs. All statements are prepared per-call via getDb()
+ * (see lib/queries.ts), so nothing references the closed handle afterwards.
+ */
+export function closeDbForSwap(): void {
+  if (db) {
+    db.close();
+    db = null;
+  }
+}
+
+/**
  * Test helper: replace the singleton with a fresh in-memory database so tests
  * run against a real SQLite instance (no mocks) in full isolation. Call in
  * beforeEach. Never used by the app at runtime.
@@ -270,8 +285,5 @@ export function __setTestDbToMemory(): Database.Database {
 
 /** Test helper: close and clear the singleton. Call in afterAll. */
 export function __closeDb(): void {
-  if (db) {
-    db.close();
-    db = null;
-  }
+  closeDbForSwap();
 }

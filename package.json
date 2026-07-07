@@ -1,6 +1,6 @@
 {
   "name": "keeparr",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Plex-login web app to decide what media to keep and report what's reclaimable. Tags and reports only — never deletes.",
   "license": "MIT",
@@ -21,6 +21,7 @@
     "seed": "tsx scripts/seed.mts"
   },
   "dependencies": {
+    "@scalar/api-reference-react": "^0.9.53",
     "better-sqlite3": "^11.8.1",
     "next": "^15.5.19",
     "react": "^19.0.0",

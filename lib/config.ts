@@ -49,7 +49,12 @@ export const DEFAULT_JOB_SCHEDULES: Record<string, JobSchedule> = {
   sizes: { type: 'daily', hour: 6, minute: 0 },
   // After 'library' (03:00) has populated guids that arr matches against.
   arr: { type: 'daily', hour: 7, minute: 0 },
+  // After the overnight refresh cycle, snapshot the database.
+  backup: { type: 'daily', hour: 8, minute: 0 },
 };
+
+/** How many backup files to keep (oldest pruned first). Overridable in Settings. */
+export const DEFAULT_BACKUP_RETENTION = 14;
 
 /** Mixed "all" feed: fraction of slots reserved for movies (rest favor big series). */
 export const FEED_MOVIE_RESERVE_RATIO = 0.2;

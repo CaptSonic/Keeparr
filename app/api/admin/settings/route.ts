@@ -26,6 +26,9 @@ import {
   setApiKey,
   setAppTitle,
   setAppUrl,
+  getApiKey,
+  getBackupRetention,
+  setBackupRetention,
   writeSetting,
   getSonarrInstances,
   getRadarrInstances,
@@ -76,7 +79,8 @@ function mergeInstances(
     });
 }
 
-/** Current settings (secrets are reported as booleans, never returned). */
+/** Current settings. Service secrets are reported as booleans, never returned;
+ *  the automation `apiKey` is the one exception (masked+copyable in the UI). */
 export async function GET() {
   try {
     await requireAdmin();
@@ -111,6 +115,10 @@ export async function GET() {
       appTitle: getAppTitle(),
       appUrl: getAppUrl(),
       apiKeyConfigured: isApiKeyConfigured(),
+      // The automation key IS returned (admin-only route) so the UI can show a
+      // masked copy-able field, Servarr-style. Service secrets stay hidden.
+      apiKey: getApiKey() ?? '',
+      backupRetention: getBackupRetention(),
     });
   } catch (e) {
     return errorResponse(e);
@@ -137,6 +145,8 @@ interface PutBody {
   appUrl?: string;
   /** New API key value, or '' to clear it. */
   apiKey?: string;
+  /** How many backup files to keep (oldest pruned first). */
+  backupRetention?: number;
 }
 
 /** Update settings. Only provided fields are changed. */
@@ -208,6 +218,10 @@ export async function PUT(req: Request) {
 
     if (typeof body.apiKey === 'string') {
       setApiKey(body.apiKey.trim());
+    }
+
+    if (typeof body.backupRetention === 'number' && body.backupRetention >= 1) {
+      setBackupRetention(body.backupRetention);
     }
 
     return NextResponse.json({ ok: true });

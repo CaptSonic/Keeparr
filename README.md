@@ -102,7 +102,8 @@ manually in Plex / Jellyfin / Emby / Sonarr / Radarr.
 - **Scheduled refresh jobs** — admins set a schedule (every N minutes, or daily at a
   set time) per job and run any on demand from **Settings → Jobs & Cache**: *Recently
   Added* (cheap, every 5 min), *Plex Full Library Scan* (daily 3 AM), *Library size*
-  (the expensive per-show recompute, daily 6 AM), *Tautulli* (4 AM), and *Seerr* (5 AM).
+  (the expensive per-show recompute, daily 6 AM), *Tautulli* (4 AM), *Seerr* (5 AM),
+  and *Backup* (8 AM).
   Clear the poster / Seerr / watch caches from the same page, and view app events
   under **Settings → Logs**. A **Recent activity** list shows the last runs + errors.
 - **Sonarr / Radarr** (optional) — connect any number of Sonarr and Radarr instances
@@ -131,6 +132,11 @@ manually in Plex / Jellyfin / Emby / Sonarr / Radarr.
   delete"** so the original requester can release a title they're done with (see
   above). Cached locally and refreshed by the *Requests* job (so badges/requests
   reflect the last refresh, not live).
+- **Self-hosting niceties** — standing [health checks](#health-checks) with fix-it
+  links (⚠ chip in the top bar for admins), an update notice when a new release is
+  out, scheduled [database backups](#backups) with one-click restore, an
+  [API](#api) with interactive docs at `/api-docs`, first-class
+  [reverse-proxy](#reverse-proxy) support, and **zero telemetry**.
 
 ## Tech stack
 
@@ -232,6 +238,131 @@ secret is reused, so your data and stored tokens carry over untouched.
 
 The image build runs the test suite as a gate (`RUN npm test`), so a failing
 test blocks the image.
+
+## Reverse proxy
+
+Run Keeparr on its own **subdomain** (e.g. `keeparr.example.net`). Subpath
+hosting (`example.net/keeparr`) is **not supported** — Next.js bakes the base
+path in at build time, so like Overseerr/Jellyseerr (the same stack), Keeparr
+is subdomain-only.
+
+Keeparr is proxy-friendly out of the box: the session cookie is marked `Secure`
+when the request arrives with `X-Forwarded-Proto: https`, so a TLS-terminating
+proxy just works. Set **Application URL** (Settings → General, or the `APP_URL`
+env var) to your public URL so the Plex sign-in redirect lands back on it.
+
+**Nginx Proxy Manager**: add a Proxy Host for `keeparr.example.net` →
+`http://<server-ip>:8767`, enable Websockets Support (harmless; Keeparr doesn't
+need it) and your SSL cert. Done.
+
+**nginx**:
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name keeparr.example.net;
+    # ssl_certificate ...; ssl_certificate_key ...;
+
+    location / {
+        proxy_pass http://127.0.0.1:8767;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+**Caddy**:
+
+```caddy
+keeparr.example.net {
+    reverse_proxy 127.0.0.1:8767
+}
+```
+
+## Backups
+
+Everything Keeparr stores — keeps, users, watch/request caches, settings
+(secrets stay encrypted) — lives in one SQLite file, so a backup is one file.
+
+- The **Backup** job snapshots the database daily (08:00 by default; schedule it
+  in Settings → Jobs) using SQLite's online-backup API — safe while the app runs.
+- Old backups are pruned past the **retention** count (default 14, configurable
+  in Settings → Jobs → Backups).
+- **Settings → Jobs → Backups** lists snapshots with **Download / Restore /
+  Delete**. Restore snapshots the current database first (`keeparr-pre-restore-…`)
+  before replacing it, so a mistaken restore is itself reversible.
+- Files live in `DATA_DIR/backups/` (`/data/backups` in Docker) — include that
+  folder (or just `DATA_DIR`) in your host backup tool for off-box copies.
+
+## API
+
+Keeparr has a small JSON API. Interactive docs live at **`/api-docs`** (sign-in
+required), backed by the OpenAPI spec at `/api/openapi.json` (also in the repo
+root as `openapi.json`).
+
+- Most endpoints use the session cookie from the web login.
+- For automation, generate an **API key** (Settings → General → API access) and
+  send it as the `X-Api-Key` header. It works on `GET/POST /api/admin/jobs`
+  (read job status / trigger refreshes) and `GET /api/stats` (largest /
+  reclaimable / never-watched / marked-for-delete views).
+
+```bash
+# Trigger the library scan from a cron/script:
+curl -X POST -H "X-Api-Key: <key>" -H "Content-Type: application/json" \
+  -d '{"job":"library"}' https://keeparr.example.net/api/admin/jobs
+```
+
+**Telemetry: none.** Keeparr never phones home; its only outbound call beyond
+your own services is the GitHub release check for the update notice.
+
+## Health checks
+
+Admins get a standing **Health** card (Settings → Jobs) and a ⚠ chip in the top
+bar when something needs attention. Each warning links to a section below.
+
+### Media server not configured
+
+No Plex/Jellyfin/Emby connection is stored, so nothing can sync. Connect your
+server under **Settings → Connections** (Plex: sign in + pick the server;
+Jellyfin/Emby: URL + credentials at first-run setup).
+
+### A job is failing
+
+A scheduled job's last run errored — the message shows the cause. Common ones:
+the media server/Tautulli/Seerr/Sonarr/Radarr is unreachable (wrong URL/API key,
+container down) or a network blip. Fix the connection under **Settings →
+Connections**, then re-run the job from **Settings → Jobs**. The Logs tab has
+the full history.
+
+### A job is stale
+
+The job hasn't succeeded in over twice its schedule. Usually the app was
+stopped for a while (fine — it catches up), or the in-process scheduler is
+stuck; restarting the container recovers it. Run the job manually from
+**Settings → Jobs** to confirm it works.
+
+### No storage mappings
+
+Libraries are managed but no library is mapped to a disk path, so Big Picture
+can't show capacity/free space. Mount your media shares into the container
+(read-only) and map each library under **Settings → Connections → Storage**.
+
+### Backups disabled
+
+The Backup job is set to manual-only. Give it a schedule under **Settings →
+Jobs** (daily is plenty) so your keeps/settings are snapshotted automatically.
+
+### Updating
+
+A newer release is out. Update the deployment:
+
+```bash
+git pull
+docker compose up -d --build
+```
+
+Your data carries over (it lives in the mounted `data/` volume).
 
 ## How "size on disk" is computed
 

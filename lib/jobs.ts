@@ -7,6 +7,7 @@ import {
   syncWatchHistory,
   type JobResult,
 } from './sync';
+import { runBackup } from './backup';
 import {
   getAllJobState,
   getJobState,
@@ -25,7 +26,8 @@ export type JobId =
   | 'sizes'
   | 'watch'
   | 'requests'
-  | 'arr';
+  | 'arr'
+  | 'backup';
 
 export interface JobDef {
   id: JobId;
@@ -41,6 +43,7 @@ export const JOBS: JobDef[] = [
   { id: 'watch', label: 'Tautulli', run: syncWatchHistory },
   { id: 'requests', label: 'Seerr', run: syncSeerrRequests },
   { id: 'arr', label: 'Sonarr / Radarr', run: syncArr },
+  { id: 'backup', label: 'Backup', run: runBackup },
 ];
 
 export const JOB_IDS = JOBS.map((j) => j.id);

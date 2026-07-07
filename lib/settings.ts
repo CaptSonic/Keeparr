@@ -1,6 +1,7 @@
 import { getSetting, setSetting } from './queries';
 import { decryptSecret, encryptSecret } from './crypto';
 import {
+  DEFAULT_BACKUP_RETENTION,
   DEFAULT_JOB_SCHEDULES,
   DEFAULT_SYNC_INTERVAL_MINUTES,
   type JobSchedule,
@@ -294,6 +295,17 @@ export function setOpenSignin(open: boolean): void {
 export const getApiKey = () => readSetting('api_key');
 export const setApiKey = (key: string) => writeSetting('api_key', key);
 export const isApiKeyConfigured = () => !!getApiKey();
+
+// --- Backups ---
+/** How many backup files to keep (oldest pruned first). */
+export function getBackupRetention(): number {
+  const n = Number(readSetting('backup_retention'));
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_BACKUP_RETENTION;
+}
+
+export function setBackupRetention(n: number): void {
+  writeSetting('backup_retention', String(Math.max(1, Math.floor(n))));
+}
 
 // --- Local demo (set only by the dev seed; synthetic storage capacity) ---
 export function getDevStorageTotal(): number | null {

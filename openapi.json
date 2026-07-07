@@ -1,0 +1,518 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Keeparr API",
+    "version": "0.2.0",
+    "description": "Keeparr tags what to keep and reports what can be deleted — it never deletes anything itself.\n\n**Authentication**: most endpoints use the `keeparr_session` cookie (set by logging in through the web UI). Endpoints marked with `X-Api-Key` security also accept the admin API key (Settings → General) in the `X-Api-Key` header — intended for automation (`/api/stats`, `/api/admin/jobs`).\n\nAll ids (`ratingKey`) are the media server's item ids (Plex ratingKey or Jellyfin/Emby item id)."
+  },
+  "servers": [{ "url": "/", "description": "This Keeparr instance" }],
+  "tags": [
+    { "name": "auth", "description": "Login/session (backend-aware: Plex PIN or Jellyfin/Emby credentials)" },
+    { "name": "media", "description": "Feed, browse, search, decisions (keep / don't care / OK to delete)" },
+    { "name": "insights", "description": "Overview, stats, storage" },
+    { "name": "admin", "description": "Admin-only: settings, jobs, users, logs, backups, health" },
+    { "name": "automation", "description": "Endpoints that also accept the X-Api-Key header" }
+  ],
+  "components": {
+    "securitySchemes": {
+      "cookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "keeparr_session",
+        "description": "Signed session cookie set by the web login."
+      },
+      "apiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Api-Key",
+        "description": "Admin API key from Settings → General."
+      }
+    },
+    "schemas": {
+      "MediaCard": {
+        "type": "object",
+        "description": "One movie/series card. Arr fields are null/absent when the title isn't matched in Sonarr/Radarr.",
+        "properties": {
+          "ratingKey": { "type": "string" },
+          "title": { "type": "string" },
+          "year": { "type": "integer", "nullable": true },
+          "sizeBytes": { "type": "integer" },
+          "sizeLabel": { "type": "string" },
+          "thumbUrl": { "type": "string", "nullable": true },
+          "libraryKind": { "type": "string", "enum": ["movie", "show"] },
+          "kept": { "type": "boolean", "description": "Protected — kept by anyone" },
+          "keptByMe": { "type": "boolean" },
+          "skipped": { "type": "boolean", "description": "This user's \"don't care\"" },
+          "watched": { "type": "boolean" },
+          "requestedByMe": { "type": "boolean" },
+          "markedForDeleteByMe": { "type": "boolean" },
+          "markedForDeleteAny": { "type": "boolean" },
+          "source": { "type": "string", "enum": ["sonarr", "radarr"] },
+          "quality": { "type": "string" },
+          "tags": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "HealthIssue": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "severity": { "type": "string", "enum": ["warning", "error"] },
+          "message": { "type": "string" },
+          "docSlug": { "type": "string", "description": "README anchor with the fix" }
+        }
+      },
+      "JobState": {
+        "type": "object",
+        "properties": {
+          "jobId": { "type": "string" },
+          "label": { "type": "string" },
+          "lastStatus": { "type": "string", "enum": ["never", "running", "ok", "error"] },
+          "lastRun": { "type": "integer", "nullable": true },
+          "lastMessage": { "type": "string", "nullable": true },
+          "lastDurationMs": { "type": "integer", "nullable": true },
+          "schedule": { "type": "object" }
+        }
+      },
+      "Backup": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "example": "keeparr-20260706-080000.db" },
+          "sizeBytes": { "type": "integer" },
+          "createdAt": { "type": "integer", "description": "Unix seconds" }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "properties": { "error": { "type": "string" } }
+      }
+    }
+  },
+  "security": [{ "cookieAuth": [] }],
+  "paths": {
+    "/api/health": {
+      "get": {
+        "tags": ["automation"],
+        "summary": "Liveness probe (public)",
+        "security": [],
+        "responses": { "200": { "description": "`{ok:true}`" } }
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "tags": ["auth"],
+        "summary": "Current session user + app title",
+        "responses": { "200": { "description": "`{user, appTitle, serverConfigured}` (user is null when signed out)" } }
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "tags": ["auth"],
+        "summary": "Clear the session cookie",
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/auth/plex/pin": {
+      "post": {
+        "tags": ["auth"],
+        "summary": "Start a Plex PIN login (Plex backend only)",
+        "security": [],
+        "responses": { "200": { "description": "`{id, authUrl}` — open authUrl, then poll check" } }
+      }
+    },
+    "/api/auth/plex/check": {
+      "get": {
+        "tags": ["auth"],
+        "summary": "Poll a Plex PIN",
+        "security": [],
+        "parameters": [{ "name": "id", "in": "query", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "`{status: pending|authorized|denied, needsSetup?, isAdmin?}`" } }
+      }
+    },
+    "/api/auth/setup": {
+      "post": {
+        "tags": ["auth"],
+        "summary": "First-run only: choose the media-server type (and URL for Jellyfin/Emby)",
+        "security": [],
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "type": { "type": "string", "enum": ["plex", "jellyfin", "emby"] }, "url": { "type": "string" } } } } } },
+        "responses": {
+          "200": { "description": "Recorded" },
+          "403": { "description": "An admin already exists" }
+        }
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "tags": ["auth"],
+        "summary": "Jellyfin/Emby credential login",
+        "security": [],
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "username": { "type": "string" }, "password": { "type": "string" } }, "required": ["username", "password"] } } } },
+        "responses": { "200": { "description": "Session cookie set" }, "401": { "description": "Bad credentials" } }
+      }
+    },
+    "/api/feed/random": {
+      "get": {
+        "tags": ["media"],
+        "summary": "Home keep-loop batch",
+        "parameters": [
+          { "name": "limit", "in": "query", "schema": { "type": "integer" } },
+          { "name": "section", "in": "query", "schema": { "type": "string" }, "description": "Limit to one library" },
+          { "name": "largest", "in": "query", "schema": { "type": "string", "enum": ["1"] }, "description": "Biggest titles regardless of eligibility" }
+        ],
+        "responses": { "200": { "description": "`{items: MediaCard[], remaining}`" } }
+      }
+    },
+    "/api/keep": {
+      "post": {
+        "tags": ["media"],
+        "summary": "Keep a title (this user). Clears their don't-care + OK-to-delete.",
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "ratingKey": { "type": "string" } }, "required": ["ratingKey"] } } } },
+        "responses": { "200": { "description": "OK" } }
+      },
+      "delete": {
+        "tags": ["media"],
+        "summary": "Remove this user's keep (others' keeps stay)",
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "ratingKey": { "type": "string" } }, "required": ["ratingKey"] } } } },
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/skip": {
+      "post": {
+        "tags": ["media"],
+        "summary": "Mark \"don't care\" (this user). Clears their keep + OK-to-delete.",
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "ratingKey": { "type": "string" } }, "required": ["ratingKey"] } } } },
+        "responses": { "200": { "description": "OK" } }
+      },
+      "delete": {
+        "tags": ["media"],
+        "summary": "Clear this user's \"don't care\"",
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "ratingKey": { "type": "string" } }, "required": ["ratingKey"] } } } },
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/mark-delete": {
+      "post": {
+        "tags": ["media"],
+        "summary": "Mark \"OK to delete\" — only on titles this user requested via Seerr",
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "ratingKey": { "type": "string" } }, "required": ["ratingKey"] } } } },
+        "responses": {
+          "200": { "description": "OK" },
+          "403": { "description": "`{error:'not_requested'}` — not this user's request" }
+        }
+      },
+      "delete": {
+        "tags": ["media"],
+        "summary": "Clear this user's \"OK to delete\"",
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "ratingKey": { "type": "string" } }, "required": ["ratingKey"] } } } },
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/skip-batch": {
+      "post": {
+        "tags": ["media"],
+        "summary": "Skip a batch (\"don't care\" all) and deal a fresh one",
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "ratingKeys": { "type": "array", "items": { "type": "string" } } } } } } },
+        "responses": { "200": { "description": "`{items: MediaCard[], remaining}`" } }
+      }
+    },
+    "/api/library": {
+      "get": {
+        "tags": ["media"],
+        "summary": "Browse/filter the library",
+        "description": "Filters compose. `state` is the combinable Status filter: a comma list of per-user decision buckets OR'd together (empty = all). Arr filters (`source`, `instance`, `tag`, `quality`, `status`, `monitored`) are comma-separated \"any of\" lists.",
+        "parameters": [
+          { "name": "sections", "in": "query", "schema": { "type": "string" }, "description": "Comma list of library ids (empty = all)" },
+          { "name": "q", "in": "query", "schema": { "type": "string" } },
+          { "name": "sort", "in": "query", "schema": { "type": "string", "enum": ["size", "title", "added", "year", "library", "quality", "tags", "status", "watched"] } },
+          { "name": "dir", "in": "query", "schema": { "type": "string", "enum": ["asc", "desc"] } },
+          { "name": "state", "in": "query", "schema": { "type": "string" }, "description": "Comma list of: keptByMe, keptOther, dontcare, okDeleteMine, okDeleteAny, undecided" },
+          { "name": "watch", "in": "query", "schema": { "type": "string", "enum": ["all", "watched", "unwatched", "unwatchedAny", "recent30", "recent60", "recent90", "stale90"] } },
+          { "name": "source", "in": "query", "schema": { "type": "string" } },
+          { "name": "instance", "in": "query", "schema": { "type": "string" } },
+          { "name": "tag", "in": "query", "schema": { "type": "string" } },
+          { "name": "quality", "in": "query", "schema": { "type": "string" } },
+          { "name": "status", "in": "query", "schema": { "type": "string" } },
+          { "name": "monitored", "in": "query", "schema": { "type": "string" } },
+          { "name": "match", "in": "query", "schema": { "type": "string", "enum": ["matched", "unmatched"] } },
+          { "name": "sizeMismatch", "in": "query", "schema": { "type": "string", "enum": ["1"] } },
+          { "name": "requestedByMe", "in": "query", "schema": { "type": "string", "enum": ["1"] } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": { "type": "array", "items": { "$ref": "#/components/schemas/MediaCard" } },
+                    "hasMore": { "type": "boolean" },
+                    "nextOffset": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/library/facets": {
+      "get": {
+        "tags": ["media"],
+        "summary": "Values for the Browse arr filter dropdowns",
+        "responses": { "200": { "description": "`{instances, tags, qualities, statuses}`" } }
+      }
+    },
+    "/api/search": {
+      "get": {
+        "tags": ["media"],
+        "summary": "Ranked title search",
+        "parameters": [
+          { "name": "q", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "`{items: MediaCard[], hasMore, nextOffset}`" } }
+      }
+    },
+    "/api/search/suggest": {
+      "get": {
+        "tags": ["media"],
+        "summary": "Top-8 typeahead",
+        "parameters": [{ "name": "q", "in": "query", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "`{items}`" } }
+      }
+    },
+    "/api/sections": {
+      "get": {
+        "tags": ["media"],
+        "summary": "Managed libraries",
+        "responses": { "200": { "description": "`{sections: [{id,title,kind,itemCount,sizeBytes}]}`" } }
+      }
+    },
+    "/api/requests": {
+      "get": {
+        "tags": ["media"],
+        "summary": "This user's cached Seerr request keys",
+        "responses": { "200": { "description": "`{ratingKeys: string[]}`" } }
+      }
+    },
+    "/api/image": {
+      "get": {
+        "tags": ["media"],
+        "summary": "Poster proxy (token stays server-side)",
+        "parameters": [
+          { "name": "path", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "w", "in": "query", "schema": { "type": "integer" } },
+          { "name": "h", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "The image" } }
+      }
+    },
+    "/api/overview": {
+      "get": {
+        "tags": ["insights"],
+        "summary": "Per-library keep breakdown + storage (Keep totals + Big Picture)",
+        "responses": { "200": { "description": "`{libraries[], storage, totals, tautulli, arr?, qualityBreakdown?, seerr?, markedForDelete?}`" } }
+      }
+    },
+    "/api/storage": {
+      "get": {
+        "tags": ["insights"],
+        "summary": "Per-filesystem free/total",
+        "responses": { "200": { "description": "`{configured, filesystems[]}`" } }
+      }
+    },
+    "/api/stats": {
+      "get": {
+        "tags": ["insights", "automation"],
+        "summary": "Big-picture drill-downs (accepts X-Api-Key)",
+        "security": [{ "cookieAuth": [] }, { "apiKeyAuth": [] }],
+        "parameters": [
+          { "name": "view", "in": "query", "schema": { "type": "string", "enum": ["largest", "reclaimable", "unwatched", "markedForDelete"] } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": { "200": { "description": "`{items[], summary}`" } }
+      }
+    },
+    "/api/about": {
+      "get": {
+        "tags": ["insights"],
+        "summary": "App name/version + update-available check",
+        "responses": { "200": { "description": "`{name, version, latest, updateAvailable, releaseUrl}`" } }
+      }
+    },
+    "/api/openapi.json": {
+      "get": {
+        "tags": ["automation"],
+        "summary": "This OpenAPI document",
+        "responses": { "200": { "description": "The spec" } }
+      }
+    },
+    "/api/admin/health": {
+      "get": {
+        "tags": ["admin"],
+        "summary": "Standing health warnings",
+        "responses": {
+          "200": {
+            "description": "Current issues (empty = healthy)",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "issues": { "type": "array", "items": { "$ref": "#/components/schemas/HealthIssue" } } } } } }
+          }
+        }
+      }
+    },
+    "/api/admin/settings": {
+      "get": {
+        "tags": ["admin"],
+        "summary": "Current settings (service secrets reported as booleans; the automation apiKey is returned)",
+        "responses": { "200": { "description": "Settings snapshot" } }
+      },
+      "put": {
+        "tags": ["admin"],
+        "summary": "Update settings (only provided fields change)",
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "description": "Any of: plexServer, plexBaseUrl, tautulli, seerr, sonarrInstances, radarrInstances, jobSchedules, storageMappings, managedSectionIds, appTitle, appUrl, apiKey, backupRetention" } } } },
+        "responses": { "200": { "description": "`{ok:true}`" } }
+      }
+    },
+    "/api/admin/jobs": {
+      "get": {
+        "tags": ["admin", "automation"],
+        "summary": "Job status + recent runs (accepts X-Api-Key)",
+        "security": [{ "cookieAuth": [] }, { "apiKeyAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "`{jobs: JobState[], recent}`",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "jobs": { "type": "array", "items": { "$ref": "#/components/schemas/JobState" } } } } } }
+          }
+        }
+      },
+      "post": {
+        "tags": ["admin", "automation"],
+        "summary": "Trigger a job now (accepts X-Api-Key)",
+        "security": [{ "cookieAuth": [] }, { "apiKeyAuth": [] }],
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "job": { "type": "string", "description": "recentlyAdded | library | sizes | watch | requests | arr | backup | all" } }, "required": ["job"] } } } },
+        "responses": { "200": { "description": "`{started:true}` (fire-and-forget)" } }
+      }
+    },
+    "/api/admin/backups": {
+      "get": {
+        "tags": ["admin"],
+        "summary": "List database backups (newest first)",
+        "responses": {
+          "200": {
+            "description": "Backups",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "backups": { "type": "array", "items": { "$ref": "#/components/schemas/Backup" } } } } } }
+          }
+        }
+      },
+      "post": {
+        "tags": ["admin"],
+        "summary": "Create a backup now, or restore one",
+        "description": "`{action:'create'}` runs the backup job. `{action:'restore', name}` snapshots the current db (safety net) then replaces it with the named backup.",
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "action": { "type": "string", "enum": ["create", "restore"] }, "name": { "type": "string" } }, "required": ["action"] } } } },
+        "responses": {
+          "200": { "description": "`{started}` or `{restored, safetyNet}`" },
+          "400": { "description": "Invalid name/action", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      },
+      "delete": {
+        "tags": ["admin"],
+        "summary": "Delete a backup file",
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "name": { "type": "string" } }, "required": ["name"] } } } },
+        "responses": { "200": { "description": "`{deleted:boolean}`" } }
+      }
+    },
+    "/api/admin/backups/download": {
+      "get": {
+        "tags": ["admin"],
+        "summary": "Download a backup file",
+        "parameters": [{ "name": "name", "in": "query", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "The .db file (attachment)" },
+          "404": { "description": "Not found" }
+        }
+      }
+    },
+    "/api/admin/logs": {
+      "get": {
+        "tags": ["admin"],
+        "summary": "App event log",
+        "parameters": [{ "name": "level", "in": "query", "schema": { "type": "string", "enum": ["info", "warn", "error"] } }],
+        "responses": { "200": { "description": "`{logs: [{ts,level,source,message}]}`" } }
+      },
+      "delete": {
+        "tags": ["admin"],
+        "summary": "Clear the event log",
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/admin/cache": {
+      "get": {
+        "tags": ["admin"],
+        "summary": "Cache stats (poster cache size/count)",
+        "responses": { "200": { "description": "`{images:{count,bytes}}`" } }
+      },
+      "post": {
+        "tags": ["admin"],
+        "summary": "Clear a cache",
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "target": { "type": "string", "enum": ["images", "requests", "watch", "arr"] } }, "required": ["target"] } } } },
+        "responses": { "200": { "description": "`{message}`" } }
+      }
+    },
+    "/api/admin/users": {
+      "get": {
+        "tags": ["admin"],
+        "summary": "List accounts",
+        "responses": { "200": { "description": "`{users[], ownerId, openSignin}`" } }
+      },
+      "put": {
+        "tags": ["admin"],
+        "summary": "Grant/revoke admin, enable/disable, toggle open sign-in",
+        "responses": { "200": { "description": "OK" } }
+      }
+    },
+    "/api/admin/users/import": {
+      "post": {
+        "tags": ["admin"],
+        "summary": "Import the Plex shared-user list",
+        "responses": { "200": { "description": "`{imported}`" } }
+      }
+    },
+    "/api/admin/test-connection": {
+      "post": {
+        "tags": ["admin"],
+        "summary": "Test a service connection",
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "service": { "type": "string", "enum": ["plex", "jellyfin", "emby", "tautulli", "seerr", "sonarr", "radarr"] }, "url": { "type": "string" }, "apiKey": { "type": "string" } }, "required": ["service"] } } } },
+        "responses": { "200": { "description": "`{ok, message}`" } }
+      }
+    },
+    "/api/admin/sync-libraries": {
+      "post": {
+        "tags": ["admin"],
+        "summary": "Discover library sections (fast, no item scan)",
+        "responses": { "200": { "description": "`{sections[]}`" } }
+      }
+    },
+    "/api/admin/plex-servers": {
+      "get": {
+        "tags": ["admin"],
+        "summary": "Servers visible to the signed-in Plex account",
+        "responses": { "200": { "description": "`{servers[]}`" } }
+      }
+    },
+    "/api/admin/storage-check": {
+      "get": {
+        "tags": ["admin"],
+        "summary": "Validate a storage mapping path",
+        "parameters": [{ "name": "path", "in": "query", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "`{ok, freeBytes?, totalBytes?}`" } }
+      }
+    },
+    "/api/admin/arr-health": {
+      "get": {
+        "tags": ["admin"],
+        "summary": "Sonarr/Radarr match health",
+        "responses": { "200": { "description": "`{matched, unmatched[], missing, arrJob}` — unmatched = downloaded in *arr but not in the media server, largest first" } }
+      }
+    }
+  }
+}

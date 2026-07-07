@@ -50,6 +50,7 @@ instrumentation.ts   start the job scheduler on boot (Node runtime only)
 lib/
   config.ts          env-derived config (DATA_DIR, SESSION_SECRET, APP_URL)
   db.ts              better-sqlite3 singleton + schema + test helpers
+                     (+ closeDbForSwap() so backup restore can swap the db file)
   queries.ts         ALL SQL
   types.ts           shared DTOs
   format.ts          formatGB / formatSize
@@ -65,6 +66,14 @@ lib/
   seerr.ts           requests client
   arr.ts             Sonarr/Radarr v3 client (shared) + pure normalize fns (fetchSonarr/fetchRadarr/testArr)
   quality.ts         pure resolutionBucket()/RES_ORDER (shared by Browse + Big Picture quality grouping)
+  version.ts         update check vs GitHub Releases (compareSemver + getVersionInfo,
+                     in-memory ~6h cache, never throws — /api/about + health check)
+  health.ts          healthIssues(): standing admin warnings derived from job_state/
+                     settings/version cache (no live probes); each has a docSlug →
+                     README anchor
+  backup.ts          SQLite backup/restore: createBackup (online db.backup), list/
+                     delete/prune (retention), restoreBackup (pre-restore snapshot →
+                     closeDbForSwap → copy → reopen+migrate); files in DATA_DIR/backups
   mediaserver/       backend read seam: types.ts (MediaBackend interface + BackendSection/
                      BackendItem), plex.ts (adapter over lib/plex), jellyfin.ts (adapter over
                      lib/jellyfin; serves Jellyfin AND Emby), index.ts getBackend() factory
@@ -86,6 +95,8 @@ app/
                      selection via rail, + Sonarr/Radarr quality/tag/monitored filters)
   search/            AppShell → SearchResults
   stats/             AppShell → StatsView (full-width dashboard)
+  api-docs/          interactive API reference (Scalar over /api/openapi.json;
+                     session-gated server component + client dynamic import)
   settings/<tab>/    admin Settings sub-tabs: general, users, connections, libraries,
                      jobs, logs, about (+ /settings → general). admin/* → redirects.
   api/...            route handlers (see below)
@@ -251,7 +262,11 @@ when it has no tvdb/tmdb **and** no imdb.
   "Not kept"); and — when Seerr is connected — `seerr: true` + `markedForDelete:
   {titles, bytes}` (the Big Picture "OK to delete" KPI). Backed by `librarySummary` +
   `arrQualitySummary`/`unmatchedMediaSummary` + `markedForDeleteSummary`.
-- `GET /api/about` → `{name, version}` for the About panel.
+- `GET /api/about` → `{name, version, latest, updateAvailable, releaseUrl}` for the
+  About panel (latest = newest GitHub release via `lib/version.ts`, cached ~6h;
+  null when unknown/offline — never an error).
+- `GET /api/openapi.json` — the OpenAPI spec (authored at repo-root
+  `openapi.json`; keep it in sync when routes change). Rendered at `/api-docs`.
 - `GET /api/stats?view=largest|reclaimable|unwatched|markedForDelete&offset=` — big
   picture + summary. `unwatched` = largest titles nobody has watched
   (`neverWatchedItems`; the "Never watched" drill-down, shown only when Tautulli is
@@ -267,7 +282,9 @@ when it has no tvdb/tmdb **and** no imdb.
 - Admin (require `is_admin`): `GET/PUT /api/admin/settings` (PUT accepts
   `storageMappings`, `managedSectionIds`, `appTitle`, `appUrl`, `apiKey`, `plexBaseUrl`,
   `jobSchedules`, `plexServer`, `tautulli`, `seerr`, `sonarrInstances`,
-  `radarrInstances` — GET returns instances as `[{id,name,url,hasKey}]`, never the apiKey),
+  `radarrInstances` — GET returns instances as `[{id,name,url,hasKey}]`, never their
+  apiKeys; the automation `apiKey` IS returned so the UI can show a masked
+  copy-able field, Servarr-style),
   `GET /api/admin/plex-servers`, `POST /api/admin/test-connection` (services
   `plex`/`jellyfin`/`emby`/`tautulli`/`seerr`/`sonarr`/`radarr`),
   `POST /api/admin/sync-libraries` (discover sections only, fast — backend-agnostic
@@ -277,6 +294,12 @@ when it has no tvdb/tmdb **and** no imdb.
   `GET /api/admin/logs?level=` + `DELETE /api/admin/logs`,
   `GET /api/admin/cache` + `POST /api/admin/cache {target:images|requests|watch|arr}`
   (`arr` clears both `arr_items` + `arr_unmatched`),
+  `GET /api/admin/health` (`{issues: HealthIssue[]}` — standing warnings from
+  `lib/health.ts`; AppShell's ⚠ chip + the Jobs-tab Health card; each issue's
+  `docSlug` → a README "Health checks" anchor),
+  `GET /api/admin/backups` (list) + `POST {action:'create'|'restore', name?}` +
+  `DELETE {name}` + `GET /api/admin/backups/download?name=` (backup names are
+  strictly validated — `keeparr[-pre-restore]-YYYYMMDD-HHmmss[-n].db` only),
   `GET /api/admin/arr-health` (`{matched, unmatched[], missing, arrJob}` — Match
   health panel; `unmatched[]` = titles DOWNLOADED in *arr but not in Plex, with
   `sizeBytes`, largest-first),
@@ -305,6 +328,7 @@ the old `job_intervals`),
 measurement), `managed_section_ids` (json; which libraries Keeparr tracks, empty =
 all), `open_signin` (`'true'`/`'false'`), `api_key`* (automation), `app_title`,
 `app_url` (Plex sign-in forwardUrl; overrides the `APP_URL` env var),
+`backup_retention` (how many backup files to keep; default 14),
 `dev_storage_total` (demo-only synthetic capacity, set by the seed). `*` = encrypted
 at rest.
 
@@ -403,8 +427,16 @@ A fuller source-verified reference is in the planning doc
 - Refresh work is split into scheduled jobs (`lib/jobs.ts`): `recentlyAdded` (cheap,
   newest items only), `library` (full inventory + movie sizes + new-show sizing),
   `sizes` (expensive per-series `getAllLeaves` recompute), `watch` (Tautulli),
-  `requests` (Seerr cache), `arr` (Sonarr/Radarr quality+tags cache). Each is
+  `requests` (Seerr cache), `arr` (Sonarr/Radarr quality+tags cache), `backup`
+  (db snapshot + retention prune, `lib/backup.ts`). Each is
   single-flight per `job_state`, fire-and-forget from `/api/admin/jobs`, auto-run by
   `lib/scheduler.ts` on its `job_schedules` entry (`isDue`: every N minutes/hours, daily
   at a local HH:MM, or weekly on a local weekday at HH:MM). Defaults in `config.ts` (`DEFAULT_JOB_SCHEDULES`): recentlyAdded
-  5 min; library 03:00; watch 04:00; requests 05:00; sizes 06:00; arr 07:00.
+  5 min; library 03:00; watch 04:00; requests 05:00; sizes 06:00; arr 07:00;
+  backup 08:00.
+- **Releases**: the update check compares `package.json` version to the newest
+  GitHub Release. Shipping a release = bump `package.json` version → commit →
+  tag `v<version>` → `gh release create v<version>` with notes. Do this only
+  when the user explicitly asks to ship/release.
+- ROADMAP.md tracks the researched platform-feature tiers (Tier 2 next: logs
+  polish, themes, toasts, PWA, shortcuts; Tier 3 parked).

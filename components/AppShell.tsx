@@ -19,13 +19,20 @@ function initials(u: SessionUser): string {
   return s.slice(0, 2).toUpperCase();
 }
 
+interface HealthIssue {
+  id: string;
+  severity: 'warning' | 'error';
+  message: string;
+}
+
 // Module-level cache so the rail renders instantly on every client-side
 // navigation (AppShell remounts per page) instead of flashing + refetching.
 const shellCache: {
   user: SessionUser | null;
   appTitle: string;
   libraries: Library[];
-} = { user: null, appTitle: 'Keeparr', libraries: [] };
+  health: HealthIssue[];
+} = { user: null, appTitle: 'Keeparr', libraries: [], health: [] };
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -35,6 +42,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<SessionUser | null>(shellCache.user);
   const [appTitle, setAppTitle] = useState(shellCache.appTitle);
   const [libraries, setLibraries] = useState<Library[]>(shellCache.libraries);
+  const [health, setHealth] = useState<HealthIssue[]>(shellCache.health);
   const [browseOpen, setBrowseOpen] = useState(pathname.startsWith('/library'));
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -48,6 +56,17 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         if (d.appTitle) {
           setAppTitle(d.appTitle);
           shellCache.appTitle = d.appTitle;
+        }
+        // Admins get the standing health warnings chip in the top bar.
+        if (d.user?.isAdmin) {
+          fetch('/api/admin/health')
+            .then((r) => r.json())
+            .then((h) => {
+              const issues = Array.isArray(h.issues) ? h.issues : [];
+              setHealth(issues);
+              shellCache.health = issues;
+            })
+            .catch(() => {});
         }
       })
       .catch(() => {});
@@ -202,6 +221,20 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           <div className="flex-1 min-w-0">
             <SearchBox />
           </div>
+          {user?.isAdmin && health.length > 0 && (
+            <Link
+              href="/settings/jobs"
+              title={health.map((h) => h.message).join('\n')}
+              className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${
+                health.some((h) => h.severity === 'error')
+                  ? 'bg-red-500/15 text-red-400 hover:bg-red-500/25'
+                  : 'bg-amber-500/15 text-amber-400 hover:bg-amber-500/25'
+              }`}
+            >
+              <span aria-hidden>⚠</span>
+              {health.length} {health.length === 1 ? 'issue' : 'issues'}
+            </Link>
+          )}
           <div className="relative shrink-0" ref={menuRef}>
             <button
               onClick={() => setMenuOpen((o) => !o)}

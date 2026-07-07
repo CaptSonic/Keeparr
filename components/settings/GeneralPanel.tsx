@@ -6,8 +6,10 @@ import { Card, CardColumns, btnCls, btnGhost, inputCls } from './ui';
 export default function GeneralPanel() {
   const [appTitle, setAppTitle] = useState('');
   const [appUrl, setAppUrl] = useState('');
-  const [apiKeyConfigured, setApiKeyConfigured] = useState(false);
-  const [newApiKey, setNewApiKey] = useState('');
+  const [apiKey, setApiKey] = useState('');
+  const [keyDirty, setKeyDirty] = useState(false); // regenerated but not saved yet
+  const [showKey, setShowKey] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
 
@@ -17,7 +19,7 @@ export default function GeneralPanel() {
       .then((d) => {
         setAppTitle(d.appTitle ?? 'Keeparr');
         setAppUrl(d.appUrl ?? '');
-        setApiKeyConfigured(!!d.apiKeyConfigured);
+        setApiKey(d.apiKey ?? '');
       })
       .catch(() => {});
   }, []);
@@ -25,7 +27,32 @@ export default function GeneralPanel() {
   function generateApiKey() {
     const bytes = new Uint8Array(24);
     crypto.getRandomValues(bytes);
-    setNewApiKey(Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join(''));
+    setApiKey(Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join(''));
+    setKeyDirty(true);
+    setShowKey(true); // a fresh key is worth seeing
+  }
+
+  async function copyApiKey() {
+    // navigator.clipboard needs a secure context — plain-HTTP LAN deploys don't
+    // have one, so fall back to the classic hidden-textarea trick.
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(apiKey);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = apiKey;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* leave the field visible for manual copy */
+    }
   }
 
   async function save() {
@@ -38,11 +65,11 @@ export default function GeneralPanel() {
         body: JSON.stringify({
           appTitle,
           appUrl,
-          ...(newApiKey ? { apiKey: newApiKey } : {}),
+          ...(keyDirty ? { apiKey } : {}),
         }),
       });
       setMsg('Saved.');
-      if (newApiKey) setApiKeyConfigured(true);
+      setKeyDirty(false);
     } finally {
       setSaving(false);
     }
@@ -78,22 +105,52 @@ export default function GeneralPanel() {
           A key for automation — send it as the <code>X-Api-Key</code> header to read
           stats or trigger refresh jobs without signing in.
         </p>
-        {newApiKey ? (
-          <div className="rounded-md border border-brand/40 bg-brand/10 px-3 py-2 text-sm">
-            <div className="text-slate-300 mb-1">
-              New key (copy it now — hidden after saving):
-            </div>
-            <code className="break-all text-brand">{newApiKey}</code>
+        {apiKey ? (
+          <div className="flex items-center gap-2">
+            <input
+              className={`${inputCls} font-mono text-xs`}
+              type={showKey ? 'text' : 'password'}
+              value={apiKey}
+              readOnly
+              onFocus={(e) => e.target.select()}
+            />
+            <button
+              onClick={() => setShowKey((s) => !s)}
+              className={`${btnGhost} shrink-0`}
+              type="button"
+              title={showKey ? 'Hide' : 'Show'}
+            >
+              {showKey ? 'Hide' : 'Show'}
+            </button>
+            <button
+              onClick={copyApiKey}
+              className={`${btnGhost} shrink-0`}
+              type="button"
+              title="Copy to clipboard"
+            >
+              {copied ? 'Copied ✓' : 'Copy'}
+            </button>
           </div>
         ) : (
-          <p className="text-sm text-slate-400">
-            {apiKeyConfigured ? 'A key is configured.' : 'No key set.'}
+          <p className="text-sm text-slate-400">No key set.</p>
+        )}
+        {keyDirty && (
+          <p className="mt-2 text-xs text-amber-400">
+            New key — Save settings to activate it (the old key stops working).
           </p>
         )}
-        <div className="mt-3 flex gap-3">
+        <div className="mt-3 flex items-center gap-3">
           <button onClick={generateApiKey} className={btnGhost} type="button">
-            {apiKeyConfigured || newApiKey ? 'Regenerate' : 'Generate key'}
+            {apiKey ? 'Regenerate' : 'Generate key'}
           </button>
+          <a
+            href="/api-docs"
+            target="_blank"
+            rel="noreferrer"
+            className="text-sm text-slate-400 underline hover:text-white"
+          >
+            API docs →
+          </a>
         </div>
       </Card>
       </CardColumns>
