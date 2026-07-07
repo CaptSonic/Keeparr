@@ -37,7 +37,14 @@ interface DiscoveredServer {
   machineId: string;
   owned: boolean;
   accessToken: string | null;
-  connections: { uri: string; local: boolean; relay: boolean }[];
+  connections: {
+    uri: string;
+    local: boolean;
+    relay: boolean;
+    address: string;
+    port: number;
+    protocol: string;
+  }[];
 }
 interface JobRow {
   jobId: string;
@@ -372,8 +379,17 @@ export default function ConnectionsPanel() {
         body: JSON.stringify({ service: 'plex', url: uri, token: srv.accessToken }),
       }).then((r) => r.json());
       if (!t.ok) {
-        setMsg(`Could not reach that connection: ${t.message}`);
-        return;
+        // The reachability test can fail even for a valid server (e.g. a
+        // relay/remote URL not routable from the container). Don't silently
+        // drop the click — let the admin save it anyway.
+        const proceed = window.confirm(
+          `Couldn't reach ${uri}\n(${t.message ?? 'connection test failed'}).\n\n` +
+            `Save this connection anyway?`
+        );
+        if (!proceed) {
+          setMsg(`Did not connect: ${t.message ?? 'connection test failed'}.`);
+          return;
+        }
       }
       await fetch('/api/admin/settings', {
         method: 'PUT',
@@ -516,17 +532,32 @@ export default function ConnectionsPanel() {
                       {s.name} {s.owned && <span className="text-xs text-brand">(owned)</span>}
                     </div>
                     <div className="mt-2 flex flex-wrap gap-2">
-                      {s.connections.map((c) => (
-                        <button
-                          key={c.uri}
-                          onClick={() => connectServer(s, c.uri)}
-                          disabled={saving}
-                          className={`${btnGhost} text-xs`}
-                          title={c.uri}
-                        >
-                          {c.local ? 'Local' : c.relay ? 'Relay' : 'Remote'}: {new URL(c.uri).host}
-                        </button>
-                      ))}
+                      {s.connections.map((c) => {
+                        // Prefer the raw http://ip:port for LAN-local connections
+                        // (reliably reachable from a container); the .plex.direct
+                        // uri needs public DNS + HTTPS and often fails here.
+                        const connectUrl =
+                          c.local && c.address && c.port
+                            ? `http://${c.address}:${c.port}`
+                            : c.uri;
+                        let host = connectUrl;
+                        try {
+                          host = new URL(connectUrl).host;
+                        } catch {
+                          /* keep raw */
+                        }
+                        return (
+                          <button
+                            key={c.uri}
+                            onClick={() => connectServer(s, connectUrl)}
+                            disabled={saving}
+                            className={`${btnGhost} text-xs`}
+                            title={connectUrl}
+                          >
+                            {c.local ? 'Local' : c.relay ? 'Relay' : 'Remote'}: {host}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 ))}

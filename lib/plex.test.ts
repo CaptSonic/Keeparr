@@ -3,6 +3,7 @@ import {
   extractGuids,
   getServerIdentity,
   parseSharedUsers,
+  plexConnectUrl,
   sumLeafSizes,
   sumPartSizes,
   usefulServerConnections,
@@ -183,11 +184,14 @@ describe('usefulServerConnections', () => {
     uri: `https://${ip.replace(/\./g, '-')}.${hash}.plex.direct:32400`,
     local,
     relay,
+    address: ip,
+    port: 32400,
+    protocol: 'http',
   });
 
   it('drops Docker-bridge (172.16/12) addresses and orders LAN → WAN → relay', () => {
     const input: ServerConnection[] = [
-      { uri: 'https://relay.plex.direct:443', local: false, relay: true },
+      { uri: 'https://relay.plex.direct:443', local: false, relay: true, address: '', port: 443, protocol: 'https' },
       conn('23.88.151.184', false), // remote/WAN
       conn('172.18.0.1', true), // docker bridge — noise
       conn('172.22.0.1', true), // docker bridge — noise
@@ -207,6 +211,47 @@ describe('usefulServerConnections', () => {
   it('keeps Docker addresses only if they are the only option (never empties)', () => {
     const input: ServerConnection[] = [conn('172.18.0.1', true)];
     expect(usefulServerConnections(input)).toHaveLength(1);
+  });
+});
+
+describe('plexConnectUrl', () => {
+  it('uses the raw http://ip:port for a LAN-local connection (container-reachable)', () => {
+    expect(
+      plexConnectUrl({
+        uri: 'https://192-168-1-2.abc.plex.direct:32400',
+        local: true,
+        relay: false,
+        address: '192.168.1.2',
+        port: 32400,
+        protocol: 'http',
+      })
+    ).toBe('http://192.168.1.2:32400');
+  });
+
+  it('keeps the plex.direct uri for remote/relay (only routable option)', () => {
+    const remote: ServerConnection = {
+      uri: 'https://23-88-151-184.abc.plex.direct:32400',
+      local: false,
+      relay: false,
+      address: '23.88.151.184',
+      port: 32400,
+      protocol: 'https',
+    };
+    expect(plexConnectUrl(remote)).toBe(remote.uri);
+    expect(plexConnectUrl({ ...remote, relay: true })).toBe(remote.uri);
+  });
+
+  it('falls back to the uri when a local connection lacks address/port', () => {
+    expect(
+      plexConnectUrl({
+        uri: 'https://x.plex.direct:32400',
+        local: true,
+        relay: false,
+        address: '',
+        port: 0,
+        protocol: 'http',
+      })
+    ).toBe('https://x.plex.direct:32400');
   });
 });
 

@@ -108,9 +108,24 @@ export interface PlexResource {
 }
 
 export interface ServerConnection {
-  uri: string;
+  uri: string; // the https://<dashed-ip>.<hash>.plex.direct:port URL
   local: boolean;
   relay: boolean;
+  address: string; // raw host/IP Plex advertises (LAN IP for local connections)
+  port: number;
+  protocol: string; // 'http' | 'https'
+}
+
+/**
+ * The URL discovery should actually connect to. For a LAN-local connection,
+ * prefer the raw `http://<ip>:<port>` — it's reliably reachable from inside a
+ * Docker container, unlike the `.plex.direct` `uri`, which needs public DNS +
+ * HTTPS cert validation and typically fails from a bridge network. Remote/relay
+ * connections keep the `.plex.direct` uri (that's the only routable option).
+ */
+export function plexConnectUrl(c: ServerConnection): string {
+  if (c.local && c.address && c.port) return `http://${c.address}:${c.port}`;
+  return c.uri;
 }
 
 /** Extract an IPv4 from a connection URI host. plex.direct encodes the IP with
@@ -178,6 +193,9 @@ export async function getResources(userToken: string): Promise<PlexResource[]> {
             uri: String(c.uri ?? ''),
             local: c.local === true,
             relay: c.relay === true,
+            address: String(c.address ?? ''),
+            port: Number(c.port) || 0,
+            protocol: String(c.protocol ?? 'http'),
           }))
         : [],
     }));

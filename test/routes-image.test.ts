@@ -82,7 +82,9 @@ describe('GET /api/image auth guard', () => {
 
 describe('GET /api/image hardening', () => {
   function mockImageFetch(contentType: string) {
-    const fetchMock = vi.fn(async () =>
+    // Type the args like real fetch so `mock.calls[0][0]` (the upstream URL) is
+    // a typed element rather than an empty tuple.
+    const fetchMock = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) =>
       new Response(new Uint8Array([1, 2, 3]), {
         status: 200,
         headers: { 'Content-Type': contentType },
