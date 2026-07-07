@@ -5,6 +5,11 @@ Sonarr/Radarr (Servarr) and Overseerr/Jellyseerr/Seerr (July 2026 research pass)
 Core keep/reclaim functionality is considered complete; these are the "edge"
 features self-hosters expect.
 
+**Status (July 2026):** Tiers 1 and 2 are implemented and merged to `main`
+(package versions 0.2.0 / 0.3.0 — GitHub release tags pending the first
+"ship"). Tier 3 is deliberately parked — decided July 2026 that none of it is
+needed for how Keeparr is used today; revisit on real demand.
+
 ## Tier 1 — done (v0.2.0)
 
 - [x] **Health checks** — `lib/health.ts` + `/api/admin/health`; ⚠ chip in the
@@ -34,11 +39,11 @@ features self-hosters expect.
 - [x] **PWA manifest** — `app/manifest.ts` + generated icons (incl. maskable
   + apple-touch), Keep/Browse/Big Picture shortcuts.
 - [x] **`?` keyboard-shortcuts overlay** (+ `/` focuses search).
-- [ ] **"Show Advanced Settings" toggle** — still deferred; the Settings
-  surface doesn't warrant it yet.
 
-## Tier 3 — parked (not needed for now)
+## Tier 3 — parked (decided July 2026: not needed for now)
 
+- **"Show Advanced Settings" toggle** — progressive disclosure of power-user
+  fields (Servarr pattern); the Settings surface doesn't warrant it yet.
 - **Subpath hosting** (`example.net/keeparr`) — Next.js bakes `basePath` at
   build time and every client `fetch('/api/…')` would need a prefix helper;
   Overseerr/Jellyseerr (same stack) never shipped it either. Subdomain-only is
@@ -53,6 +58,10 @@ features self-hosters expect.
   (Authelia/Authentik). Loudest open auth wish across all three peer projects;
   Keeparr's media-server login sidesteps most of the need.
 - **Prometheus `/metrics` endpoint** — niche but rising expectation.
+
+Of these, **notifications** delivers the most day-to-day value if ever
+un-parked (a weekly reclaimable digest fits Keeparr's purpose), and
+**read-only guest** is the cheapest to build.
 
 ## Explicitly not doing
 

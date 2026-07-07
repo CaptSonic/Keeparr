@@ -468,5 +468,7 @@ A fuller source-verified reference is in the planning doc
   GitHub Release. Shipping a release = bump `package.json` version → commit →
   tag `v<version>` → `gh release create v<version>` with notes. Do this only
   when the user explicitly asks to ship/release.
-- ROADMAP.md tracks the researched platform-feature tiers (Tier 2 next: logs
-  polish, themes, toasts, PWA, shortcuts; Tier 3 parked).
+- ROADMAP.md tracks the researched platform-feature tiers: Tiers 1 (health/
+  update/backups/API docs, v0.2.0) and 2 (themes/toasts/logs/PWA/shortcuts,
+  v0.3.0) are done; Tier 3 is deliberately parked — don't build those without
+  the user asking.

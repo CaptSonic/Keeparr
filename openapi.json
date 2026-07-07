@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Keeparr API",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "description": "Keeparr tags what to keep and reports what can be deleted — it never deletes anything itself.\n\n**Authentication**: most endpoints use the `keeparr_session` cookie (set by logging in through the web UI). Endpoints marked with `X-Api-Key` security also accept the admin API key (Settings → General) in the `X-Api-Key` header — intended for automation (`/api/stats`, `/api/admin/jobs`).\n\nAll ids (`ratingKey`) are the media server's item ids (Plex ratingKey or Jellyfin/Emby item id)."
   },
   "servers": [{ "url": "/", "description": "This Keeparr instance" }],
@@ -436,7 +436,11 @@
       "get": {
         "tags": ["admin"],
         "summary": "App event log",
-        "parameters": [{ "name": "level", "in": "query", "schema": { "type": "string", "enum": ["info", "warn", "error"] } }],
+        "parameters": [
+          { "name": "level", "in": "query", "schema": { "type": "string", "enum": ["info", "warn", "error"] } },
+          { "name": "q", "in": "query", "schema": { "type": "string" }, "description": "Keyword search over message + source" },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "maximum": 1000 }, "description": "Default 300; up to 1000 (the full retained log)" }
+        ],
         "responses": { "200": { "description": "`{logs: [{ts,level,source,message}]}`" } }
       },
       "delete": {
