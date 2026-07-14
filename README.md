@@ -206,8 +206,9 @@ npm run verify    # test + build (the same checks CI runs before publishing an i
 ## Install
 
 Prebuilt multi-arch images (amd64 + arm64) are published to
-**`ghcr.io/drohack/keeparr`** on every push to main: `latest` (the stable
-channel) plus immutable version tags (`0.3`, `0.3.6`, …).
+**`ghcr.io/<your-github-user-or-org>/keeparr`** on every push to `main`: `latest`
+(the stable channel) plus immutable version tags (`0.3`, `0.3.6`, …). In this
+fork, the default image path is **`ghcr.io/captsonic/keeparr`**.
 
 ### Unraid — Community Applications (recommended)
 
@@ -227,15 +228,52 @@ Not on Unraid? Run the same published image directly:
 docker run -d --name keeparr \
   -p 8767:3000 \
   -v /path/to/appdata/keeparr:/data \
-  ghcr.io/drohack/keeparr:latest
+  ghcr.io/captsonic/keeparr:latest
 ```
 
 …or with the repo's `docker-compose.yml`:
 
 ```bash
-docker compose up -d                          # pulls ghcr.io/drohack/keeparr:latest
+docker compose up -d                          # pulls ghcr.io/captsonic/keeparr:latest
 docker compose pull && docker compose up -d   # to update
 ```
+
+### Publishing from your fork to GHCR
+
+This repository's release workflow already publishes the image to:
+
+- `ghcr.io/${GITHUB_REPOSITORY}`
+
+That means if you push this fork to your own GitHub repository and enable
+GitHub Actions + Packages permissions, publishing automatically targets **your**
+package namespace.
+
+For this fork specifically, pushes to `main` publish to:
+
+- `ghcr.io/captsonic/keeparr`
+
+Requirements:
+
+1. your default branch is `main`
+2. GitHub Actions are enabled in the fork
+3. the workflow has permission to write packages (already declared in
+   `.github/workflows/release.yml`)
+
+Typical flow:
+
+```bash
+git push origin main
+```
+
+Then GitHub Actions will:
+
+- run tests
+- build the multi-arch image (`linux/amd64`, `linux/arm64`)
+- publish `latest` and version tags to GHCR
+- create a GitHub release
+
+If you want to trigger a release manually, you can also run the **Release**
+workflow via **Actions** in GitHub.
 
 ### Build from source
 
@@ -412,7 +450,8 @@ Jobs** (daily is plenty) so your keeps/settings are snapshotted automatically.
 ### Updating
 
 A newer release is out. Every push to `main` publishes a versioned image to
-`ghcr.io/drohack/keeparr` — pull it and restart:
+your configured GHCR repository (in this fork: `ghcr.io/captsonic/keeparr`) —
+pull it and restart:
 
 ```bash
 docker compose pull

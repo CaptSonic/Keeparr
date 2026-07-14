@@ -57,7 +57,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const [browseOpen, setBrowseOpen] = useState(pathname.startsWith('/library'));
   const [menuOpen, setMenuOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  // Mobile off-canvas rail (hidden by default below the `md` breakpoint; the
+  // rail itself is always in the DOM, just translated off-screen on mobile).
+  const [railOpen, setRailOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
+
+  // Close the mobile rail on route change so it doesn't stay open after nav.
+  useEffect(() => {
+    setRailOpen(false);
+  }, [pathname]);
 
   useEffect(() => {
     fetch('/api/auth/me')
@@ -114,6 +122,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
       if (e.key === 'Escape') {
         setShortcutsOpen(false);
+        setRailOpen(false);
         return;
       }
       if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
@@ -179,11 +188,26 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <ToastProvider>
     <div className="h-screen overflow-hidden bg-app text-slate-200 flex">
-      {/* Left rail */}
-      <aside className="w-60 shrink-0 bg-rail border-r border-slate-800 flex flex-col">
+      {/* Mobile backdrop — clicking it closes the off-canvas rail. */}
+      {railOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 md:hidden"
+          onClick={() => setRailOpen(false)}
+          aria-hidden
+        />
+      )}
+
+      {/* Left rail — a normal flex column on md+; an off-canvas drawer
+          (fixed, translated off-screen) below md. */}
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 w-60 shrink-0 bg-rail border-r border-slate-800 flex flex-col transition-transform duration-200 md:static md:z-auto md:translate-x-0 ${
+          railOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
         <Link
           href="/"
           className="flex items-center gap-2 h-14 px-4 border-b border-slate-800 shrink-0"
+          onClick={() => setRailOpen(false)}
         >
           <span className="grid h-7 w-7 place-items-center rounded-md bg-brand text-ink font-black">
             K
@@ -206,6 +230,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               <Link
                 href="/library"
                 className="flex items-center gap-3 px-3 py-2 flex-1 hover:text-white"
+                onClick={() => setRailOpen(false)}
               >
                 <span aria-hidden className="w-4 text-center">▦</span>
                 Browse
@@ -264,7 +289,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
       {/* Main column */}
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="h-14 shrink-0 bg-rail border-b border-slate-800 flex items-center gap-4 px-4">
+        <header className="h-14 shrink-0 bg-rail border-b border-slate-800 flex items-center gap-2 px-3 sm:gap-4 sm:px-4">
+          {/* Hamburger — opens the off-canvas rail, only shown below md. */}
+          <button
+            onClick={() => setRailOpen((o) => !o)}
+            aria-label={railOpen ? 'Close menu' : 'Open menu'}
+            className="shrink-0 rounded-md p-2 text-slate-400 hover:bg-slate-800 hover:text-white md:hidden"
+          >
+            <span aria-hidden className="block text-lg leading-none">☰</span>
+          </button>
           <div className="flex-1 min-w-0">
             <SearchBox />
           </div>
@@ -272,14 +305,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <Link
               href="/settings/jobs"
               title={health.map((h) => h.message).join('\n')}
-              className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${
+              className={`flex shrink-0 items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium sm:px-3 ${
                 health.some((h) => h.severity === 'error')
                   ? 'bg-red-500/15 text-red-400 hover:bg-red-500/25'
                   : 'bg-amber-500/15 text-amber-400 hover:bg-amber-500/25'
               }`}
             >
               <span aria-hidden>⚠</span>
-              {health.length} {health.length === 1 ? 'issue' : 'issues'}
+              <span className="hidden sm:inline">
+                {health.length} {health.length === 1 ? 'issue' : 'issues'}
+              </span>
             </Link>
           )}
           <div className="relative shrink-0" ref={menuRef}>

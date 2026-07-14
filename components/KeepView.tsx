@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { MediaCardData } from '@/lib/types';
 import { formatSize } from '@/lib/format';
-import MediaCard, { CARD_MIN_W } from './MediaCard';
+import MediaCard, { CARD_GRID_CLASS, CARD_MIN_W } from './MediaCard';
 import {
   StackedBar,
   LegendRow,
@@ -62,10 +62,22 @@ function dimsFor(w: number, h: number): { cols: number; rows: number } {
   return { cols: best.cols, rows: best.rows };
 }
 
+// Below this width the rail becomes an off-canvas drawer (0 static width);
+// below MOBILE_BREAKPOINT we abandon the exact-fit grid entirely in favor of
+// a normal scrolling grid (see `isNarrow` below) — matches Tailwind `md`.
+const RAIL_BREAKPOINT = 768;
+// The totals/storage aside only renders at `lg` — matches Tailwind `lg`.
+const ASIDE_BREAKPOINT = 1024;
+// Below this width the no-scroll exact-fit grid is abandoned for a normal
+// scrolling card grid (too little room to reliably budget rows/cols).
+const MOBILE_BREAKPOINT = 768;
+
 /** Rough cols×rows from the window, before the grid is measured (no-SSR guard). */
 function estimateDims(): { cols: number; rows: number } {
   if (typeof window === 'undefined') return { cols: 8, rows: 3 };
-  const w = window.innerWidth - 240 - 300 - 48; // rail + totals col + padding
+  const railW = window.innerWidth >= RAIL_BREAKPOINT ? 240 : 0;
+  const asideW = window.innerWidth >= ASIDE_BREAKPOINT ? 300 : 0;
+  const w = window.innerWidth - railW - asideW - 48; // rail + totals col + padding
   const h = window.innerHeight - 56 - 130 - 64; // top bar + header + bottom bar
   return dimsFor(w, h);
 }
@@ -82,8 +94,20 @@ export default function KeepView({ libraries }: { libraries: Library[] }) {
   const toast = useToast();
   const [dims, setDims] = useState(estimateDims);
   const [overview, setOverview] = useState<Overview | null>(null);
+  // Below MOBILE_BREAKPOINT the exact-fit no-scroll grid is replaced by a
+  // normal scrolling auto-fill grid (mirrors Browse's CARD_GRID_CLASS) — far
+  // more robust than budgeting rows/cols on unpredictable mobile viewports.
+  const [isNarrow, setIsNarrow] = useState(false);
 
   const gridWrap = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
+    const update = () => setIsNarrow(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
 
   // Restore last filter.
   useEffect(() => {
@@ -143,8 +167,9 @@ export default function KeepView({ libraries }: { libraries: Library[] }) {
   }, [loadOverview]);
 
   // How many cards actually fit (display only — independent of how many we fetch).
+  // On mobile the grid scrolls, so every fetched item is shown.
   const visible = dims.cols * dims.rows;
-  const shown = items.slice(0, visible);
+  const shown = isNarrow ? items : items.slice(0, visible);
 
   // Guards against out-of-order responses: only the latest request may commit
   // state (a slow old response must not clobber a newer one — worse here than
@@ -242,8 +267,8 @@ export default function KeepView({ libraries }: { libraries: Library[] }) {
       {/* Header + filters (under the top search bar). Padding is kept tight so a
           bottom-row card with the taller "OK to delete" button isn't clipped in
           the no-scroll grid. */}
-      <div className="shrink-0 px-6 pt-4 pb-2">
-        <div className="flex items-baseline justify-between gap-4">
+      <div className="shrink-0 px-3 pt-3 pb-2 sm:px-6 sm:pt-4">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4">
           <h1 className="text-2xl font-bold">What should we keep?</h1>
           <p className="text-sm text-slate-400">
             {triage
@@ -259,13 +284,27 @@ export default function KeepView({ libraries }: { libraries: Library[] }) {
       </div>
 
       {/* Grid (fills) + totals column */}
-      <div className="flex-1 min-h-0 px-6 flex gap-4">
-        <div ref={gridWrap} className="flex-1 min-w-0 overflow-hidden">
+      <div className="flex-1 min-h-0 px-3 sm:px-6 flex gap-4">
+        <div
+          ref={gridWrap}
+          className={`flex-1 min-w-0 ${isNarrow ? 'overflow-y-auto' : 'overflow-hidden'}`}
+        >
           {loading && shown.length === 0 ? (
             <p className="text-slate-500 pt-10 text-center">Loading…</p>
           ) : shown.length === 0 ? (
             <div className="pt-10 text-center text-slate-400">
               You’re all caught up here. Try another library above.
+            </div>
+          ) : isNarrow ? (
+            <div className={CARD_GRID_CLASS}>
+              {shown.map((item) => (
+                <MediaCard
+                  key={item.ratingKey}
+                  item={item}
+                  onKeptChange={onKeptChange}
+                  onDeleteChange={onDeleteChange}
+                />
+              ))}
             </div>
           ) : (
             <div
@@ -291,7 +330,7 @@ export default function KeepView({ libraries }: { libraries: Library[] }) {
 
       {/* Bottom bar. The action + its explanation align with the GRID, not the
           totals column — a matching spacer keeps them out from under the aside. */}
-      <div className="shrink-0 border-t border-slate-800 bg-rail px-6 py-2 flex items-center gap-4">
+      <div className="shrink-0 border-t border-slate-800 bg-rail px-3 py-2 flex items-center gap-2 sm:px-6 sm:gap-4">
         <div className="flex flex-1 items-center gap-4">
           <span className="text-sm text-slate-400">
             <span className="text-white font-semibold">{kept.size}</span> kept ·{' '}

@@ -309,10 +309,10 @@ export default function LibraryBrowser({
   const shownBytes = shownLibs.reduce((a, s) => a + s.sizeBytes, 0);
 
   return (
-    <div className="px-6 py-6">
-      <div className="mb-1 flex items-baseline gap-3">
+    <div className="px-3 py-4 sm:px-6 sm:py-6">
+      <div className="mb-1 flex flex-col gap-1 sm:flex-row sm:items-baseline sm:gap-3">
         <h1 className="text-2xl font-bold">Browse</h1>
-        <span className="text-sm text-slate-500">
+        <span className="text-sm text-slate-500 break-words">
           {selectedIds.size === 0
             ? 'All libraries'
             : shownLibs.map((s) => s.title).join(' + ')}{' '}
@@ -324,9 +324,9 @@ export default function LibraryBrowser({
         the sidebar (all shown by default).
       </p>
 
-      <div className="flex flex-wrap items-center gap-3 mb-5">
+      <div className="mb-5 flex flex-wrap items-start gap-2 sm:items-center sm:gap-3">
         <input
-          className={`${inputCls} flex-1 min-w-[220px]`}
+          className={`${inputCls} min-w-0 basis-full sm:basis-auto sm:min-w-[220px] sm:flex-1`}
           placeholder="Search titles…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
@@ -484,12 +484,12 @@ export default function LibraryBrowser({
         </label>
         )}
         {/* Grid ↔ List view toggle (remembered across visits). */}
-        <div className="ml-auto flex overflow-hidden rounded-md border border-slate-700">
+        <div className="flex w-full overflow-hidden rounded-md border border-slate-700 sm:ml-auto sm:w-auto">
           {(['grid', 'list'] as View[]).map((v) => (
             <button
               key={v}
               onClick={() => chooseView(v)}
-              className={`px-3 py-2 text-sm ${
+              className={`flex-1 px-3 py-2 text-sm sm:flex-none ${
                 view === v ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'
               }`}
               title={v === 'grid' ? 'Grid view' : 'List view'}
