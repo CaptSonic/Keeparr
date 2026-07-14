@@ -207,8 +207,9 @@ npm run verify    # test + build (the same checks CI runs before publishing an i
 
 Prebuilt multi-arch images (amd64 + arm64) are published to
 **`ghcr.io/<your-github-user-or-org>/keeparr`** on every push to `main`: `latest`
-(the stable channel) plus immutable version tags (`0.3`, `0.3.6`, …). In this
-fork, the default image path is **`ghcr.io/captsonic/keeparr`**.
+(the stable channel) plus immutable version tags (`0.3`, `0.3.6`, …). In the
+upstream repository this is `ghcr.io/drohack/keeparr`; in a fork the release
+workflow publishes automatically to `ghcr.io/<owner>/keeparr`.
 
 ### Unraid — Community Applications (recommended)
 
@@ -228,13 +229,13 @@ Not on Unraid? Run the same published image directly:
 docker run -d --name keeparr \
   -p 8767:3000 \
   -v /path/to/appdata/keeparr:/data \
-  ghcr.io/captsonic/keeparr:latest
+  ghcr.io/drohack/keeparr:latest
 ```
 
 …or with the repo's `docker-compose.yml`:
 
 ```bash
-docker compose up -d                          # pulls ghcr.io/captsonic/keeparr:latest
+docker compose up -d                          # pulls ghcr.io/${GHCR_NAMESPACE:-drohack}/keeparr:latest
 docker compose pull && docker compose up -d   # to update
 ```
 
@@ -248,9 +249,10 @@ That means if you push this fork to your own GitHub repository and enable
 GitHub Actions + Packages permissions, publishing automatically targets **your**
 package namespace.
 
-For this fork specifically, pushes to `main` publish to:
+For example:
 
-- `ghcr.io/captsonic/keeparr`
+- upstream publishes to `ghcr.io/drohack/keeparr`
+- a fork under `exampleuser/Keeparr` would publish to `ghcr.io/exampleuser/keeparr`
 
 Requirements:
 
@@ -450,8 +452,8 @@ Jobs** (daily is plenty) so your keeps/settings are snapshotted automatically.
 ### Updating
 
 A newer release is out. Every push to `main` publishes a versioned image to
-your configured GHCR repository (in this fork: `ghcr.io/captsonic/keeparr`) —
-pull it and restart:
+the configured GHCR repository (upstream: `ghcr.io/drohack/keeparr`; forks:
+`ghcr.io/<owner>/keeparr`) — pull it and restart:
 
 ```bash
 docker compose pull
