@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { getAppTitle } from '@/lib/settings';
+import ThemeProvider from '@/components/ThemeProvider';
 import './globals.css';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -19,24 +20,23 @@ export async function generateMetadata(): Promise<Metadata> {
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  themeColor: [
-    { media: '(prefers-color-scheme: dark)', color: '#0f172a' },
-    { media: '(prefers-color-scheme: light)', color: '#f8fafc' },
-  ],
 };
 
 /**
  * Pre-hydration theme init: reads the per-user prefs from localStorage and
  * stamps `data-theme` / `data-cim` on <html> BEFORE first paint, so there is
- * no light/dark flash. Kept dependency-free and tiny; the ThemeMenu component
- * updates the same attributes live afterwards. `suppressHydrationWarning` on
- * <html> because these attributes are intentionally client-decided.
+ * no light/dark flash. Kept dependency-free and tiny; ThemeProvider updates
+ * the same attributes and browser theme color live afterwards.
+ * `suppressHydrationWarning` on <html> because these attributes are
+ * intentionally client-decided.
  */
 const THEME_INIT = `(function(){try{
-var t=localStorage.getItem('keeparr.theme');
-if(t!=='light'&&t!=='dark'){t=window.matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';}
-document.documentElement.setAttribute('data-theme',t);
-if(localStorage.getItem('keeparr.colorImpaired')==='1'){document.documentElement.setAttribute('data-cim','1');}
+var p=localStorage.getItem('keeparr.theme');
+if(p!=='light'&&p!=='dark'){p='system';}
+var t=p==='system'?(window.matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'):p;
+var d=document.documentElement;d.setAttribute('data-theme',t);d.setAttribute('data-theme-preference',p);
+if(localStorage.getItem('keeparr.colorImpaired')==='1'){d.setAttribute('data-cim','1');}
+var m=document.querySelector('meta[data-keeparr-theme-color]');if(m){m.setAttribute('content',t==='light'?'#f8fafc':'#0f172a');}
 }catch(e){document.documentElement.setAttribute('data-theme','dark');}})()`;
 
 export default function RootLayout({
@@ -47,9 +47,12 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        <meta name="theme-color" content="#0f172a" data-keeparr-theme-color="1" />
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT }} />
       </head>
-      <body>{children}</body>
+      <body>
+        <ThemeProvider>{children}</ThemeProvider>
+      </body>
     </html>
   );
 }

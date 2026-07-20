@@ -1,105 +1,108 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-
-type ThemePref = 'auto' | 'light' | 'dark';
-
-const THEME_KEY = 'keeparr.theme';
-const CIM_KEY = 'keeparr.colorImpaired';
-
-function resolvedTheme(pref: ThemePref): 'light' | 'dark' {
-  if (pref === 'light' || pref === 'dark') return pref;
-  return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-}
-
-function apply(pref: ThemePref, cim: boolean) {
-  document.documentElement.setAttribute('data-theme', resolvedTheme(pref));
-  if (cim) document.documentElement.setAttribute('data-cim', '1');
-  else document.documentElement.removeAttribute('data-cim');
-}
+import { useTheme, type ThemePreference } from './ThemeProvider';
 
 /**
- * Per-user appearance prefs (localStorage; the head script in app/layout.tsx
- * applies them pre-paint on load). Lives in the AppShell user menu so
- * non-admins get it too.
+ * Appearance controls live in the AppShell user menu so every signed-in user
+ * can reach them. ThemeProvider owns persistence and live System-mode updates.
  */
 export default function ThemeMenu() {
-  const [pref, setPref] = useState<ThemePref>('auto');
-  const [cim, setCim] = useState(false);
+  const { preference, resolvedTheme, colorImpaired, setPreference, setColorImpaired } =
+    useTheme();
 
-  useEffect(() => {
-    try {
-      const t = localStorage.getItem(THEME_KEY);
-      if (t === 'light' || t === 'dark') setPref(t);
-      setCim(localStorage.getItem(CIM_KEY) === '1');
-    } catch {
-      /* ignore */
-    }
-  }, []);
-
-  // On Auto, follow live OS scheme changes.
-  useEffect(() => {
-    if (pref !== 'auto') return;
-    const mq = window.matchMedia('(prefers-color-scheme: light)');
-    const onChange = () => apply('auto', cim);
-    mq.addEventListener('change', onChange);
-    return () => mq.removeEventListener('change', onChange);
-  }, [pref, cim]);
-
-  function choosePref(next: ThemePref) {
-    setPref(next);
-    try {
-      if (next === 'auto') localStorage.removeItem(THEME_KEY);
-      else localStorage.setItem(THEME_KEY, next);
-    } catch {
-      /* ignore */
-    }
-    apply(next, cim);
-  }
-
-  function toggleCim() {
-    const next = !cim;
-    setCim(next);
-    try {
-      if (next) localStorage.setItem(CIM_KEY, '1');
-      else localStorage.removeItem(CIM_KEY);
-    } catch {
-      /* ignore */
-    }
-    apply(pref, next);
-  }
-
-  const segBtn = (value: ThemePref, label: string) => (
-    <button
-      key={value}
-      onClick={() => choosePref(value)}
-      className={`flex-1 rounded px-2 py-1 text-xs ${
-        pref === value
-          ? 'bg-slate-700 text-white'
-          : 'text-slate-400 hover:text-white'
-      }`}
-      type="button"
-    >
-      {label}
-    </button>
-  );
+  const choices: {
+    value: ThemePreference;
+    label: string;
+    detail: string;
+    icon: React.ReactNode;
+  }[] = [
+    {
+      value: 'system',
+      label: 'System',
+      detail: `Currently ${resolvedTheme}`,
+      icon: (
+        <svg viewBox="0 0 24 24" aria-hidden className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+          <rect x="3" y="4" width="18" height="13" rx="2" />
+          <path d="M8 21h8M12 17v4" />
+        </svg>
+      ),
+    },
+    {
+      value: 'light',
+      label: 'Light',
+      detail: 'Bright surfaces',
+      icon: (
+        <svg viewBox="0 0 24 24" aria-hidden className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+          <circle cx="12" cy="12" r="4" />
+          <path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.41M17.66 6.34l1.41-1.41" />
+        </svg>
+      ),
+    },
+    {
+      value: 'dark',
+      label: 'Dark',
+      detail: 'Dimmed surfaces',
+      icon: (
+        <svg viewBox="0 0 24 24" aria-hidden className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
+          <path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5 8.5 8.5 0 1 0 20.5 14.2Z" />
+        </svg>
+      ),
+    },
+  ];
 
   return (
-    <div className="mt-2 border-t border-slate-700 pt-2">
-      <div className="mb-1 text-[11px] uppercase tracking-wide text-slate-500">Theme</div>
-      <div className="flex gap-1 rounded-md bg-slate-800 p-0.5">
-        {segBtn('auto', 'Auto')}
-        {segBtn('light', 'Light')}
-        {segBtn('dark', 'Dark')}
+    <div className="mt-3 border-t border-slate-700 pt-3">
+      <div className="mb-2">
+        <div className="text-xs font-semibold text-slate-200">Appearance</div>
+        <div className="mt-0.5 text-[11px] text-slate-500">Choose how Keeparr looks.</div>
       </div>
-      <label className="mt-2 flex cursor-pointer items-center gap-2 text-xs text-slate-400 hover:text-white">
+      <div className="space-y-1" role="group" aria-label="Color theme">
+        {choices.map((choice) => {
+          const active = preference === choice.value;
+          return (
+            <button
+              key={choice.value}
+              type="button"
+              aria-pressed={active}
+              onClick={() => setPreference(choice.value)}
+              className={`flex w-full items-center gap-2.5 rounded-md border px-2.5 py-2 text-left transition-colors ${
+                active
+                  ? 'border-brand/70 bg-brand/15 text-white'
+                  : 'border-transparent text-slate-400 hover:border-slate-700 hover:bg-slate-800 hover:text-white'
+              }`}
+            >
+              <span
+                className={`grid h-7 w-7 shrink-0 place-items-center rounded-md ${
+                  active ? 'bg-brand text-ink' : 'bg-slate-800 text-slate-400'
+                }`}
+              >
+                {choice.icon}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-xs font-medium">{choice.label}</span>
+                <span className="block text-[10px] text-slate-500">{choice.detail}</span>
+              </span>
+              <span
+                aria-hidden
+                className={`h-2 w-2 rounded-full ${active ? 'bg-brand' : 'bg-slate-700'}`}
+              />
+            </button>
+          );
+        })}
+      </div>
+      <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-md px-1 text-xs text-slate-400 hover:text-white">
         <input
           type="checkbox"
-          className="h-3.5 w-3.5 accent-brand"
-          checked={cim}
-          onChange={toggleCim}
+          className="mt-0.5 h-3.5 w-3.5 accent-brand"
+          checked={colorImpaired}
+          onChange={(event) => setColorImpaired(event.target.checked)}
         />
-        Color-impaired mode
+        <span>
+          <span className="block">Color-impaired mode</span>
+          <span className="mt-0.5 block text-[10px] leading-tight text-slate-500">
+            Uses more distinguishable status colors.
+          </span>
+        </span>
       </label>
     </div>
   );

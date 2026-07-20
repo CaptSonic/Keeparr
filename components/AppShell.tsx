@@ -327,7 +327,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               </span>
             </button>
             {menuOpen && user && (
-              <div className="absolute right-0 mt-2 w-56 rounded-lg border border-slate-700 bg-panel shadow-xl p-3 text-sm z-30">
+              <div className="absolute right-0 z-30 mt-2 max-h-[calc(100dvh-4.5rem)] w-72 max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-lg border border-slate-700 bg-panel p-3 text-sm shadow-xl">
                 <div className="font-medium truncate">{user.username ?? 'User'}</div>
                 <div className="text-xs text-slate-500 truncate">
                   {user.email ?? '—'}
