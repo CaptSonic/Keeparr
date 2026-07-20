@@ -127,30 +127,7 @@ export default function MediaCard({
             {item.title}
           </div>
         )}
-        {/* Watched marker: small, neutral, bottom-left — never collides with the
-            keep/don't-care badges (top corners) or their highlights. */}
-        {item.watched && (
-          <div
-            title="You’ve watched this"
-            aria-label="Watched"
-            className="absolute bottom-1 left-1 grid h-5 w-5 place-items-center rounded-full bg-slate-900/75 text-slate-200 ring-1 ring-black/30"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              className="h-3 w-3"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
-              <circle cx="12" cy="12" r="2.5" />
-            </svg>
-          </div>
-        )}
-        {/* Sonarr/Radarr quality — small, muted, bottom-right (opposite the
-            watched eye). Subordinate to the keep/don't-care badges. */}
+        {/* Sonarr/Radarr quality — small and subordinate to the status badges. */}
         {item.quality && (
           <div
             title={
@@ -188,9 +165,21 @@ export default function MediaCard({
           Kept
         </div>
       ) : null}
-      {requested && (
-        <div className="absolute left-2 top-2 rounded-full bg-sky-600 px-2 py-0.5 text-[10px] font-semibold text-paper">
-          Requested
+      {(requested || item.watched) && (
+        <div className="absolute left-2 top-2 flex flex-col items-start gap-1">
+          {requested && (
+            <div className="rounded-full bg-sky-600 px-2 py-0.5 text-[10px] font-semibold text-paper">
+              Requested
+            </div>
+          )}
+          {item.watched && (
+            <div
+              title="You’ve watched this"
+              className="rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-semibold text-paper"
+            >
+              Watched
+            </div>
+          )}
         </div>
       )}
 
