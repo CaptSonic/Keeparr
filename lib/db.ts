@@ -183,6 +183,56 @@ export function applySchema(database: Database.Database): void {
       message TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_logs_ts ON logs(ts DESC);
+
+    -- Admin-created, household-reviewed cleanup plans. Candidate metadata is a
+    -- snapshot: later library scans or score changes never rewrite history.
+    CREATE TABLE IF NOT EXISTS cleanup_campaigns (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      name              TEXT NOT NULL,
+      target_bytes      INTEGER NOT NULL CHECK (target_bytes > 0),
+      deadline_at       INTEGER NOT NULL,
+      grace_period_days INTEGER NOT NULL DEFAULT 7 CHECK (grace_period_days BETWEEN 0 AND 90),
+      min_score         INTEGER NOT NULL DEFAULT 0 CHECK (min_score BETWEEN 0 AND 100),
+      status            TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'closed')),
+      created_by        TEXT NOT NULL,
+      created_at        INTEGER NOT NULL,
+      closed_at         INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_campaigns_status_time
+      ON cleanup_campaigns(status, deadline_at DESC, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS cleanup_campaign_items (
+      campaign_id       INTEGER NOT NULL REFERENCES cleanup_campaigns(id) ON DELETE CASCADE,
+      rating_key        TEXT NOT NULL,
+      section_id        TEXT NOT NULL,
+      library_kind      TEXT NOT NULL,
+      title             TEXT NOT NULL,
+      year              INTEGER,
+      thumb             TEXT,
+      size_bytes        INTEGER NOT NULL,
+      score             INTEGER NOT NULL CHECK (score BETWEEN 0 AND 100),
+      reasons_json      TEXT NOT NULL,
+      rank              INTEGER NOT NULL,
+      PRIMARY KEY (campaign_id, rating_key),
+      UNIQUE (campaign_id, rank)
+    );
+    CREATE INDEX IF NOT EXISTS idx_campaign_items_rank
+      ON cleanup_campaign_items(campaign_id, rank);
+
+    -- A member review is explicit release consent for this campaign snapshot.
+    -- Global keeps are deliberately not copied here: they remain live and win.
+    CREATE TABLE IF NOT EXISTS cleanup_campaign_reviews (
+      campaign_id       INTEGER NOT NULL,
+      rating_key        TEXT NOT NULL,
+      plex_user_id      TEXT NOT NULL,
+      decision          TEXT NOT NULL CHECK (decision = 'release'),
+      reviewed_at       INTEGER NOT NULL,
+      PRIMARY KEY (campaign_id, rating_key, plex_user_id),
+      FOREIGN KEY (campaign_id, rating_key)
+        REFERENCES cleanup_campaign_items(campaign_id, rating_key) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_campaign_reviews_user
+      ON cleanup_campaign_reviews(campaign_id, plex_user_id);
   `);
 
   migrate(database);

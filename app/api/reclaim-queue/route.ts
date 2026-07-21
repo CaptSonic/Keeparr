@@ -1,14 +1,9 @@
 import { NextResponse } from 'next/server';
 import { requireUser } from '@/lib/auth';
 import { thumbUrl } from '@/lib/cards';
-import { getJobState, queryReclaimQueue } from '@/lib/queries';
+import { queryReclaimQueue } from '@/lib/queries';
 import { errorResponse } from '@/lib/route-helpers';
-import {
-  getWatchSourceFingerprint,
-  isArrConfigured,
-  isWatchAvailable,
-  readSetting,
-} from '@/lib/settings';
+import { getReclaimSignalReadiness } from '@/lib/reclaim-readiness';
 
 export const runtime = 'nodejs';
 
@@ -26,13 +21,7 @@ export async function GET(req: Request) {
       .filter(Boolean);
     // An integration being configured does not prove that its cache is complete.
     // Treat missing watch data as neutral until one refresh finished successfully.
-    const watchFingerprint = getWatchSourceFingerprint();
-    const watchAvailable =
-      isWatchAvailable() &&
-      getJobState('watch').lastStatus === 'ok' &&
-      watchFingerprint !== null &&
-      readSetting('watch_source_fingerprint') === watchFingerprint;
-    const arrAvailable = isArrConfigured();
+    const { watch: watchAvailable, arr: arrAvailable } = getReclaimSignalReadiness();
     const rows = queryReclaimQueue({
       plexUserId: user.plexUserId,
       sectionIds,

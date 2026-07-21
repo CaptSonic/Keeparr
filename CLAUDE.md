@@ -109,6 +109,7 @@ app/
   search/            AppShell → SearchResults
   stats/             AppShell → StatsView (full-width dashboard)
   reclaim/           AppShell → ReclaimQueue (explainable, protected-title-safe queue)
+  campaigns/         AppShell → CleanupCampaigns (snapshot/review/grace/report workflow)
   api-docs/          interactive API reference (Scalar over /api/openapi.json;
                      session-gated server component + client dynamic import)
   settings/<tab>/    admin Settings sub-tabs: general, users, connections, libraries,
@@ -117,7 +118,7 @@ app/
 components/          AppShell (rail + top bar + user menu), MediaCard (grid), MediaRow
                      (Browse List view), MultiSelect (grouped checkbox-dropdown filter),
                      useKeepState (shared keep/skip hook), KeepView,
-                     LibraryBrowser, ReclaimQueue, StatsView, UsersManager, SearchBox,
+                      LibraryBrowser, ReclaimQueue, CleanupCampaigns, StatsView, UsersManager, SearchBox,
                      SearchResults;
                      breakdown.tsx (shared keep/reclaim visual language: StackedBar,
                        Donut, LegendRow + the TONE palette — used by KeepView's totals
@@ -186,6 +187,18 @@ The chrome is a Sonarr/Radarr-style left rail (logo → Keep; Keep / Browse[expa
   Plex items with a null `guid_tvdb`/`guid_tmdb` that can never match.) Matched via
   `media_items.guid_tvdb`/`guid_tmdb` (indexed). `size_bytes` + `instance_id`
   (scopes the per-instance replace) added via guarded `ALTER`s.
+- `cleanup_campaigns` — admin-created plan metadata: target bytes, deadline, grace
+  period, minimum score, creator, and active/closed timestamps.
+- `cleanup_campaign_items` — immutable per-campaign Smart Reclaim snapshot keyed by
+  `(campaign_id,rating_key)`: section/kind/title/year/thumb/size, score, reason JSON,
+  and deterministic rank. Campaign creation snapshots **all** matching candidates;
+  the target is a progress goal, not a truncation limit. A campaign with no matching
+  candidates is rejected.
+- `cleanup_campaign_reviews` — one explicit `release` review per campaign/title/user.
+  Reviews may be added or undone only while active and through the deadline. One or
+  more reviews makes an unprotected item released. Keeps are deliberately not copied
+  into the snapshot: a live global keep always changes the outcome to protected,
+  including after campaign closure. Closing freezes workflow state, not the keep veto.
 - `settings` — key/value; secret values encrypted.
 - `job_state` — one row per scheduled job (`recentlyAdded`/`library`/`sizes`/`watch`/
   `requests`/`arr`): last run/status/message/duration/result. Rows stuck at
@@ -288,6 +301,17 @@ when it has no tvdb/tmdb **and** no imdb.
   is `ok`; missing/not-yet-synced watch and missing *arr are neutral. Strengths:
   review <45, medium 45–69, strong 70+. This route deliberately does **not** accept
   `X-Api-Key` and performs no deletion.
+- `GET /api/campaigns` and `GET /api/campaigns/:id` — session-only summaries/detail.
+  Detail combines immutable item snapshots with the caller's review and live global
+  keeps; aggregates are planned/reviewed/released/protected items and bytes.
+- `POST|DELETE /api/campaigns/:id/review` — add/undo the caller's release review before
+  the active campaign deadline. A keep remains the overriding safety decision.
+- `POST /api/admin/campaigns` — admin-only snapshot creation (target, future deadline,
+  0–90 grace days, score 0–100, optional section ids); returns 409 when no candidate
+  matches. `POST /api/admin/campaigns/:id/close` is admin-only and cannot bypass the
+  deadline + grace period. Both actions write app audit events.
+- `GET /api/admin/campaigns/:id/export` — admin-only current CSV report. All campaign
+  routes require a web session and deliberately do not accept `X-Api-Key`.
 - `GET /api/search?q=&offset=` → ranked results (exact>prefix>word>substring,
   multi-token AND), with kept + per-user skipped/watched/requestedByMe +
   markedForDeleteByMe/markedForDeleteAny flags (so search cards show the "OK to

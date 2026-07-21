@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Keeparr API",
-    "version": "0.4.1",
+    "version": "0.5.0",
     "description": "Keeparr tags what to keep and reports what can be deleted — it never deletes anything itself.\n\n**Authentication**: most endpoints use the `keeparr_session` cookie (set by logging in through the web UI). Endpoints marked with `X-Api-Key` security also accept the admin API key (Settings → General) in the `X-Api-Key` header — intended for automation (`/api/stats`, `/api/admin/jobs`).\n\nAll ids (`ratingKey`) are the media server's item ids (Plex ratingKey or Jellyfin/Emby item id)."
   },
   "servers": [{ "url": "/", "description": "This Keeparr instance" }],
@@ -109,6 +109,56 @@
               }
             }
           }
+        ]
+      },
+      "CleanupCampaignSummary": {
+        "type": "object",
+        "required": ["id", "name", "targetBytes", "deadlineAt", "gracePeriodDays", "graceEndsAt", "minScore", "status", "plannedItems", "plannedBytes", "reviewedItems", "reviewedBytes", "releasedItems", "releasedBytes", "protectedItems", "protectedBytes", "targetReached"],
+        "properties": {
+          "id": { "type": "integer" },
+          "name": { "type": "string" },
+          "targetBytes": { "type": "integer" },
+          "deadlineAt": { "type": "integer", "description": "Review deadline (Unix seconds)" },
+          "gracePeriodDays": { "type": "integer", "minimum": 0, "maximum": 90 },
+          "graceEndsAt": { "type": "integer", "description": "Earliest close time (Unix seconds)" },
+          "minScore": { "type": "integer", "minimum": 0, "maximum": 100 },
+          "status": { "type": "string", "enum": ["active", "closed"] },
+          "createdBy": { "type": "string" },
+          "createdAt": { "type": "integer" },
+          "closedAt": { "type": "integer", "nullable": true },
+          "plannedItems": { "type": "integer" },
+          "plannedBytes": { "type": "integer" },
+          "reviewedItems": { "type": "integer" },
+          "reviewedBytes": { "type": "integer" },
+          "releasedItems": { "type": "integer", "description": "Reviewed and not protected by any live keep" },
+          "releasedBytes": { "type": "integer" },
+          "protectedItems": { "type": "integer", "description": "Snapshot titles currently kept by anyone" },
+          "protectedBytes": { "type": "integer" },
+          "targetReached": { "type": "boolean" }
+        }
+      },
+      "CleanupCampaignItem": {
+        "allOf": [
+          { "$ref": "#/components/schemas/MediaCard" },
+          {
+            "type": "object",
+            "required": ["rank", "score", "reasons", "reviewedByMe", "reviewCount", "protectedByAnyone", "outcome"],
+            "properties": {
+              "rank": { "type": "integer" },
+              "score": { "type": "integer", "minimum": 0, "maximum": 100 },
+              "reasons": { "type": "array", "items": { "type": "object", "properties": { "code": { "type": "string" }, "label": { "type": "string" }, "points": { "type": "integer" } } } },
+              "reviewedByMe": { "type": "boolean" },
+              "reviewCount": { "type": "integer" },
+              "protectedByAnyone": { "type": "boolean" },
+              "outcome": { "type": "string", "enum": ["pending", "released", "protected"] }
+            }
+          }
+        ]
+      },
+      "CleanupCampaignDetail": {
+        "allOf": [
+          { "$ref": "#/components/schemas/CleanupCampaignSummary" },
+          { "type": "object", "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/CleanupCampaignItem" } } } }
         ]
       },
       "HealthIssue": {
@@ -431,6 +481,70 @@
             "description": "Valid web session required"
           }
         }
+      }
+    },
+    "/api/campaigns": {
+      "get": {
+        "tags": ["insights"],
+        "summary": "List cleanup campaigns (session only)",
+        "responses": {
+          "200": { "description": "Campaign summaries and caller admin flag", "content": { "application/json": { "schema": { "type": "object", "properties": { "campaigns": { "type": "array", "items": { "$ref": "#/components/schemas/CleanupCampaignSummary" } }, "isAdmin": { "type": "boolean" } } } } } },
+          "401": { "description": "Valid web session required" }
+        }
+      }
+    },
+    "/api/campaigns/{id}": {
+      "get": {
+        "tags": ["insights"],
+        "summary": "Get a cleanup campaign snapshot and live outcomes",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": {
+          "200": { "description": "Campaign detail", "content": { "application/json": { "schema": { "type": "object", "properties": { "campaign": { "$ref": "#/components/schemas/CleanupCampaignDetail" }, "isAdmin": { "type": "boolean" } } } } } },
+          "404": { "description": "Campaign not found" }
+        }
+      }
+    },
+    "/api/campaigns/{id}/review": {
+      "post": {
+        "tags": ["insights"],
+        "summary": "Add the current user's release review",
+        "description": "Allowed only while the campaign is active and through its review deadline. Any live household keep still overrides release.",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["ratingKey"], "properties": { "ratingKey": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Updated campaign detail" }, "409": { "description": "Campaign/item is not reviewable" } }
+      },
+      "delete": {
+        "tags": ["insights"],
+        "summary": "Undo the current user's release review",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["ratingKey"], "properties": { "ratingKey": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Updated campaign detail" }, "409": { "description": "Campaign/item is not reviewable" } }
+      }
+    },
+    "/api/admin/campaigns": {
+      "post": {
+        "tags": ["admin"],
+        "summary": "Create an immutable Smart Reclaim campaign snapshot",
+        "description": "Admin web session required. Snapshots every current unprotected candidate matching the optional sections and minimum score; the target is a progress goal, not a row limit.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["name", "targetBytes", "deadlineAt"], "properties": { "name": { "type": "string", "maxLength": 100 }, "targetBytes": { "type": "integer", "minimum": 1 }, "deadlineAt": { "type": "integer", "description": "Future Unix timestamp" }, "gracePeriodDays": { "type": "integer", "minimum": 0, "maximum": 90, "default": 7 }, "minScore": { "type": "integer", "minimum": 0, "maximum": 100, "default": 45 }, "sectionIds": { "type": "array", "maxItems": 100, "items": { "type": "string" } } } } } } },
+        "responses": { "201": { "description": "Campaign created" }, "403": { "description": "Admin required" }, "409": { "description": "No candidates match" } }
+      }
+    },
+    "/api/admin/campaigns/{id}/close": {
+      "post": {
+        "tags": ["admin"],
+        "summary": "Close a campaign after its grace period",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "Closed campaign summary" }, "401": { "description": "Valid web session required" }, "403": { "description": "Admin required" }, "404": { "description": "Campaign not found" }, "409": { "description": "Grace period is still active or campaign is already closed" } }
+      }
+    },
+    "/api/admin/campaigns/{id}/export": {
+      "get": {
+        "tags": ["admin"],
+        "summary": "Download the current campaign report as CSV",
+        "description": "Outcomes include live household keeps, including after campaign closure.",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+        "responses": { "200": { "description": "CSV report", "content": { "text/csv": { "schema": { "type": "string" } } } }, "404": { "description": "Campaign not found" } }
       }
     },
     "/api/search": {

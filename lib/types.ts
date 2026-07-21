@@ -74,6 +74,45 @@ export interface ReclaimQueueItem extends MediaCardData {
   markedForDeleteAny: boolean;
 }
 
+export type CleanupCampaignStatus = 'active' | 'closed';
+
+export interface CleanupCampaignSummary {
+  id: number;
+  name: string;
+  targetBytes: number;
+  deadlineAt: number;
+  gracePeriodDays: number;
+  graceEndsAt: number;
+  minScore: number;
+  status: CleanupCampaignStatus;
+  createdBy: string;
+  createdAt: number;
+  closedAt: number | null;
+  plannedItems: number;
+  plannedBytes: number;
+  reviewedItems: number;
+  reviewedBytes: number;
+  releasedItems: number;
+  releasedBytes: number;
+  protectedItems: number;
+  protectedBytes: number;
+  targetReached: boolean;
+}
+
+export interface CleanupCampaignItem extends MediaCardData {
+  rank: number;
+  score: number;
+  reasons: { code: string; label: string; points: number }[];
+  reviewedByMe: boolean;
+  reviewCount: number;
+  protectedByAnyone: boolean;
+  outcome: 'pending' | 'released' | 'protected';
+}
+
+export interface CleanupCampaignDetail extends CleanupCampaignSummary {
+  items: CleanupCampaignItem[];
+}
+
 export interface SessionUser {
   plexUserId: string;
   username: string | null;

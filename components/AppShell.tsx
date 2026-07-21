@@ -277,6 +277,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </div>
 
           {navItem('/reclaim', 'Smart Reclaim', pathname.startsWith('/reclaim'), '♻')}
+          {navItem('/campaigns', 'Campaigns', pathname.startsWith('/campaigns'), '◎')}
           {navItem('/stats', 'Big Picture', pathname.startsWith('/stats'), '◴')}
           {user?.isAdmin &&
             navItem(

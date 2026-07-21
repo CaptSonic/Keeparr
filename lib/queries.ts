@@ -2,6 +2,9 @@ import { getDb } from './db';
 import { FEED_MOVIE_RESERVE_MIN, FEED_MOVIE_RESERVE_RATIO } from './config';
 import type {
   AdminUserRow,
+  CleanupCampaignDetail,
+  CleanupCampaignItem,
+  CleanupCampaignSummary,
   JobRun,
   JobState,
   LibraryKind,
@@ -1205,6 +1208,263 @@ export function queryReclaimQueue(q: {
     .all(params) as ReclaimQueueRow[];
 }
 
+// ---------------------------------------------------------------------------
+// Cleanup Campaigns (immutable candidate snapshots + household reviews)
+// ---------------------------------------------------------------------------
+
+interface CampaignRow {
+  id: number;
+  name: string;
+  target_bytes: number;
+  deadline_at: number;
+  grace_period_days: number;
+  min_score: number;
+  status: 'active' | 'closed';
+  created_by: string;
+  created_at: number;
+  closed_at: number | null;
+  planned_items: number;
+  planned_bytes: number;
+  reviewed_items: number;
+  reviewed_bytes: number;
+  released_items: number;
+  released_bytes: number;
+  protected_items: number;
+  protected_bytes: number;
+}
+
+const CAMPAIGN_SUMMARY_SQL = `
+  SELECT c.*,
+         COUNT(ci.rating_key) AS planned_items,
+         COALESCE(SUM(ci.size_bytes), 0) AS planned_bytes,
+         COALESCE(SUM(CASE WHEN EXISTS (
+           SELECT 1 FROM cleanup_campaign_reviews cr
+           WHERE cr.campaign_id = ci.campaign_id AND cr.rating_key = ci.rating_key
+         ) THEN 1 ELSE 0 END), 0) AS reviewed_items,
+         COALESCE(SUM(CASE WHEN EXISTS (
+           SELECT 1 FROM cleanup_campaign_reviews cr
+           WHERE cr.campaign_id = ci.campaign_id AND cr.rating_key = ci.rating_key
+         ) THEN ci.size_bytes ELSE 0 END), 0) AS reviewed_bytes,
+         COALESCE(SUM(CASE WHEN EXISTS (
+           SELECT 1 FROM cleanup_campaign_reviews cr
+           WHERE cr.campaign_id = ci.campaign_id AND cr.rating_key = ci.rating_key
+         ) AND NOT EXISTS (
+           SELECT 1 FROM keeps k WHERE k.rating_key = ci.rating_key
+         ) THEN 1 ELSE 0 END), 0) AS released_items,
+         COALESCE(SUM(CASE WHEN EXISTS (
+           SELECT 1 FROM cleanup_campaign_reviews cr
+           WHERE cr.campaign_id = ci.campaign_id AND cr.rating_key = ci.rating_key
+         ) AND NOT EXISTS (
+           SELECT 1 FROM keeps k WHERE k.rating_key = ci.rating_key
+         ) THEN ci.size_bytes ELSE 0 END), 0) AS released_bytes,
+         COALESCE(SUM(CASE WHEN EXISTS (
+           SELECT 1 FROM keeps k WHERE k.rating_key = ci.rating_key
+         ) THEN 1 ELSE 0 END), 0) AS protected_items,
+         COALESCE(SUM(CASE WHEN EXISTS (
+           SELECT 1 FROM keeps k WHERE k.rating_key = ci.rating_key
+         ) THEN ci.size_bytes ELSE 0 END), 0) AS protected_bytes
+  FROM cleanup_campaigns c
+  LEFT JOIN cleanup_campaign_items ci ON ci.campaign_id = c.id`;
+
+function toCampaignSummary(r: CampaignRow): CleanupCampaignSummary {
+  const graceEndsAt = r.deadline_at + r.grace_period_days * 86400;
+  return {
+    id: r.id,
+    name: r.name,
+    targetBytes: r.target_bytes,
+    deadlineAt: r.deadline_at,
+    gracePeriodDays: r.grace_period_days,
+    graceEndsAt,
+    minScore: r.min_score,
+    status: r.status,
+    createdBy: r.created_by,
+    createdAt: r.created_at,
+    closedAt: r.closed_at,
+    plannedItems: r.planned_items,
+    plannedBytes: r.planned_bytes,
+    reviewedItems: r.reviewed_items,
+    reviewedBytes: r.reviewed_bytes,
+    releasedItems: r.released_items,
+    releasedBytes: r.released_bytes,
+    protectedItems: r.protected_items,
+    protectedBytes: r.protected_bytes,
+    targetReached: r.released_bytes >= r.target_bytes,
+  };
+}
+
+export function listCleanupCampaigns(): CleanupCampaignSummary[] {
+  const rows = getDb()
+    .prepare(`${CAMPAIGN_SUMMARY_SQL}
+      GROUP BY c.id
+      ORDER BY CASE c.status WHEN 'active' THEN 0 ELSE 1 END,
+               c.deadline_at ASC, c.created_at DESC, c.id DESC`)
+    .all() as CampaignRow[];
+  return rows.map(toCampaignSummary);
+}
+
+export function getCleanupCampaign(id: number): CleanupCampaignSummary | null {
+  const row = getDb()
+    .prepare(`${CAMPAIGN_SUMMARY_SQL} WHERE c.id = ? GROUP BY c.id`)
+    .get(id) as CampaignRow | undefined;
+  return row ? toCampaignSummary(row) : null;
+}
+
+export class CleanupCampaignHasNoCandidatesError extends Error {
+  constructor() {
+    super('No Smart Reclaim candidates match this campaign.');
+    this.name = 'CleanupCampaignHasNoCandidatesError';
+  }
+}
+
+export function createCleanupCampaign(input: {
+  name: string;
+  targetBytes: number;
+  deadlineAt: number;
+  gracePeriodDays: number;
+  minScore: number;
+  createdBy: string;
+  watchAvailable: boolean;
+  arrAvailable: boolean;
+  sectionIds?: string[];
+}): CleanupCampaignSummary {
+  const db = getDb();
+  const createdAt = now();
+  const result = db.transaction(() => {
+    const inserted = db.prepare(
+      `INSERT INTO cleanup_campaigns
+       (name, target_bytes, deadline_at, grace_period_days, min_score, created_by, created_at)
+       VALUES (@name, @targetBytes, @deadlineAt, @gracePeriodDays, @minScore, @createdBy, @createdAt)`
+    ).run({ ...input, createdAt });
+    const id = Number(inserted.lastInsertRowid);
+    // Snapshot every matching row in deterministic score order. Querying with a
+    // very high limit is intentional: campaigns are complete plans, not pages.
+    const rows = queryReclaimQueue({
+      plexUserId: input.createdBy,
+      sectionIds: input.sectionIds,
+      minScore: input.minScore,
+      watchAvailable: input.watchAvailable,
+      arrAvailable: input.arrAvailable,
+      limit: 1_000_000,
+      offset: 0,
+    });
+    if (rows.length === 0) throw new CleanupCampaignHasNoCandidatesError();
+    const add = db.prepare(
+      `INSERT INTO cleanup_campaign_items
+       (campaign_id, rating_key, section_id, library_kind, title, year, thumb,
+        size_bytes, score, reasons_json, rank)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    rows.forEach((r, index) => {
+      const reasons = campaignReasons(r);
+      add.run(
+        id, r.rating_key, r.section_id, r.library_kind, r.title, r.year, r.thumb,
+        r.size_bytes, r.score, JSON.stringify(reasons), index + 1
+      );
+    });
+    return id;
+  })();
+  return getCleanupCampaign(result)!;
+}
+
+function campaignReasons(r: ReclaimQueueRow) {
+  return [
+    { code: 'size', label: 'Size on disk', points: r.size_points },
+    r.delete_points ? { code: 'released', label: 'Requester marked OK to delete', points: r.delete_points } : null,
+    r.watch_points === 25 ? { code: 'never-watched', label: 'Never watched by anyone', points: r.watch_points }
+      : r.watch_points ? { code: 'stale-watch', label: 'Stale watch history', points: r.watch_points } : null,
+    r.status_points ? { code: 'finished', label: 'Finished/released in Sonarr or Radarr', points: r.status_points } : null,
+    r.mismatch_points ? { code: 'size-mismatch', label: 'Media server and *arr sizes differ', points: r.mismatch_points } : null,
+  ].filter((x): x is { code: string; label: string; points: number } => !!x);
+}
+
+export function getCleanupCampaignDetail(
+  id: number,
+  plexUserId: string
+): CleanupCampaignDetail | null {
+  const campaign = getCleanupCampaign(id);
+  if (!campaign) return null;
+  const rows = getDb().prepare(
+    `SELECT ci.*,
+            EXISTS (SELECT 1 FROM keeps k WHERE k.rating_key = ci.rating_key) AS protected,
+            EXISTS (SELECT 1 FROM keeps k WHERE k.rating_key = ci.rating_key
+                    AND k.plex_user_id = @uid) AS kept_by_me,
+            EXISTS (SELECT 1 FROM cleanup_campaign_reviews cr
+                    WHERE cr.campaign_id = ci.campaign_id AND cr.rating_key = ci.rating_key
+                      AND cr.plex_user_id = @uid) AS reviewed_by_me,
+            (SELECT COUNT(*) FROM cleanup_campaign_reviews cr
+             WHERE cr.campaign_id = ci.campaign_id AND cr.rating_key = ci.rating_key) AS review_count
+     FROM cleanup_campaign_items ci
+     WHERE ci.campaign_id = @id
+     ORDER BY ci.rank ASC`
+  ).all({ id, uid: plexUserId }) as Array<{
+    rating_key: string; section_id: string; library_kind: LibraryKind; title: string;
+    year: number | null; thumb: string | null; size_bytes: number; score: number;
+    reasons_json: string; rank: number; protected: number; kept_by_me: number;
+    reviewed_by_me: number; review_count: number;
+  }>;
+  const items: CleanupCampaignItem[] = rows.map((r) => ({
+    ratingKey: r.rating_key,
+    sectionId: r.section_id,
+    libraryKind: r.library_kind,
+    title: r.title,
+    year: r.year,
+    thumbUrl: r.thumb ? `/api/image?path=${encodeURIComponent(r.thumb)}&w=300&h=450` : null,
+    sizeBytes: r.size_bytes,
+    kept: !!r.protected,
+    keptByMe: !!r.kept_by_me,
+    rank: r.rank,
+    score: r.score,
+    reasons: JSON.parse(r.reasons_json) as CleanupCampaignItem['reasons'],
+    reviewedByMe: !!r.reviewed_by_me,
+    reviewCount: r.review_count,
+    protectedByAnyone: !!r.protected,
+    outcome: r.protected ? 'protected' : r.review_count > 0 ? 'released' : 'pending',
+  }));
+  return { ...campaign, items };
+}
+
+export function reviewCleanupCampaignItem(
+  campaignId: number,
+  ratingKey: string,
+  plexUserId: string
+): boolean {
+  const campaign = getCleanupCampaign(campaignId);
+  if (!campaign || campaign.status !== 'active' || now() > campaign.deadlineAt) return false;
+  const info = getDb().prepare(
+    `INSERT INTO cleanup_campaign_reviews
+     (campaign_id, rating_key, plex_user_id, decision, reviewed_at)
+     SELECT @campaignId, @ratingKey, @uid, 'release', @ts
+     WHERE EXISTS (SELECT 1 FROM cleanup_campaign_items
+                   WHERE campaign_id = @campaignId AND rating_key = @ratingKey)
+     ON CONFLICT(campaign_id, rating_key, plex_user_id)
+     DO UPDATE SET reviewed_at = excluded.reviewed_at`
+  ).run({ campaignId, ratingKey, uid: plexUserId, ts: now() });
+  return info.changes > 0;
+}
+
+export function removeCleanupCampaignReview(
+  campaignId: number,
+  ratingKey: string,
+  plexUserId: string
+): boolean {
+  const campaign = getCleanupCampaign(campaignId);
+  if (!campaign || campaign.status !== 'active' || now() > campaign.deadlineAt) return false;
+  return getDb().prepare(
+    `DELETE FROM cleanup_campaign_reviews
+     WHERE campaign_id = ? AND rating_key = ? AND plex_user_id = ?`
+  ).run(campaignId, ratingKey, plexUserId).changes > 0;
+}
+
+export function closeCleanupCampaign(id: number): boolean {
+  const campaign = getCleanupCampaign(id);
+  if (!campaign || campaign.status !== 'active') return false;
+  if (now() < campaign.graceEndsAt) return false;
+  return getDb().prepare(
+    `UPDATE cleanup_campaigns SET status = 'closed', closed_at = ?
+     WHERE id = ? AND status = 'active'`
+  ).run(now(), id).changes > 0;
+}
+
 /**
  * Largest titles NOBODY on the server has ever watched, largest first. The
  * strongest reclaim signal (Big Picture "Never watched" drill-down). Carries
@@ -1741,6 +2001,9 @@ export function resetAllData(): void {
   const db = getDb();
   db.transaction(() => {
     for (const t of [
+      'cleanup_campaign_reviews',
+      'cleanup_campaign_items',
+      'cleanup_campaigns',
       'seerr_requests',
       'watch_history',
       'user_skips',

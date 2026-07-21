@@ -86,6 +86,16 @@ manually in Plex / Jellyfin / Emby / Sonarr / Radarr.
   off until a watch refresh succeeds. Filter to all, medium (45+), or strong (70+)
   candidates. **Protect / Keep** removes a title immediately; Keeparr still performs
   no deletion or external mutation.
+- **Cleanup Campaigns** — admins turn the current Smart Reclaim result into a
+  household plan with a reclaim target, review deadline, grace period, and minimum
+  score. Creation freezes every matching candidate's title, size, score, reasons,
+  and rank; later library refreshes do not rewrite that snapshot. Signed-in household
+  members can add or undo a **release review** until the deadline, or use the normal
+  **Protect / Keep** action. One release review is enough to count an unprotected title
+  as released, but **any keep always wins** — even after review or campaign closure —
+  so released/protected totals and the admin CSV reflect the current safety state.
+  Admins can close only after deadline + grace period. Campaigns report planned,
+  reviewed, released, and protected titles/bytes and never execute deletion.
 - **OK to delete** (needs Seerr) — the person who originally **requested** a title
   can sign off on it ("I'm done with it"). The button only appears on titles *you*
   requested, in Browse and the keep loop. It's a fourth, mutually-exclusive state
@@ -410,6 +420,9 @@ root as `openapi.json`).
 - Most endpoints use the session cookie from the web login.
 - `GET /api/reclaim-queue` is session-only and powers Smart Reclaim; it does not
   accept the automation API key.
+- Cleanup Campaign endpoints are also web-session-only: household members may list,
+  inspect, and review campaigns; creating, closing, and downloading CSV exports require
+  an admin session. They intentionally do not accept the automation API key.
 - For automation, generate an **API key** (Settings → General → API access) and
   send it as the `X-Api-Key` header. It works on `GET/POST /api/admin/jobs`
   (read job status / trigger refreshes) and `GET /api/stats` (largest /
