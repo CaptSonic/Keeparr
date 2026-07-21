@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation';
 import { getSessionUser } from '@/lib/auth';
 import ApiDocsClient from './ApiDocsClient';
 
-export const metadata = { title: 'Keeparr API docs' };
+export const metadata = { title: 'Keeparr API' };
 
 /** Interactive API reference (session-gated; the spec is /api/openapi.json). */
 export default async function ApiDocsPage() {

@@ -1,11 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { formatRelative, formatSize } from '@/lib/format';
+import { formatBytes, formatDate, formatNumber, formatRelativeTime } from '@/lib/i18n';
 import { useToast } from '../Toaster';
 import { Card, btnCls, btnGhost } from './ui';
 import BackupsCard from './BackupsCard';
 import HealthCard from './HealthCard';
+import { useLocale } from '../LocaleProvider';
+import { jobLabel, jobStatusLabel } from '@/lib/ui-labels';
 
 type JobSchedule =
   | { type: 'interval'; minutes: number }
@@ -28,7 +30,7 @@ interface RunRow {
   message: string | null;
 }
 
-const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const WEEKDAYS = [['Sun', 'So'], ['Mon', 'Mo'], ['Tue', 'Di'], ['Wed', 'Mi'], ['Thu', 'Do'], ['Fri', 'Fr'], ['Sat', 'Sa']];
 
 function hhmm(s: JobSchedule): string {
   if (s.type === 'daily' || s.type === 'weekly') {
@@ -75,9 +77,9 @@ function groupRuns(runs: RunRow[]): RunGroup[] {
   return groups;
 }
 
-const absTime = (s: number) => new Date(s * 1000).toLocaleString();
-
 export default function JobsCachePanel() {
+  const { locale } = useLocale();
+  const de = locale === 'de';
   const [jobs, setJobs] = useState<JobRow[]>([]);
   const [recent, setRecent] = useState<RunRow[]>([]);
   const [schedules, setSchedules] = useState<Record<string, JobSchedule>>({});
@@ -145,9 +147,9 @@ export default function JobsCachePanel() {
         body: JSON.stringify({ jobSchedules: schedules }),
       });
       if (!res.ok) throw new Error(String(res.status));
-      setMsg('Saved.');
+      setMsg(de ? 'Gespeichert.' : 'Saved.');
     } catch {
-      setMsg("Couldn't save — schedules unchanged.");
+      setMsg(de ? 'Speichern fehlgeschlagen — Zeitpläne unverändert.' : "Couldn't save — schedules unchanged.");
     } finally {
       setSaving(false);
     }
@@ -159,18 +161,18 @@ export default function JobsCachePanel() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ job }),
     });
-    if (!res.ok) toast(`Couldn't start the ${job} job.`, 'error');
+    if (!res.ok) toast(de ? `Der Job „${jobLabel(job, locale)}“ konnte nicht gestartet werden.` : `Couldn't start the ${jobLabel(job, locale)} job.`, 'error');
     await loadJobs();
   }
 
   async function clearCache(target: string) {
-    setCacheMsg('Clearing…');
+    setCacheMsg(de ? 'Leeren…' : 'Clearing…');
     const r = await fetch('/api/admin/cache', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ target }),
     }).then((x) => x.json());
-    setCacheMsg(r.message ?? 'Done.');
+    setCacheMsg(r.message ?? (de ? 'Fertig.' : 'Done.'));
     loadCache();
   }
 
@@ -190,9 +192,9 @@ export default function JobsCachePanel() {
     <HealthCard />
     <div className="grid gap-5 lg:grid-cols-2">
       <div className="min-w-0">
-      <Card title="Scheduled jobs">
+      <Card title={de ? 'Geplante Jobs' : 'Scheduled jobs'}>
         <p className="text-sm text-slate-400 mb-3">
-          Each job runs on an interval or once daily (server local time). Run any now.
+          {de ? 'Jeder Job läuft in einem Intervall oder einmal täglich (lokale Serverzeit). Jeder kann sofort gestartet werden.' : 'Each job runs on an interval or once daily (server local time). Run any now.'}
         </p>
         <div className="space-y-3">
           {jobs.map((j) => {
@@ -203,13 +205,13 @@ export default function JobsCachePanel() {
                 className="flex items-center gap-3 rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2"
               >
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium">{j.label}</div>
+                  <div className="truncate text-sm font-medium">{jobLabel(j.jobId, locale, j.label)}</div>
                   <div className="truncate text-xs text-slate-500">
                     {j.lastStatus === 'running'
-                      ? 'Running…'
+                      ? (de ? 'Läuft…' : 'Running…')
                       : j.lastStatus === 'never'
-                        ? 'Never run'
-                        : `${j.lastStatus}${j.lastMessage ? ` — ${j.lastMessage}` : ''}`}
+                        ? (de ? 'Noch nie ausgeführt' : 'Never run')
+                        : `${jobStatusLabel(j.lastStatus, locale)}${j.lastMessage ? ` — ${j.lastMessage}` : ''}`}
                   </div>
                 </div>
                 {/* Schedule controls + Run now stay on one line (shrink-0, no wrap). */}
@@ -225,9 +227,9 @@ export default function JobsCachePanel() {
                       else setSchedule(j.jobId, { type: 'interval', minutes: 60 });
                     }}
                   >
-                    <option value="interval">Every…</option>
-                    <option value="daily">Daily at…</option>
-                    <option value="weekly">Weekly on…</option>
+                    <option value="interval">{de ? 'Alle…' : 'Every…'}</option>
+                    <option value="daily">{de ? 'Täglich um…' : 'Daily at…'}</option>
+                    <option value="weekly">{de ? 'Wöchentlich am…' : 'Weekly on…'}</option>
                   </select>
 
                   {s.type === 'interval' &&
@@ -265,7 +267,7 @@ export default function JobsCachePanel() {
                             }}
                           >
                             <option value="min">min</option>
-                            <option value="hr">hours</option>
+                            <option value="hr">{de ? 'Std.' : 'hours'}</option>
                           </select>
                         </div>
                       );
@@ -285,8 +287,8 @@ export default function JobsCachePanel() {
                       }
                     >
                       {WEEKDAYS.map((d, i) => (
-                        <option key={d} value={i}>
-                          {d}
+                        <option key={d[0]} value={i}>
+                          {d[de ? 1 : 0]}
                         </option>
                       ))}
                     </select>
@@ -314,7 +316,7 @@ export default function JobsCachePanel() {
                     disabled={j.lastStatus === 'running'}
                     className={`${btnGhost} shrink-0 whitespace-nowrap`}
                   >
-                    {j.lastStatus === 'running' ? 'Running…' : 'Run now'}
+                    {j.lastStatus === 'running' ? (de ? 'Läuft…' : 'Running…') : (de ? 'Jetzt starten' : 'Run now')}
                   </button>
                 </div>
               </div>
@@ -323,10 +325,10 @@ export default function JobsCachePanel() {
         </div>
         <div className="mt-3 flex items-center gap-3">
           <button onClick={saveSchedules} disabled={saving} className={btnCls}>
-            {saving ? 'Saving…' : 'Save schedules'}
+            {saving ? (de ? 'Speichern…' : 'Saving…') : (de ? 'Zeitpläne speichern' : 'Save schedules')}
           </button>
           <button onClick={() => runJob('all')} disabled={anyRunning} className={btnGhost}>
-            Run all now
+            {de ? 'Alle jetzt starten' : 'Run all now'}
           </button>
           {msg && <span className="text-sm text-slate-300">{msg}</span>}
         </div>
@@ -335,49 +337,48 @@ export default function JobsCachePanel() {
       <Card title="Cache">
         <div className="space-y-2 text-sm">
           <div className="flex items-center gap-3">
-            <span className="w-40">Poster images</span>
+            <span className="w-40">{de ? 'Posterbilder' : 'Poster images'}</span>
             <span className="text-slate-500">
-              {images ? `${images.count} files · ${formatSize(images.bytes)}` : '—'}
+              {images ? `${formatNumber(images.count, locale)} ${de ? 'Dateien' : 'files'} · ${formatBytes(images.bytes, locale)}` : '—'}
             </span>
             <button onClick={() => clearCache('images')} className={`${btnGhost} ml-auto`}>
-              Clear
+              {de ? 'Leeren' : 'Clear'}
             </button>
           </div>
           <div className="flex items-center gap-3">
-            <span className="w-40">Seerr requests</span>
-            <span className="text-slate-500">rebuilt by the Requests job</span>
+            <span className="w-40">{de ? 'Seerr-Anfragen' : 'Seerr requests'}</span>
+            <span className="text-slate-500">{de ? 'wird durch den Anfragen-Job neu aufgebaut' : 'rebuilt by the Requests job'}</span>
             <button onClick={() => clearCache('requests')} className={`${btnGhost} ml-auto`}>
-              Clear
+              {de ? 'Leeren' : 'Clear'}
             </button>
           </div>
           <div className="flex items-center gap-3">
-            <span className="w-40">Watch history</span>
-            <span className="text-slate-500">rebuilt by the Watch history job</span>
+            <span className="w-40">{de ? 'Wiedergabeverlauf' : 'Watch history'}</span>
+            <span className="text-slate-500">{de ? 'wird durch den Wiedergabeverlauf-Job neu aufgebaut' : 'rebuilt by the Watch history job'}</span>
             <button onClick={() => clearCache('watch')} className={`${btnGhost} ml-auto`}>
-              Clear
+              {de ? 'Leeren' : 'Clear'}
             </button>
           </div>
           <div className="flex items-center gap-3">
             <span className="w-40">Sonarr / Radarr</span>
-            <span className="text-slate-500">rebuilt by the Sonarr / Radarr job</span>
+            <span className="text-slate-500">{de ? 'wird durch den Sonarr-/Radarr-Job neu aufgebaut' : 'rebuilt by the Sonarr / Radarr job'}</span>
             <button onClick={() => clearCache('arr')} className={`${btnGhost} ml-auto`}>
-              Clear
+              {de ? 'Leeren' : 'Clear'}
             </button>
           </div>
         </div>
         {cacheMsg && <p className="mt-2 text-xs text-slate-400">{cacheMsg}</p>}
         <p className="mt-2 text-[11px] text-slate-500">
-          Library titles/metadata refresh on the next scan — clearing posters makes cover
-          art re-fetch from Plex.
+          {de ? 'Bibliothekstitel und Metadaten werden beim nächsten Scan aktualisiert — nach dem Leeren der Poster werden Coverbilder erneut von Plex abgerufen.' : 'Library titles/metadata refresh on the next scan — clearing posters makes cover art re-fetch from Plex.'}
         </p>
       </Card>
       </div>
 
       <div className="min-w-0 space-y-5">
       <BackupsCard />
-      <Card title="Recent activity">
+      <Card title={de ? 'Letzte Aktivitäten' : 'Recent activity'}>
         {groups.length === 0 ? (
-          <p className="text-sm text-slate-500">No job runs yet.</p>
+          <p className="text-sm text-slate-500">{de ? 'Noch keine Job-Ausführungen.' : 'No job runs yet.'}</p>
         ) : (
           <div className="divide-y divide-slate-800 text-sm">
             {groups.map((g) => {
@@ -394,15 +395,15 @@ export default function JobsCachePanel() {
                     <span className="w-3 shrink-0 text-slate-500">
                       {multi ? (open ? '▾' : '▸') : ''}
                     </span>
-                    <span className={`shrink-0 ${color}`}>{g.status}</span>
-                    <span className="shrink-0 text-slate-400">{head.jobId}</span>
+                    <span className={`shrink-0 ${color}`}>{jobStatusLabel(g.status, locale)}</span>
+                    <span className="shrink-0 text-slate-400">{jobLabel(head.jobId, locale)}</span>
                     {multi && (
                       <span className="shrink-0 rounded bg-slate-800 px-1.5 text-[11px] text-slate-300">
                         ×{g.runs.length}
                       </span>
                     )}
-                    <span className="ml-auto shrink-0 text-slate-600" title={absTime(head.startedAt)}>
-                      {formatRelative(head.startedAt)}
+                    <span className="ml-auto shrink-0 text-slate-600" title={formatDate(head.startedAt * 1000, locale, { dateStyle: 'medium', timeStyle: 'medium' })}>
+                      {formatRelativeTime(head.startedAt, locale)}
                     </span>
                   </div>
                   {head.message && !open && (
@@ -414,7 +415,7 @@ export default function JobsCachePanel() {
                         <div key={run.id} className="text-[11px] text-slate-500">
                           <div className="flex items-center gap-2">
                             <span className="ml-auto shrink-0 text-slate-600">
-                              {absTime(run.startedAt)}
+                              {formatDate(run.startedAt * 1000, locale, { dateStyle: 'medium', timeStyle: 'medium' })}
                             </span>
                           </div>
                           {run.message && <div className="truncate">{run.message}</div>}

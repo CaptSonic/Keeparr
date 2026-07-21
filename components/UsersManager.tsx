@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import type { AdminUserRow } from '@/lib/types';
+import { formatDate, formatNumber } from '@/lib/i18n';
+import { useLocale } from './LocaleProvider';
 
-function fmtDate(epochSeconds: number | null): string {
+function fmtDate(epochSeconds: number | null, locale: 'de' | 'en'): string {
   if (!epochSeconds) return '—';
-  return new Date(epochSeconds * 1000).toLocaleDateString();
+  return formatDate(epochSeconds * 1000, locale);
 }
 
 function initials(u: AdminUserRow): string {
@@ -14,6 +16,8 @@ function initials(u: AdminUserRow): string {
 }
 
 export default function UsersManager() {
+  const { locale } = useLocale();
+  const de = locale === 'de';
   const [users, setUsers] = useState<AdminUserRow[] | null>(null);
   const [openSignin, setOpenSignin] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
@@ -53,7 +57,7 @@ export default function UsersManager() {
       });
       if (!res.ok) throw new Error(String(res.status));
     } catch {
-      setError(`Couldn't update ${target.username ?? target.plexUserId}.`);
+      setError(de ? `${target.username ?? target.plexUserId} konnte nicht aktualisiert werden.` : `Couldn't update ${target.username ?? target.plexUserId}.`);
       setUsers((prev) =>
         prev
           ? prev.map((u) =>
@@ -77,7 +81,7 @@ export default function UsersManager() {
       if (!res.ok) throw new Error(String(res.status));
     } catch {
       setOpenSignin(!next);
-      setError("Couldn't change the sign-in setting.");
+      setError(de ? 'Die Anmeldeeinstellung konnte nicht geändert werden.' : "Couldn't change the sign-in setting.");
     }
   }
 
@@ -89,21 +93,26 @@ export default function UsersManager() {
       const res = await fetch('/api/admin/users/import', { method: 'POST' });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error ?? String(res.status));
-      setMsg(`Imported ${d.imported} user(s) from Plex.`);
+      setMsg(de ? `${formatNumber(d.imported, locale)} Benutzer aus Plex importiert.` : `Imported ${formatNumber(d.imported, locale)} user(s) from Plex.`);
       await load();
     } catch {
-      setError('Import failed — is a Plex server connected?');
+      setError(de ? 'Import fehlgeschlagen — ist ein Plex-Server verbunden?' : 'Import failed — is a Plex server connected?');
     } finally {
       setImporting(false);
     }
   }
 
   if (users === null) {
-    return <p className="text-sm text-slate-500">Loading users…</p>;
+    return <p className="text-sm text-slate-500">{de ? 'Benutzer werden geladen…' : 'Loading users…'}</p>;
   }
 
   return (
     <div className="space-y-4">
+      <p className="text-sm text-slate-400">
+        {de
+          ? 'Alle melden sich mit ihrem Plex-Konto an. Vergib Adminrechte, damit eine weitere Person Einstellungen verwalten kann; der Besitzer ist immer Admin und kann nicht deaktiviert werden.'
+          : 'Everyone signs in with their Plex account. Grant admin to let someone else manage settings; the Owner is always an admin and can’t be disabled.'}
+      </p>
       {/* Access controls */}
       <div className="rounded-xl border border-slate-800 bg-panel p-4">
         <label className="flex items-center gap-2 text-sm">
@@ -114,11 +123,10 @@ export default function UsersManager() {
             className="h-4 w-4 accent-brand"
           />
           <span>
-            <span className="font-medium">Open sign-in</span>
+            <span className="font-medium">{de ? 'Offene Anmeldung' : 'Open sign-in'}</span>
             <span className="text-slate-500">
               {' '}
-              — anyone with access to your Plex server can sign in. Turn off to
-              allow only the accounts you’ve enabled below.
+              {de ? ' — alle Personen mit Zugriff auf deinen Plex-Server können sich anmelden. Deaktiviere dies, um nur unten freigeschaltete Konten zuzulassen.' : ' — anyone with access to your Plex server can sign in. Turn off to allow only the accounts you’ve enabled below.'}
             </span>
           </span>
         </label>
@@ -128,7 +136,7 @@ export default function UsersManager() {
             disabled={importing}
             className="rounded-md border border-slate-700 hover:border-slate-500 px-3 py-1.5 text-sm disabled:opacity-60"
           >
-            {importing ? 'Importing…' : 'Import users from Plex'}
+            {importing ? (de ? 'Importieren…' : 'Importing…') : (de ? 'Benutzer aus Plex importieren' : 'Import users from Plex')}
           </button>
           {msg && <span className="text-sm text-slate-400">{msg}</span>}
         </div>
@@ -142,8 +150,7 @@ export default function UsersManager() {
 
       {users.length === 0 ? (
         <p className="text-sm text-slate-500">
-          No users yet. They appear after their first Plex sign-in, or import
-          them above.
+          {de ? 'Noch keine Benutzer. Sie erscheinen nach ihrer ersten Plex-Anmeldung oder können oben importiert werden.' : 'No users yet. They appear after their first Plex sign-in, or import them above.'}
         </p>
       ) : (
         <div className="rounded-xl border border-slate-800 bg-panel divide-y divide-slate-800">
@@ -168,16 +175,16 @@ export default function UsersManager() {
                   </span>
                   {u.isOwner && (
                     <span className="rounded bg-brand/20 text-brand text-xs px-1.5 py-0.5">
-                      Owner
+                      {de ? 'Besitzer' : 'Owner'}
                     </span>
                   )}
                 </div>
                 <div className="truncate text-xs text-slate-500">
-                  {u.email ?? '—'} · last seen {fmtDate(u.lastLogin)}
+                  {u.email ?? '—'} · {de ? 'zuletzt gesehen' : 'last seen'} {fmtDate(u.lastLogin, locale)}
                 </div>
               </div>
               <label className="flex items-center gap-2 text-sm shrink-0">
-                <span className="text-slate-400">Enabled</span>
+                <span className="text-slate-400">{de ? 'Aktiviert' : 'Enabled'}</span>
                 <input
                   type="checkbox"
                   checked={u.enabled}

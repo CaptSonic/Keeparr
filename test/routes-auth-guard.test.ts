@@ -45,6 +45,7 @@ import { POST as adminSyncLibraries } from '@/app/api/admin/sync-libraries/route
 import { POST as adminTestConnection } from '@/app/api/admin/test-connection/route';
 import { GET as adminHealth } from '@/app/api/admin/health/route';
 import { GET as adminLogsGet, DELETE as adminLogsDelete } from '@/app/api/admin/logs/route';
+import { PUT as localePreference } from '@/app/api/preferences/locale/route';
 
 type Handler = (req: Request) => Promise<Response>;
 
@@ -78,6 +79,7 @@ const USER_GUARDED: [string, Handler, string][] = [
   ['GET /api/campaigns', campaigns, 'GET'],
   ['GET /api/library/facets', facets, 'GET'],
   ['GET /api/openapi.json', openapi, 'GET'],
+  ['PUT /api/preferences/locale', localePreference, 'PUT'],
 ];
 
 const ADMIN_GUARDED: [string, Handler, string][] = [

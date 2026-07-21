@@ -17,6 +17,10 @@ optional Sonarr/Radarr signals.
 Keeparr **never deletes anything** — it only tags and reports. You delete
 manually in Plex / Jellyfin / Emby / Sonarr / Radarr.
 
+> [!IMPORTANT]
+> This repository is a maintained fork. The original source repository is
+> **[drohack/Keeparr](https://github.com/drohack/Keeparr)**.
+
 > [!NOTE]
 > **Plex is the maturely-tested backend.** Jellyfin and Emby support is built to
 > their documented APIs (and mirrors Seerr's client) but has **not yet been verified
@@ -41,6 +45,12 @@ manually in Plex / Jellyfin / Emby / Sonarr / Radarr.
 - **Choose which libraries** Keeparr tracks — untick any Plex library in Settings
   to exclude it (default: all).
 - **Custom title** — rename the app (nav bar + browser tab) in Settings.
+- **Deutsch or English** — Keeparr detects the browser language (`de*` selects
+  German, everything else English) and offers a language switcher on both the login
+  screen and in the signed-in user menu. Before login the choice is remembered in
+  `localStorage` (`keeparr.locale`); after login it is stored per account and takes
+  precedence on every device. Dates, relative times, numbers, and byte sizes follow
+  the selected locale.
 - **API key** — generate a key in Settings and send it as `X-Api-Key` to read the
   stats/reclaimable report or trigger refresh jobs from scripts (no login needed).
 - **Keep loop** — the home page shows a screen-filling batch of not-yet-kept
@@ -416,6 +426,12 @@ Everything Keeparr stores — keeps, users, watch/request caches, settings
 Keeparr has a small JSON API. Interactive docs live at **`/api-docs`** (sign-in
 required), backed by the OpenAPI spec at `/api/openapi.json` (also in the repo
 root as `openapi.json`).
+
+- `GET /api/auth/me` is public session discovery and includes the signed-in user's
+  nullable `locale` account preference when a valid session exists.
+- `PUT /api/preferences/locale` is session-only and accepts exactly
+  `{ "locale": "de" }` or `{ "locale": "en" }`; it persists the preference for
+  the current account.
 
 - Most endpoints use the session cookie from the web login.
 - `GET /api/reclaim-queue` is session-only and powers Smart Reclaim; it does not

@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { copyText } from '@/lib/clipboard';
-import { formatRelative } from '@/lib/format';
+import { formatDate, formatRelativeTime } from '@/lib/i18n';
 import { useToast } from '../Toaster';
 import { Card, btnGhost, inputCls } from './ui';
+import { useLocale } from '../LocaleProvider';
 
 interface LogRow {
   id: number;
@@ -19,6 +20,8 @@ const logLine = (l: LogRow) =>
   `${new Date(l.ts * 1000).toISOString()} ${l.level.toUpperCase()} [${l.source}] ${l.message}`;
 
 export default function LogsPanel() {
+  const { locale } = useLocale();
+  const de = locale === 'de';
   const [logs, setLogs] = useState<LogRow[]>([]);
   const [level, setLevel] = useState<(typeof LEVELS)[number]>('all');
   const [q, setQ] = useState('');
@@ -58,7 +61,7 @@ export default function LogsPanel() {
 
   async function clear() {
     await fetch('/api/admin/logs', { method: 'DELETE' });
-    toast('Log cleared.', 'success');
+    toast(de ? 'Protokoll geleert.' : 'Log cleared.', 'success');
     load();
   }
 
@@ -90,7 +93,7 @@ export default function LogsPanel() {
     l === 'error' ? 'text-red-400' : l === 'warn' ? 'text-amber-400' : 'text-slate-400';
 
   return (
-    <Card title="Logs">
+    <Card title={de ? 'Protokolle' : 'Logs'}>
       <div className="mb-3 flex flex-wrap items-center gap-2">
         {LEVELS.map((l) => (
           <button
@@ -100,35 +103,35 @@ export default function LogsPanel() {
               level === l ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'
             }`}
           >
-            {l}
+            {({ all: de ? 'alle' : 'all', info: 'info', warn: de ? 'warnung' : 'warn', error: de ? 'fehler' : 'error' } as Record<string, string>)[l]}
           </button>
         ))}
         <input
           className={`${inputCls} !w-56 text-xs`}
-          placeholder="Search message / source…"
+          placeholder={de ? 'Nach Nachricht / Quelle suchen…' : 'Search message / source…'}
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
         <button
           onClick={() => setAuto((a) => !a)}
           className={`${btnGhost} ml-auto text-xs`}
-          title="Refresh every 5 seconds"
+          title={de ? 'Alle 5 Sekunden aktualisieren' : 'Refresh every 5 seconds'}
         >
-          {auto ? '⏸ Pause' : '▶ Auto-refresh'}
+          {auto ? '⏸ Pause' : `▶ ${de ? 'Automatisch aktualisieren' : 'Auto-refresh'}`}
         </button>
         <button onClick={load} className={`${btnGhost} text-xs`}>
-          Refresh
+          {de ? 'Aktualisieren' : 'Refresh'}
         </button>
         <button onClick={download} className={`${btnGhost} text-xs`}>
-          Download
+          {de ? 'Herunterladen' : 'Download'}
         </button>
         <button onClick={clear} className={`${btnGhost} text-xs`}>
-          Clear
+          {de ? 'Leeren' : 'Clear'}
         </button>
       </div>
       {logs.length === 0 ? (
         <p className="text-sm text-slate-500">
-          {debouncedQ ? 'No log entries match the search.' : 'No log entries.'}
+          {debouncedQ ? (de ? 'Keine Protokolleinträge entsprechen der Suche.' : 'No log entries match the search.') : (de ? 'Keine Protokolleinträge.' : 'No log entries.')}
         </p>
       ) : (
         <div className="max-h-[60vh] overflow-y-auto rounded-md border border-slate-800 bg-slate-950/40 p-2 font-mono text-xs">
@@ -136,9 +139,9 @@ export default function LogsPanel() {
             <div key={l.id} className="group flex gap-2 py-0.5">
               <span
                 className="w-20 shrink-0 text-slate-600"
-                title={new Date(l.ts * 1000).toLocaleString()}
+                title={formatDate(l.ts * 1000, locale, { dateStyle: 'medium', timeStyle: 'medium' })}
               >
-                {formatRelative(l.ts)}
+                {formatRelativeTime(l.ts, locale)}
               </span>
               <span className={`w-10 shrink-0 uppercase ${color(l.level)}`}>{l.level}</span>
               <span className="w-28 shrink-0 text-slate-500">{l.source}</span>
@@ -146,7 +149,7 @@ export default function LogsPanel() {
               <button
                 onClick={() => copyRow(l)}
                 className="shrink-0 text-slate-600 opacity-0 hover:text-white group-hover:opacity-100"
-                title="Copy this line"
+                title={de ? 'Diese Zeile kopieren' : 'Copy this line'}
               >
                 {copiedId === l.id ? '✓' : '⧉'}
               </button>

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { MediaCardData } from '@/lib/types';
-import { formatSize } from '@/lib/format';
+import { formatBytes, formatNumber } from '@/lib/i18n';
 import MediaCard, { CARD_GRID_CLASS, CARD_MIN_W } from './MediaCard';
 import {
   StackedBar,
@@ -15,6 +15,7 @@ import {
   type Overview,
 } from './breakdown';
 import { useToast } from './Toaster';
+import { useLocale } from './LocaleProvider';
 
 interface Library {
   id: string;
@@ -83,6 +84,8 @@ function estimateDims(): { cols: number; rows: number } {
 }
 
 export default function KeepView({ libraries }: { libraries: Library[] }) {
+  const { locale, messages: m } = useLocale();
+  const messagesRef = useRef(m);
   const [selection, setSelection] = useState<Selection>('all');
   const [items, setItems] = useState<MediaCardData[]>([]);
   const [remaining, setRemaining] = useState<number | null>(null);
@@ -100,6 +103,10 @@ export default function KeepView({ libraries }: { libraries: Library[] }) {
   const [isNarrow, setIsNarrow] = useState(false);
 
   const gridWrap = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    messagesRef.current = m;
+  }, [m]);
 
   useEffect(() => {
     const mq = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`);
@@ -191,7 +198,7 @@ export default function KeepView({ libraries }: { libraries: Library[] }) {
       setDeleted(new Set());
     } catch {
       if (seq !== feedSeq.current) return; // superseded — don't toast for it
-      toast("Couldn't load the feed — is the server reachable?", 'error');
+      toast(messagesRef.current.keep.feedError, 'error');
     } finally {
       if (seq === feedSeq.current) setLoading(false);
     }
@@ -235,7 +242,7 @@ export default function KeepView({ libraries }: { libraries: Library[] }) {
       if (!res.ok) throw new Error('failed');
     } catch {
       // Stay on the current batch — advancing would silently drop the marks.
-      toast("Couldn't save this batch — nothing was marked.", 'error');
+      toast(m.keep.saveError, 'error');
       setLoading(false);
       return;
     }
@@ -269,17 +276,17 @@ export default function KeepView({ libraries }: { libraries: Library[] }) {
           the no-scroll grid. */}
       <div className="shrink-0 px-3 pt-3 pb-2 sm:px-6 sm:pt-4">
         <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4">
-          <h1 className="text-2xl font-bold">What should we keep?</h1>
+          <h1 className="text-2xl font-bold">{m.keep.title}</h1>
           <p className="text-sm text-slate-400">
             {triage
-              ? 'Tap anything you want to keep — everything else gets marked “I don’t care.”'
-              : 'Your biggest titles by size on disk.'}
+              ? m.keep.triageHint
+              : m.keep.largestHint}
           </p>
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-1 rounded-lg bg-rail p-1">
-          {chip('all', 'For you')}
+          {chip('all', m.keep.forYou)}
           {libraries.map((l) => chip(l.id, l.title))}
-          {chip('largest', 'Largest')}
+          {chip('largest', m.keep.largest)}
         </div>
       </div>
 
@@ -290,10 +297,10 @@ export default function KeepView({ libraries }: { libraries: Library[] }) {
           className={`flex-1 min-w-0 ${isNarrow ? 'overflow-y-auto' : 'overflow-hidden'}`}
         >
           {loading && shown.length === 0 ? (
-            <p className="text-slate-500 pt-10 text-center">Loading…</p>
+            <p className="text-slate-500 pt-10 text-center">{m.common.loading}</p>
           ) : shown.length === 0 ? (
             <div className="pt-10 text-center text-slate-400">
-              You’re all caught up here. Try another library above.
+              {m.keep.caughtUp}
             </div>
           ) : isNarrow ? (
             <div className={CARD_GRID_CLASS}>
@@ -333,35 +340,34 @@ export default function KeepView({ libraries }: { libraries: Library[] }) {
       <div className="shrink-0 border-t border-slate-800 bg-rail px-3 py-2 flex items-center gap-2 sm:px-6 sm:gap-4">
         <div className="flex flex-1 items-center gap-4">
           <span className="text-sm text-slate-400">
-            <span className="text-white font-semibold">{kept.size}</span> kept ·{' '}
-            {formatSize(keptSize)}
+            <span className="text-white font-semibold">{formatNumber(kept.size, locale)}</span> {m.keep.kept} ·{' '}
+            {formatBytes(keptSize, locale)}
           </span>
           {triage ? (
             <div className="ml-auto flex items-center gap-3">
               <span className="hidden text-right text-xs text-slate-500 sm:block max-w-xs">
-                Marks everything you didn’t keep as{' '}
-                <span className="text-rose-400">“I don’t care”</span> and loads a
-                fresh set.
+                {m.keep.markRest}{' '}
+                <span className="text-rose-400">„{m.keep.dontCare}“</span> {m.keep.markRestEnd}
               </span>
               <button
                 onClick={next}
                 disabled={loading}
                 className="shrink-0 rounded-lg bg-brand hover:bg-brand-light text-ink font-semibold px-6 py-2.5 disabled:opacity-60"
               >
-                {loading ? 'Loading…' : 'Next →'}
+                {loading ? m.common.loading : m.keep.next}
               </button>
             </div>
           ) : (
             <div className="ml-auto flex items-center gap-3">
               <span className="hidden text-right text-xs text-slate-500 sm:block max-w-xs">
-                Loads a fresh set of your biggest titles.
+                {m.keep.freshLargest}
               </span>
               <button
                 onClick={loadFeed}
                 disabled={loading}
                 className="shrink-0 rounded-lg border border-slate-700 hover:border-slate-500 px-6 py-2.5 disabled:opacity-60"
               >
-                {loading ? 'Loading…' : 'Refresh'}
+                {loading ? m.common.loading : m.keep.refresh}
               </button>
             </div>
           )}
@@ -376,6 +382,7 @@ export default function KeepView({ libraries }: { libraries: Library[] }) {
 /** The Keep page's right column: disk space (most important, on top), then a
  *  by-library donut + per-library kept/don't-care/undecided bars (largest first). */
 function KeepTotals({ overview }: { overview: Overview }) {
+  const { locale, messages: m } = useLocale();
   const { totals, storage, mediaUsedBytes } = overview;
   const libs = [...overview.libraries].sort((a, b) => b.bytes - a.bytes);
   const otherBytes = storage.configured
@@ -391,18 +398,18 @@ function KeepTotals({ overview }: { overview: Overview }) {
       {storage.configured && (
         <div className="rounded-lg border border-slate-800 bg-panel p-3">
           <div className="mb-2 text-xs uppercase tracking-wide text-slate-500">
-            Disk space
+            {m.keep.diskSpace}
           </div>
           <div className="flex items-baseline gap-2">
             <span className="text-3xl font-bold leading-none text-emerald-400">
-              {formatSize(storage.freeBytes)}
+              {formatBytes(storage.freeBytes, locale)}
             </span>
-            <span className="text-sm text-slate-400">free</span>
+            <span className="text-sm text-slate-400">{m.keep.free}</span>
           </div>
           <div className="mt-1 text-xs text-slate-500">
-            of {formatSize(storage.totalBytes)} ·{' '}
+            {m.keep.of} {formatBytes(storage.totalBytes, locale)} ·{' '}
             <span className="text-slate-300">
-              {pct(storage.usedBytes, storage.totalBytes)}% full
+              {formatNumber(pct(storage.usedBytes, storage.totalBytes), locale)}% {m.keep.full}
             </span>
           </div>
           <div className="mt-3">
@@ -410,27 +417,27 @@ function KeepTotals({ overview }: { overview: Overview }) {
               height="h-3"
               max={storage.totalBytes}
               segments={[
-                { tone: 'kept', value: totals.keptBytes, label: 'Kept' },
-                { tone: 'dontcare', value: totals.dontcareBytes, label: 'I don’t care' },
-                { tone: 'undecided', value: totals.undecidedBytes, label: 'Undecided' },
-                { tone: 'other', value: otherBytes, label: 'Other files' },
+                { tone: 'kept', value: totals.keptBytes, label: m.keep.keptLabel },
+                { tone: 'dontcare', value: totals.dontcareBytes, label: m.keep.dontCare },
+                { tone: 'undecided', value: totals.undecidedBytes, label: m.keep.undecided },
+                { tone: 'other', value: otherBytes, label: m.keep.otherFiles },
               ]}
             />
           </div>
           <div className="mt-3 space-y-1.5">
-            <LegendRow tone="kept" label="Kept" value={formatSize(totals.keptBytes)} />
+            <LegendRow tone="kept" label={m.keep.keptLabel} value={formatBytes(totals.keptBytes, locale)} />
             <LegendRow
               tone="dontcare"
-              label="I don’t care"
-              value={formatSize(totals.dontcareBytes)}
+              label={m.keep.dontCare}
+              value={formatBytes(totals.dontcareBytes, locale)}
             />
             <LegendRow
               tone="undecided"
-              label="Undecided"
-              value={formatSize(totals.undecidedBytes)}
+              label={m.keep.undecided}
+              value={formatBytes(totals.undecidedBytes, locale)}
             />
             {otherBytes > 0 && (
-              <LegendRow tone="other" label="Other files" value={formatSize(otherBytes)} />
+              <LegendRow tone="other" label={m.keep.otherFiles} value={formatBytes(otherBytes, locale)} />
             )}
           </div>
         </div>
@@ -439,7 +446,7 @@ function KeepTotals({ overview }: { overview: Overview }) {
       {/* By library — donut for share of the whole, then per-library composition. */}
       <div className="rounded-lg border border-slate-800 bg-panel p-3">
         <div className="mb-3 text-xs uppercase tracking-wide text-slate-500">
-          By library
+          {m.keep.byLibrary}
         </div>
 
         {storage.configured && libs.length > 0 && (
@@ -448,8 +455,8 @@ function KeepTotals({ overview }: { overview: Overview }) {
               size={128}
               thickness={16}
               max={storage.totalBytes}
-              center={`${pct(storage.usedBytes, storage.totalBytes)}%`}
-              centerSub="full"
+              center={`${formatNumber(pct(storage.usedBytes, storage.totalBytes), locale)}%`}
+              centerSub={m.keep.full}
               segments={libs.map((l, i) => ({
                 value: l.bytes,
                 stroke: libStroke(i),
@@ -467,29 +474,36 @@ function KeepTotals({ overview }: { overview: Overview }) {
                 <span className={`h-2.5 w-2.5 shrink-0 rounded-sm ${libColor(i)}`} />
                 <span className="min-w-0 flex-1 truncate text-slate-200">{l.title}</span>
                 <span className="shrink-0 font-mono text-slate-400">
-                  {formatSize(l.bytes)}
+                  {formatBytes(l.bytes, locale)}
                 </span>
               </div>
               <div className="mt-1.5">
-                <StackedBar height="h-1.5" segments={compositionSegments(l)} />
+                <StackedBar
+                  height="h-1.5"
+                  segments={compositionSegments(l, {
+                    kept: m.keep.keptLabel,
+                    dontCare: m.keep.dontCare,
+                    undecided: m.keep.undecided,
+                  })}
+                />
               </div>
             </div>
           ))}
           {libs.length === 0 && (
-            <p className="text-sm text-slate-500">No libraries yet.</p>
+            <p className="text-sm text-slate-500">{m.keep.noLibraries}</p>
           )}
         </div>
 
         {/* one shared key for the per-library composition colors */}
         <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 border-t border-slate-800 pt-2 text-[11px] text-slate-500">
           <span className="flex items-center gap-1">
-            <span className="h-2 w-2 rounded-sm bg-brand" /> Kept
+            <span className="h-2 w-2 rounded-sm bg-brand" /> {m.keep.keptLabel}
           </span>
           <span className="flex items-center gap-1">
-            <span className="h-2 w-2 rounded-sm bg-rose-500" /> I don’t care
+            <span className="h-2 w-2 rounded-sm bg-rose-500" /> {m.keep.dontCare}
           </span>
           <span className="flex items-center gap-1">
-            <span className="h-2 w-2 rounded-sm bg-blue-500" /> Undecided
+            <span className="h-2 w-2 rounded-sm bg-blue-500" /> {m.keep.undecided}
           </span>
         </div>
       </div>
@@ -498,41 +512,41 @@ function KeepTotals({ overview }: { overview: Overview }) {
       <div className="rounded-lg border border-slate-800 bg-panel p-3">
         <div className="mb-2 flex items-center justify-between">
           <span className="text-xs uppercase tracking-wide text-slate-500">
-            Your progress
+            {m.keep.progress}
           </span>
-          <span className="text-xs text-slate-500">{reviewedPct}% reviewed</span>
+          <span className="text-xs text-slate-500">{formatNumber(reviewedPct, locale)}% {m.keep.reviewed}</span>
         </div>
         <div className="flex items-baseline gap-1.5">
           <span className="text-3xl font-bold leading-none">
-            {totals.undecidedItems}
+            {formatNumber(totals.undecidedItems, locale)}
           </span>
-          <span className="text-sm text-slate-400">left to review</span>
+          <span className="text-sm text-slate-400">{m.keep.leftToReview}</span>
         </div>
         <div className="mt-2.5">
           <StackedBar
             height="h-2"
             segments={[
-              { tone: 'kept', value: totals.keptByMeItems, label: 'Kept by you' },
-              { tone: 'dontcare', value: totals.dontcareItems, label: 'I don’t care' },
-              { tone: 'undecided', value: totals.undecidedItems, label: 'Undecided' },
+              { tone: 'kept', value: totals.keptByMeItems, label: m.keep.keptByYou },
+              { tone: 'dontcare', value: totals.dontcareItems, label: m.keep.dontCare },
+              { tone: 'undecided', value: totals.undecidedItems, label: m.keep.undecided },
             ]}
           />
         </div>
         <div className="mt-2.5 space-y-1.5">
           <LegendRow
             tone="kept"
-            label="Kept by you"
-            value={String(totals.keptByMeItems)}
+            label={m.keep.keptByYou}
+            value={formatNumber(totals.keptByMeItems, locale)}
           />
           <LegendRow
             tone="dontcare"
-            label="I don’t care"
-            value={String(totals.dontcareItems)}
+            label={m.keep.dontCare}
+            value={formatNumber(totals.dontcareItems, locale)}
           />
           <LegendRow
             tone="undecided"
-            label="Undecided"
-            value={String(totals.undecidedItems)}
+            label={m.keep.undecided}
+            value={formatNumber(totals.undecidedItems, locale)}
           />
         </div>
       </div>

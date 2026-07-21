@@ -3,8 +3,11 @@
 import { useEffect, useState } from 'react';
 import { copyText } from '@/lib/clipboard';
 import { Card, CardColumns, btnCls, btnGhost, inputCls } from './ui';
+import { useLocale } from '../LocaleProvider';
 
 export default function GeneralPanel() {
+  const { locale } = useLocale();
+  const de = locale === 'de';
   const [appTitle, setAppTitle] = useState('');
   const [appUrl, setAppUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
@@ -55,12 +58,12 @@ export default function GeneralPanel() {
         }),
       });
       if (!res.ok) throw new Error(String(res.status));
-      setMsg('Saved.');
+      setMsg(de ? 'Gespeichert.' : 'Saved.');
       // Only on success: a failed PUT means a regenerated key is NOT active,
       // so the "Save settings to activate it" warning must stay.
       setKeyDirty(false);
     } catch {
-      setMsg("Couldn't save — settings unchanged.");
+      setMsg(de ? 'Speichern fehlgeschlagen — Einstellungen unverändert.' : "Couldn't save — settings unchanged.");
     } finally {
       setSaving(false);
     }
@@ -69,17 +72,17 @@ export default function GeneralPanel() {
   return (
     <div>
       <CardColumns>
-      <Card title="Branding">
-        <label className="block text-sm text-slate-400 mb-1">Application title</label>
+      <Card title={de ? 'Darstellung' : 'Branding'}>
+        <label className="block text-sm text-slate-400 mb-1">{de ? 'Anwendungstitel' : 'Application title'}</label>
         <input
           className={`${inputCls} max-w-xs`}
           value={appTitle}
           onChange={(e) => setAppTitle(e.target.value)}
           placeholder="Keeparr"
         />
-        <p className="mt-1 text-xs text-slate-500">Shown in the sidebar and browser tab.</p>
+        <p className="mt-1 text-xs text-slate-500">{de ? 'Wird in der Seitenleiste und im Browsertab angezeigt.' : 'Shown in the sidebar and browser tab.'}</p>
 
-        <label className="block text-sm text-slate-400 mb-1 mt-4">Application URL</label>
+        <label className="block text-sm text-slate-400 mb-1 mt-4">{de ? 'Anwendungs-URL' : 'Application URL'}</label>
         <input
           className={inputCls}
           value={appUrl}
@@ -87,14 +90,13 @@ export default function GeneralPanel() {
           placeholder="https://keeparr.example.net"
         />
         <p className="mt-1 text-xs text-slate-500">
-          Public URL of this app — used to build the Plex sign-in redirect.
+          {de ? 'Öffentliche URL dieser App — wird für die Plex-Anmeldeweiterleitung verwendet.' : 'Public URL of this app — used to build the Plex sign-in redirect.'}
         </p>
       </Card>
 
-      <Card title="API access">
+      <Card title={de ? 'API-Zugriff' : 'API access'}>
         <p className="text-sm text-slate-400 mb-3">
-          A key for automation — send it as the <code>X-Api-Key</code> header to read
-          stats or trigger refresh jobs without signing in.
+          {de ? 'Ein Schlüssel für Automatisierung — sende ihn als ' : 'A key for automation — send it as the '}<code>X-Api-Key</code>{de ? '-Header, um Statistiken zu lesen oder Aktualisierungsjobs ohne Anmeldung zu starten.' : ' header to read stats or trigger refresh jobs without signing in.'}
         </p>
         {apiKey ? (
           <div className="flex items-center gap-2">
@@ -109,30 +111,30 @@ export default function GeneralPanel() {
               onClick={() => setShowKey((s) => !s)}
               className={`${btnGhost} shrink-0`}
               type="button"
-              title={showKey ? 'Hide' : 'Show'}
+              title={showKey ? (de ? 'Ausblenden' : 'Hide') : (de ? 'Anzeigen' : 'Show')}
             >
-              {showKey ? 'Hide' : 'Show'}
+              {showKey ? (de ? 'Ausblenden' : 'Hide') : (de ? 'Anzeigen' : 'Show')}
             </button>
             <button
               onClick={copyApiKey}
               className={`${btnGhost} shrink-0`}
               type="button"
-              title="Copy to clipboard"
+              title={de ? 'In Zwischenablage kopieren' : 'Copy to clipboard'}
             >
-              {copied ? 'Copied ✓' : 'Copy'}
+              {copied ? (de ? 'Kopiert ✓' : 'Copied ✓') : (de ? 'Kopieren' : 'Copy')}
             </button>
           </div>
         ) : (
-          <p className="text-sm text-slate-400">No key set.</p>
+          <p className="text-sm text-slate-400">{de ? 'Kein Schlüssel festgelegt.' : 'No key set.'}</p>
         )}
         {keyDirty && (
           <p className="mt-2 text-xs text-amber-400">
-            New key — Save settings to activate it (the old key stops working).
+            {de ? 'Neuer Schlüssel — speichere die Einstellungen, um ihn zu aktivieren (der alte Schlüssel funktioniert dann nicht mehr).' : 'New key — Save settings to activate it (the old key stops working).'}
           </p>
         )}
         <div className="mt-3 flex items-center gap-3">
           <button onClick={generateApiKey} className={btnGhost} type="button">
-            {apiKey ? 'Regenerate' : 'Generate key'}
+            {apiKey ? (de ? 'Neu erzeugen' : 'Regenerate') : (de ? 'Schlüssel erzeugen' : 'Generate key')}
           </button>
           <a
             href="/api-docs"
@@ -140,7 +142,7 @@ export default function GeneralPanel() {
             rel="noreferrer"
             className="text-sm text-slate-400 underline hover:text-white"
           >
-            API docs →
+            {de ? 'API-Dokumentation →' : 'API docs →'}
           </a>
         </div>
       </Card>
@@ -148,7 +150,7 @@ export default function GeneralPanel() {
 
       <div className="flex items-center gap-3">
         <button onClick={save} disabled={saving} className={btnCls}>
-          {saving ? 'Saving…' : 'Save settings'}
+          {saving ? (de ? 'Speichern…' : 'Saving…') : (de ? 'Einstellungen speichern' : 'Save settings')}
         </button>
         {msg && <span className="text-sm text-slate-300">{msg}</span>}
       </div>

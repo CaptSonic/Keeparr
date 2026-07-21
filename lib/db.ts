@@ -74,6 +74,7 @@ export function applySchema(database: Database.Database): void {
       is_admin     INTEGER NOT NULL DEFAULT 0,
       enabled      INTEGER NOT NULL DEFAULT 1,  -- can this account sign in?
       session_epoch INTEGER NOT NULL DEFAULT 0, -- bump to invalidate this user's tokens
+      locale        TEXT CHECK (locale IN ('de', 'en')),
       created_at   INTEGER NOT NULL,
       last_login   INTEGER
     );
@@ -252,6 +253,9 @@ function migrate(database: Database.Database): void {
     database.exec(
       `ALTER TABLE users ADD COLUMN session_epoch INTEGER NOT NULL DEFAULT 0`
     );
+  }
+  if (!cols.some((c) => c.name === 'locale')) {
+    database.exec(`ALTER TABLE users ADD COLUMN locale TEXT CHECK (locale IN ('de', 'en'))`);
   }
 
   // arr_unmatched gained size_bytes (to show downloaded-but-not-in-Plex sizes).

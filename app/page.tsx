@@ -1,10 +1,10 @@
-import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getSessionUser } from '@/lib/auth';
 import { getManagedSections, isServerConfigured } from '@/lib/settings';
 import { sectionSizeSummary } from '@/lib/queries';
 import AppShell from '@/components/AppShell';
 import KeepView from '@/components/KeepView';
+import { SetupRequired } from '@/components/LocalizedPageText';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -24,25 +24,7 @@ export default async function HomePage() {
   return (
     <AppShell>
       {!configured ? (
-        <div className="mx-auto max-w-3xl px-4 py-10">
-          <div className="rounded-xl border border-slate-800 bg-panel p-8 text-center">
-            <h1 className="text-xl font-semibold mb-2">Keeparr isn’t set up yet</h1>
-            {user.isAdmin ? (
-              <p className="text-slate-400">
-                Connect your Plex server and run a scan in{' '}
-                <Link href="/settings/connections" className="text-brand underline">
-                  Settings
-                </Link>
-                .
-              </p>
-            ) : (
-              <p className="text-slate-400">
-                The owner still needs to finish setting things up. Check back
-                soon.
-              </p>
-            )}
-          </div>
-        </div>
+        <SetupRequired isAdmin={user.isAdmin} />
       ) : (
         <KeepView libraries={libraries} />
       )}

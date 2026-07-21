@@ -12,7 +12,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: title,
     short_name: title,
-    description: 'Decide what media to keep, and find what can be deleted.',
+    description: 'Gemeinsam entscheiden, welche Medien bleiben und was Speicherplatz freigeben kann.',
     start_url: '/',
     display: 'standalone',
     background_color: '#0b1120', // app
@@ -28,9 +28,9 @@ export default function manifest(): MetadataRoute.Manifest {
       },
     ],
     shortcuts: [
-      { name: 'Keep', url: '/', icons: [{ src: '/icons/icon-192.png', sizes: '192x192' }] },
-      { name: 'Browse', url: '/library', icons: [{ src: '/icons/icon-192.png', sizes: '192x192' }] },
-      { name: 'Big Picture', url: '/stats', icons: [{ src: '/icons/icon-192.png', sizes: '192x192' }] },
+      { name: 'Behalten', url: '/', icons: [{ src: '/icons/icon-192.png', sizes: '192x192' }] },
+      { name: 'Bibliothek', url: '/library', icons: [{ src: '/icons/icon-192.png', sizes: '192x192' }] },
+      { name: 'Übersicht', url: '/stats', icons: [{ src: '/icons/icon-192.png', sizes: '192x192' }] },
     ],
   };
 }

@@ -7,7 +7,10 @@ import type { SessionUser } from '@/lib/types';
 import SearchBox from './SearchBox';
 import ShortcutsOverlay from './ShortcutsOverlay';
 import ThemeMenu from './ThemeMenu';
+import LanguageMenu from './LanguageMenu';
+import { useLocale } from './LocaleProvider';
 import { ToastProvider } from './Toaster';
+import { healthIssueMessage } from '@/lib/ui-labels';
 
 interface Library {
   id: string;
@@ -45,6 +48,7 @@ const SERVER_LABEL: Record<string, string> = {
 };
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
+  const { locale, messages: m } = useLocale();
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -216,7 +220,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </Link>
 
         <nav className="flex-1 overflow-y-auto p-2 space-y-1">
-          {navItem('/', 'Keep', pathname === '/', '✦')}
+           {navItem('/', m.nav.keep, pathname === '/', '✦')}
 
           {/* Browse (expandable libraries) */}
           <div>
@@ -233,11 +237,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 onClick={() => setRailOpen(false)}
               >
                 <span aria-hidden className="w-4 text-center">▦</span>
-                Browse
+                 {m.nav.browse}
               </Link>
               <button
                 onClick={() => setBrowseOpen((o) => !o)}
-                aria-label={browseOpen ? 'Collapse libraries' : 'Expand libraries'}
+                 aria-label={browseOpen ? m.nav.collapseLibraries : m.nav.expandLibraries}
                 className="px-2 py-2 text-slate-500 hover:text-white"
               >
                 {browseOpen ? '▾' : '▸'}
@@ -253,7 +257,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                       : 'text-slate-400 hover:text-white'
                   }`}
                 >
-                  All libraries
+                   {m.nav.allLibraries}
                 </button>
                 {libraries.map((l) => {
                   const on = selected.size === 0 || selected.has(l.id);
@@ -276,13 +280,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             )}
           </div>
 
-          {navItem('/reclaim', 'Smart Reclaim', pathname.startsWith('/reclaim'), '♻')}
-          {navItem('/campaigns', 'Campaigns', pathname.startsWith('/campaigns'), '◎')}
-          {navItem('/stats', 'Big Picture', pathname.startsWith('/stats'), '◴')}
+           {navItem('/reclaim', m.nav.reclaim, pathname.startsWith('/reclaim'), '♻')}
+           {navItem('/campaigns', m.nav.campaigns, pathname.startsWith('/campaigns'), '◎')}
+           {navItem('/stats', m.nav.stats, pathname.startsWith('/stats'), '◴')}
           {user?.isAdmin &&
             navItem(
               '/settings/general',
-              'Settings',
+               m.nav.settings,
               pathname.startsWith('/settings'),
               '⚙'
             )}
@@ -295,7 +299,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           {/* Hamburger — opens the off-canvas rail, only shown below md. */}
           <button
             onClick={() => setRailOpen((o) => !o)}
-            aria-label={railOpen ? 'Close menu' : 'Open menu'}
+             aria-label={railOpen ? m.nav.closeMenu : m.nav.openMenu}
             className="shrink-0 rounded-md p-2 text-slate-400 hover:bg-slate-800 hover:text-white md:hidden"
           >
             <span aria-hidden className="block text-lg leading-none">☰</span>
@@ -306,7 +310,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           {user?.isAdmin && health.length > 0 && (
             <Link
               href="/settings/jobs"
-              title={health.map((h) => h.message).join('\n')}
+              title={health.map((h) => healthIssueMessage(h, locale)).join('\n')}
               className={`flex shrink-0 items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium sm:px-3 ${
                 health.some((h) => h.severity === 'error')
                   ? 'bg-red-500/15 text-red-400 hover:bg-red-500/25'
@@ -315,7 +319,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             >
               <span aria-hidden>⚠</span>
               <span className="hidden sm:inline">
-                {health.length} {health.length === 1 ? 'issue' : 'issues'}
+                 {health.length} {health.length === 1 ? m.nav.issue : m.nav.issues}
               </span>
             </Link>
           )}
@@ -330,7 +334,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             </button>
             {menuOpen && user && (
               <div className="absolute right-0 z-30 mt-2 max-h-[calc(100dvh-4.5rem)] w-72 max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-lg border border-slate-700 bg-panel p-3 text-sm shadow-xl">
-                <div className="font-medium truncate">{user.username ?? 'User'}</div>
+                <div className="font-medium truncate">{user.username ?? (locale === 'de' ? 'Benutzer' : 'User')}</div>
                 <div className="text-xs text-slate-500 truncate">
                   {user.email ?? '—'}
                 </div>
@@ -340,21 +344,24 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   </div>
                 )}
                 <ThemeMenu />
+                <LanguageMenu />
                 <p className="mt-2 text-[11px] text-slate-500">
-                  Profile is managed by your {SERVER_LABEL[serverType] ?? 'media server'} account.
+                  {m.nav.profile}: {SERVER_LABEL[serverType] ?? (locale === 'de' ? 'Medienserver' : 'Media server')}
                 </p>
                 <button
                   onClick={logout}
                   className="mt-2 w-full rounded-md border border-slate-700 px-3 py-1.5 text-left hover:border-slate-500"
                 >
-                  Log out
+                  {m.nav.logout}
                 </button>
                 <button
                   onClick={logoutAllDevices}
-                  title="Invalidate every session for your account (use if you think a session was stolen)."
+                  title={locale === 'de'
+                    ? 'Alle Sitzungen deines Kontos ungültig machen (verwenden, wenn eine Sitzung möglicherweise gestohlen wurde).'
+                    : 'Invalidate every session for your account (use if you think a session was stolen).'}
                   className="mt-1.5 w-full rounded-md px-3 py-1.5 text-left text-[11px] text-slate-500 hover:text-slate-300"
                 >
-                  Sign out all devices
+                  {m.nav.logoutAll}
                 </button>
               </div>
             )}

@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { formatNumber } from '@/lib/i18n';
+import { useLocale } from './LocaleProvider';
 
 export interface MSOption {
   value: string;
@@ -30,6 +32,7 @@ export default function MultiSelect({
   selected: string[];
   onChange: (next: string[]) => void;
 }) {
+  const { locale, messages: m } = useLocale();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
 
@@ -65,7 +68,7 @@ export default function MultiSelect({
     <div className="relative" ref={ref}>
       <button type="button" className={btnCls} onClick={() => setOpen((o) => !o)}>
         <span className="truncate">
-          {selected.length === 0 ? placeholder : `${summaryName} (${selected.length})`}
+          {selected.length === 0 ? placeholder : `${summaryName} (${formatNumber(selected.length, locale)})`}
         </span>
         <span className="text-slate-500">▾</span>
       </button>
@@ -78,14 +81,14 @@ export default function MultiSelect({
               disabled={selected.length === 0}
               onClick={() => onChange([])}
             >
-              Clear
+              {m.library.clear}
             </button>
             <button
               type="button"
               className="text-slate-400 hover:text-white"
               onClick={() => onChange(allValues)}
             >
-              Select all
+              {m.library.selectAll}
             </button>
           </div>
           {groups.map((g, gi) => {

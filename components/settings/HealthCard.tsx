@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { Card } from './ui';
+import { useLocale } from '../LocaleProvider';
+import { healthIssueMessage } from '@/lib/ui-labels';
 
 interface HealthIssue {
   id: string;
@@ -14,6 +16,8 @@ const DOCS_BASE = 'https://github.com/drohack/Keeparr#';
 
 /** Standing health warnings (Servarr System → Status style), with fix-it links. */
 export default function HealthCard() {
+  const { locale } = useLocale();
+  const de = locale === 'de';
   const [issues, setIssues] = useState<HealthIssue[] | null>(null);
 
   useEffect(() => {
@@ -26,9 +30,9 @@ export default function HealthCard() {
   if (issues === null) return null; // no flash while loading
 
   return (
-    <Card title="Health">
+    <Card title={de ? 'Systemzustand' : 'Health'}>
       {issues.length === 0 ? (
-        <p className="text-sm text-emerald-400">✓ No issues — everything looks healthy.</p>
+        <p className="text-sm text-emerald-400">✓ {de ? 'Keine Probleme — alles sieht gut aus.' : 'No issues — everything looks healthy.'}</p>
       ) : (
         <div className="space-y-2">
           {issues.map((i) => (
@@ -43,14 +47,14 @@ export default function HealthCard() {
               <span aria-hidden className="mt-0.5 shrink-0">
                 {i.severity === 'error' ? '✕' : '⚠'}
               </span>
-              <span className="min-w-0 flex-1">{i.message}</span>
+              <span className="min-w-0 flex-1">{healthIssueMessage(i, locale)}</span>
               <a
                 href={`${DOCS_BASE}${i.docSlug}`}
                 target="_blank"
                 rel="noreferrer"
                 className="shrink-0 text-xs underline opacity-80 hover:opacity-100"
               >
-                More info
+                {de ? 'Mehr erfahren' : 'More info'}
               </a>
             </div>
           ))}

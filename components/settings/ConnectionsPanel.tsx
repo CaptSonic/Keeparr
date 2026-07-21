@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { formatSize } from '@/lib/format';
+import { formatBytes, formatNumber } from '@/lib/i18n';
+import { useLocale } from '../LocaleProvider';
 import { Card, CardColumns, btnCls, btnGhost, inputCls } from './ui';
 import MatchHealthCard from './MatchHealthCard';
 
@@ -91,10 +92,13 @@ function ServiceFields({
   setParts: (p: Parts) => void;
   showBase?: boolean;
 }) {
+  const { locale } = useLocale();
+  const de = locale === 'de';
+
   return (
     <div className="flex flex-wrap items-end gap-3">
       <label className="text-xs text-slate-400">
-        Hostname or IP
+        {de ? 'Hostname oder IP-Adresse' : 'Hostname or IP'}
         <div className="mt-1 flex items-stretch">
           {/* Shows the protocol that gets prepended (follows the SSL toggle). */}
           <span className="inline-flex items-center rounded-l-md border border-r-0 border-slate-700 bg-slate-900 px-2 font-mono text-xs text-slate-400">
@@ -109,7 +113,7 @@ function ServiceFields({
         </div>
       </label>
       <label className="text-xs text-slate-400">
-        Port
+        {de ? 'Port' : 'Port'}
         <input
           className={`${inputCls} mt-1 w-24`}
           placeholder="32400"
@@ -119,10 +123,10 @@ function ServiceFields({
       </label>
       {showBase && (
         <label className="text-xs text-slate-400">
-          URL base
+          {de ? 'URL-Basispfad' : 'URL base'}
           <input
             className={`${inputCls} mt-1 w-32`}
-            placeholder="/ (optional)"
+            placeholder={de ? '/ (optional)' : '/ (optional)'}
             value={parts.base}
             onChange={(e) => setParts({ ...parts, base: e.target.value })}
           />
@@ -134,7 +138,7 @@ function ServiceFields({
           checked={parts.ssl}
           onChange={(e) => setParts({ ...parts, ssl: e.target.checked })}
         />
-        Use SSL
+        {de ? 'SSL verwenden' : 'Use SSL'}
       </label>
     </div>
   );
@@ -166,6 +170,8 @@ function ArrCard({
   test: Record<string, string>;
   onTest: (idx: number) => void;
 }) {
+  const { locale } = useLocale();
+  const de = locale === 'de';
   const update = (idx: number, patch: Partial<ArrRow>) =>
     setRows(rows.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
   const add = () =>
@@ -179,7 +185,9 @@ function ArrCard({
     <Card title={title}>
       {rows.length === 0 && (
         <p className="mb-3 text-sm text-slate-400">
-          No instances. Add one to pull quality + tags into the Quality view.
+          {de
+            ? 'Keine Instanzen. Füge eine hinzu, um Qualität und Tags in die Qualitätsansicht zu übernehmen.'
+            : 'No instances. Add one to pull quality + tags into the Quality view.'}
         </p>
       )}
       <div className="space-y-4">
@@ -188,7 +196,7 @@ function ArrCard({
             <div className="mb-2 flex items-center gap-2">
               <input
                 className={`${inputCls} w-44`}
-                placeholder="Name (e.g. 4K, HD)"
+                placeholder={de ? 'Name (z. B. 4K, HD)' : 'Name (e.g. 4K, HD)'}
                 value={row.name}
                 onChange={(e) => update(idx, { name: e.target.value })}
               />
@@ -197,12 +205,13 @@ function ArrCard({
                 className={`${btnGhost} ml-auto text-xs`}
                 type="button"
               >
-                Remove
+                {de ? 'Entfernen' : 'Remove'}
               </button>
             </div>
             <ServiceFields parts={row.parts} setParts={(p) => update(idx, { parts: p })} showBase />
             <label className="mt-3 mb-1 block text-sm text-slate-400">
-              API key {row.hasKey && '(saved — leave blank to keep)'}
+              {de ? 'API-Schlüssel' : 'API key'}{' '}
+              {row.hasKey && (de ? '(gespeichert — zum Beibehalten leer lassen)' : '(saved — leave blank to keep)')}
             </label>
             <input
               className={`${inputCls} max-w-md`}
@@ -212,7 +221,7 @@ function ArrCard({
             />
             <div className="mt-3 flex items-center gap-3">
               <button onClick={() => onTest(idx)} className={btnGhost} type="button">
-                Test
+                {de ? 'Testen' : 'Test'}
               </button>
               {test[`${kind}-${row.id}`] && (
                 <span className="text-sm text-slate-400">{test[`${kind}-${row.id}`]}</span>
@@ -222,7 +231,9 @@ function ArrCard({
         ))}
       </div>
       <button onClick={add} className={`${btnGhost} mt-3`} type="button">
-        + Add {kind === 'sonarr' ? 'Sonarr' : 'Radarr'} instance
+        {de ? '+ Instanz hinzufügen: ' : '+ Add '}
+        {kind === 'sonarr' ? 'Sonarr' : 'Radarr'}
+        {!de && ' instance'}
       </button>
     </Card>
   );
@@ -236,6 +247,8 @@ const SERVER_LABEL: Record<ServerType, string> = {
 };
 
 export default function ConnectionsPanel() {
+  const { locale } = useLocale();
+  const de = locale === 'de';
   const [serverType, setServerType] = useState<ServerType>('plex');
   const [plex, setPlex] = useState<Parts>({ ssl: false, host: '', port: '', base: '' });
   const [plexConfigured, setPlexConfigured] = useState(false);
@@ -315,15 +328,19 @@ export default function ConnectionsPanel() {
   async function checkPath(id: string) {
     const path = (storagePaths[id] ?? '').trim();
     if (!path) return;
-    setStorageMsg((m) => ({ ...m, [id]: 'Checking…' }));
+    setStorageMsg((m) => ({ ...m, [id]: de ? 'Wird geprüft…' : 'Checking…' }));
     const r = await fetch(
       `/api/admin/storage-check?path=${encodeURIComponent(path)}`
     ).then((x) => x.json());
     setStorageMsg((m) => ({
       ...m,
       [id]: r.ok
-        ? `OK — ${formatSize(r.freeBytes)} free of ${formatSize(r.totalBytes)}`
-        : `Not accessible (${r.error})`,
+        ? de
+          ? `OK — ${formatBytes(r.freeBytes, locale)} von ${formatBytes(r.totalBytes, locale)} frei`
+          : `OK — ${formatBytes(r.freeBytes, locale)} free of ${formatBytes(r.totalBytes, locale)}`
+        : de
+          ? `Nicht erreichbar (${r.error})`
+          : `Not accessible (${r.error})`,
     }));
   }
 
@@ -383,11 +400,16 @@ export default function ConnectionsPanel() {
         // relay/remote URL not routable from the container). Don't silently
         // drop the click — let the admin save it anyway.
         const proceed = window.confirm(
-          `Couldn't reach ${uri}\n(${t.message ?? 'connection test failed'}).\n\n` +
-            `Save this connection anyway?`
+          de
+            ? `${uri} konnte nicht erreicht werden\n(${t.message ?? 'Verbindungstest fehlgeschlagen'}).\n\nVerbindung trotzdem speichern?`
+            : `Couldn't reach ${uri}\n(${t.message ?? 'connection test failed'}).\n\nSave this connection anyway?`
         );
         if (!proceed) {
-          setMsg(`Did not connect: ${t.message ?? 'connection test failed'}.`);
+          setMsg(
+            de
+              ? `Nicht verbunden: ${t.message ?? 'Verbindungstest fehlgeschlagen'}.`
+              : `Did not connect: ${t.message ?? 'connection test failed'}.`
+          );
           return;
         }
       }
@@ -404,12 +426,16 @@ export default function ConnectionsPanel() {
         }),
       });
       if (!res.ok) throw new Error(String(res.status));
-      setMsg(`Connected to ${srv.name}.`);
+      setMsg(de ? `Mit ${srv.name} verbunden.` : `Connected to ${srv.name}.`);
       setServers(null);
       await load();
     } catch {
       // Discovered-servers list stays visible for a retry click.
-      setMsg(`Couldn't connect to ${srv.name} — nothing was saved.`);
+      setMsg(
+        de
+          ? `Verbindung mit ${srv.name} fehlgeschlagen — es wurde nichts gespeichert.`
+          : `Couldn't connect to ${srv.name} — nothing was saved.`
+      );
     } finally {
       setSaving(false);
     }
@@ -419,13 +445,16 @@ export default function ConnectionsPanel() {
     const url =
       service === 'plex' ? buildUrl(plex) : service === 'tautulli' ? buildUrl(taut) : buildUrl(seerr);
     const apiKey = service === 'tautulli' ? tautKey : service === 'seerr' ? seerrKey : undefined;
-    setTest((m) => ({ ...m, [service]: 'Testing…' }));
+    setTest((m) => ({ ...m, [service]: de ? 'Wird getestet…' : 'Testing…' }));
     const r = await fetch('/api/admin/test-connection', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ service, url, apiKey }),
     }).then((x) => x.json());
-    setTest((m) => ({ ...m, [service]: r.message ?? (r.ok ? 'OK' : 'Failed') }));
+    setTest((m) => ({
+      ...m,
+      [service]: r.message ?? (r.ok ? 'OK' : de ? 'Fehlgeschlagen' : 'Failed'),
+    }));
   }
 
   async function testArrInstance(kind: 'sonarr' | 'radarr', idx: number) {
@@ -433,10 +462,13 @@ export default function ConnectionsPanel() {
     const key = `${kind}-${row.id}`;
     // Need either a freshly-typed key or a saved one (re-test by instance id).
     if (!row.apiKey && !row.hasKey) {
-      setTest((m) => ({ ...m, [key]: 'Enter the API key to test.' }));
+      setTest((m) => ({
+        ...m,
+        [key]: de ? 'Gib zum Testen den API-Schlüssel ein.' : 'Enter the API key to test.',
+      }));
       return;
     }
-    setTest((m) => ({ ...m, [key]: 'Testing…' }));
+    setTest((m) => ({ ...m, [key]: de ? 'Wird getestet…' : 'Testing…' }));
     const r = await fetch('/api/admin/test-connection', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -447,7 +479,10 @@ export default function ConnectionsPanel() {
         instanceId: row.id,
       }),
     }).then((x) => x.json());
-    setTest((m) => ({ ...m, [key]: r.message ?? (r.ok ? 'OK' : 'Failed') }));
+    setTest((m) => ({
+      ...m,
+      [key]: r.message ?? (r.ok ? 'OK' : de ? 'Fehlgeschlagen' : 'Failed'),
+    }));
   }
 
   const toInstancesBody = (rows: ArrRow[]) =>
@@ -485,19 +520,31 @@ export default function ConnectionsPanel() {
       // inputs so the admin can just hit Save again instead of re-typing them.
       setTautKey('');
       setSeerrKey('');
-      setMsg('Saved.');
+      setMsg(de ? 'Gespeichert.' : 'Saved.');
       await load();
     } catch {
-      setMsg("Couldn't save — connections unchanged.");
+      setMsg(
+        de
+          ? 'Speichern fehlgeschlagen — die Verbindungen wurden nicht geändert.'
+          : "Couldn't save — connections unchanged."
+      );
     } finally {
       setSaving(false);
     }
   }
 
   async function syncLibraries() {
-    setLibMsg('Syncing…');
+    setLibMsg(de ? 'Wird synchronisiert…' : 'Syncing…');
     const r = await fetch('/api/admin/sync-libraries', { method: 'POST' }).then((x) => x.json());
-    setLibMsg(r.count != null ? `Found ${r.count} libraries.` : `Failed (${r.error ?? '?'})`);
+    setLibMsg(
+      r.count != null
+        ? de
+          ? `${formatNumber(r.count, locale)} Bibliotheken gefunden.`
+          : `Found ${formatNumber(r.count, locale)} libraries.`
+        : de
+          ? `Fehlgeschlagen (${r.error ?? '?'})`
+          : `Failed (${r.error ?? '?'})`
+    );
   }
   async function manualScan() {
     await fetch('/api/admin/jobs', {
@@ -514,11 +561,12 @@ export default function ConnectionsPanel() {
       <Card title={SERVER_LABEL[serverType]}>
         {plexConfigured ? (
           <p className="text-sm text-slate-300 mb-3">
-            Connected to <span className="text-white font-medium">{plexName}</span>.
+            {de ? 'Verbunden mit' : 'Connected to'}{' '}
+            <span className="text-white font-medium">{plexName}</span>.
           </p>
         ) : (
           <p className="text-sm text-amber-400 mb-3">
-            No {SERVER_LABEL[serverType]} server connected yet.
+            {de ? `Noch kein ${SERVER_LABEL[serverType]}-Server verbunden.` : `No ${SERVER_LABEL[serverType]} server connected yet.`}
           </p>
         )}
 
@@ -528,17 +576,22 @@ export default function ConnectionsPanel() {
         {serverType === 'plex' ? (
           <>
             <button onClick={discover} disabled={discovering} className={btnGhost}>
-              {discovering ? 'Discovering…' : 'Discover servers'}
+              {discovering
+                ? de ? 'Server werden gesucht…' : 'Discovering…'
+                : de ? 'Server suchen' : 'Discover servers'}
             </button>
             {servers && servers.length === 0 && (
-              <p className="text-sm text-slate-400 mt-3">No servers found.</p>
+              <p className="text-sm text-slate-400 mt-3">
+                {de ? 'Keine Server gefunden.' : 'No servers found.'}
+              </p>
             )}
             {servers && servers.length > 0 && (
               <div className="mt-4 space-y-3">
                 {servers.map((s) => (
                   <div key={s.machineId} className="rounded-lg border border-slate-700 p-3">
                     <div className="font-medium">
-                      {s.name} {s.owned && <span className="text-xs text-brand">(owned)</span>}
+                      {s.name}{' '}
+                      {s.owned && <span className="text-xs text-brand">({de ? 'eigener Server' : 'owned'})</span>}
                     </div>
                     <div className="mt-2 flex flex-wrap gap-2">
                       {s.connections.map((c) => {
@@ -563,7 +616,7 @@ export default function ConnectionsPanel() {
                             className={`${btnGhost} text-xs`}
                             title={connectUrl}
                           >
-                            {c.local ? 'Local' : c.relay ? 'Relay' : 'Remote'}: {host}
+                            {c.local ? (de ? 'Lokal' : 'Local') : c.relay ? 'Relay' : (de ? 'Entfernt' : 'Remote')}: {host}
                           </button>
                         );
                       })}
@@ -574,11 +627,13 @@ export default function ConnectionsPanel() {
             )}
 
             <div className="mt-4 border-t border-slate-800 pt-3">
-              <p className="text-sm text-slate-400 mb-2">Or set the connection manually:</p>
+              <p className="text-sm text-slate-400 mb-2">
+                {de ? 'Oder die Verbindung manuell einrichten:' : 'Or set the connection manually:'}
+              </p>
               <ServiceFields parts={plex} setParts={setPlex} />
               <div className="mt-3 flex items-center gap-3">
                 <button onClick={() => testConn('plex')} className={btnGhost} type="button">
-                  Test
+                  {de ? 'Testen' : 'Test'}
                 </button>
                 {test.plex && <span className="text-sm text-slate-400">{test.plex}</span>}
               </div>
@@ -586,14 +641,16 @@ export default function ConnectionsPanel() {
           </>
         ) : (
           <p className="text-xs text-slate-500 mb-1">
-            Connected at sign-in. Re-sync libraries below if you add a new one.
+            {de
+              ? 'Die Verbindung wird bei der Anmeldung hergestellt. Synchronisiere die Bibliotheken unten erneut, wenn du eine neue hinzufügst.'
+              : 'Connected at sign-in. Re-sync libraries below if you add a new one.'}
           </p>
         )}
 
         {plexConfigured && (
           <div className="mt-4 border-t border-slate-800 pt-3 flex flex-wrap items-center gap-3">
             <button onClick={syncLibraries} className={btnGhost} type="button">
-              Sync libraries
+              {de ? 'Bibliotheken synchronisieren' : 'Sync libraries'}
             </button>
             <button
               onClick={manualScan}
@@ -601,12 +658,20 @@ export default function ConnectionsPanel() {
               className={btnGhost}
               type="button"
             >
-              {scan?.lastStatus === 'running' ? 'Scanning…' : 'Manual library scan'}
+              {scan?.lastStatus === 'running'
+                ? de ? 'Bibliotheken werden gescannt…' : 'Scanning…'
+                : de ? 'Bibliotheken manuell scannen' : 'Manual library scan'}
             </button>
             {libMsg && <span className="text-sm text-slate-400">{libMsg}</span>}
             {scan && scan.lastStatus !== 'never' && (
               <span className="text-xs text-slate-500">
-                Scan: {scan.lastStatus}
+                {de ? 'Scan' : 'Scan'}: {scan.lastStatus === 'running'
+                  ? de ? 'läuft' : 'running'
+                  : scan.lastStatus === 'success'
+                    ? de ? 'erfolgreich' : 'success'
+                    : scan.lastStatus === 'failed'
+                      ? de ? 'fehlgeschlagen' : 'failed'
+                      : scan.lastStatus}
                 {scan.lastMessage ? ` — ${scan.lastMessage}` : ''}
               </span>
             )}
@@ -616,15 +681,21 @@ export default function ConnectionsPanel() {
         {/* Managed libraries + storage are derived from Plex, so they live inside
             the Plex section rather than as standalone connectors. */}
         <div className="mt-4 border-t border-slate-800 pt-3">
-          <div className="mb-2 text-sm font-semibold text-slate-200">Managed libraries</div>
+          <div className="mb-2 text-sm font-semibold text-slate-200">
+            {de ? 'Verwaltete Bibliotheken' : 'Managed libraries'}
+          </div>
           {sections.length === 0 ? (
             <p className="text-sm text-slate-400">
-              Connect Plex and run a library scan to discover your libraries.
+              {de
+                ? `Verbinde ${SERVER_LABEL[serverType]} und starte einen Bibliotheksscan, um deine Bibliotheken zu finden.`
+                : `Connect ${SERVER_LABEL[serverType]} and run a library scan to discover your libraries.`}
             </p>
           ) : (
             <>
               <p className="text-sm text-slate-400 mb-3">
-                Choose which Plex libraries Keeparr tracks. Unticked ones drop on the next scan.
+                {de
+                  ? `Wähle aus, welche ${SERVER_LABEL[serverType]}-Bibliotheken Keeparr verwaltet. Abgewählte werden beim nächsten Scan entfernt.`
+                  : `Choose which ${SERVER_LABEL[serverType]} libraries Keeparr tracks. Unticked ones drop on the next scan.`}
               </p>
               <div className="space-y-2">
                 {sections.map((s) => (
@@ -645,15 +716,21 @@ export default function ConnectionsPanel() {
         </div>
 
         <div className="mt-4 border-t border-slate-800 pt-3">
-          <div className="mb-2 text-sm font-semibold text-slate-200">Storage / free space</div>
+          <div className="mb-2 text-sm font-semibold text-slate-200">
+            {de ? 'Speicher / freier Speicherplatz' : 'Storage / free space'}
+          </div>
           {sections.length === 0 ? (
-            <p className="text-sm text-slate-400">Discover libraries first.</p>
+            <p className="text-sm text-slate-400">
+              {de ? 'Suche zuerst nach Bibliotheken.' : 'Discover libraries first.'}
+            </p>
           ) : (
             <>
               <p className="text-sm text-slate-400 mb-3">
-                Map each library to the path where its files live{' '}
-                <strong>inside the Keeparr container</strong> (mount your media share
-                read-only). Powers the free-space header.
+                {de ? 'Ordne jeder Bibliothek den Pfad zu, unter dem ihre Dateien ' : 'Map each library to the path where its files live '}
+                <strong>{de ? 'im Keeparr-Container' : 'inside the Keeparr container'}</strong>
+                {de
+                  ? ' liegen (binde deine Medienfreigabe schreibgeschützt ein). Dies liefert die Daten für die Speicherplatzanzeige.'
+                  : ' (mount your media share read-only). Powers the free-space header.'}
               </p>
               <div className="space-y-3">
                 {sections.map((s) => (
@@ -674,7 +751,7 @@ export default function ConnectionsPanel() {
                         }
                       />
                       <button onClick={() => checkPath(s.id)} className={btnGhost} type="button">
-                        Check
+                        {de ? 'Prüfen' : 'Check'}
                       </button>
                     </div>
                     {storageMsg[s.id] && (
@@ -691,10 +768,11 @@ export default function ConnectionsPanel() {
       {/* Tautulli is the Plex watch-history source. Jellyfin/Emby have native
           watch data, so the card is hidden for them. */}
       {serverType === 'plex' && (
-        <Card title="Tautulli (watch history)">
+        <Card title={de ? 'Tautulli (Wiedergabeverlauf)' : 'Tautulli (watch history)'}>
           <ServiceFields parts={taut} setParts={setTaut} showBase />
           <label className="block text-sm text-slate-400 mt-3 mb-1">
-            API key {tautConfigured && '(saved — leave blank to keep)'}
+            {de ? 'API-Schlüssel' : 'API key'}{' '}
+            {tautConfigured && (de ? '(gespeichert — zum Beibehalten leer lassen)' : '(saved — leave blank to keep)')}
           </label>
           <input
             className={`${inputCls} max-w-md`}
@@ -704,17 +782,18 @@ export default function ConnectionsPanel() {
           />
           <div className="mt-3 flex items-center gap-3">
             <button onClick={() => testConn('tautulli')} className={btnGhost} type="button">
-              Test
+              {de ? 'Testen' : 'Test'}
             </button>
             {test.tautulli && <span className="text-sm text-slate-400">{test.tautulli}</span>}
           </div>
         </Card>
       )}
 
-      <Card title="Overseerr / Seerr (requests)">
+      <Card title={de ? 'Overseerr / Seerr (Anfragen)' : 'Overseerr / Seerr (requests)'}>
         <ServiceFields parts={seerr} setParts={setSeerr} showBase />
         <label className="block text-sm text-slate-400 mt-3 mb-1">
-          API key {seerrConfigured && '(saved — leave blank to keep)'}
+          {de ? 'API-Schlüssel' : 'API key'}{' '}
+          {seerrConfigured && (de ? '(gespeichert — zum Beibehalten leer lassen)' : '(saved — leave blank to keep)')}
         </label>
         <input
           className={`${inputCls} max-w-md`}
@@ -724,14 +803,14 @@ export default function ConnectionsPanel() {
         />
         <div className="mt-3 flex items-center gap-3">
           <button onClick={() => testConn('seerr')} className={btnGhost} type="button">
-            Test
+            {de ? 'Testen' : 'Test'}
           </button>
           {test.seerr && <span className="text-sm text-slate-400">{test.seerr}</span>}
         </div>
       </Card>
 
       <ArrCard
-        title="Sonarr (TV quality + tags)"
+        title={de ? 'Sonarr (Serienqualität + Tags)' : 'Sonarr (TV quality + tags)'}
         kind="sonarr"
         rows={sonarr}
         setRows={setSonarr}
@@ -740,7 +819,7 @@ export default function ConnectionsPanel() {
       />
 
       <ArrCard
-        title="Radarr (movie quality + tags)"
+        title={de ? 'Radarr (Filmqualität + Tags)' : 'Radarr (movie quality + tags)'}
         kind="radarr"
         rows={radarr}
         setRows={setRadarr}
@@ -754,7 +833,7 @@ export default function ConnectionsPanel() {
 
       <div className="flex items-center gap-3">
         <button onClick={save} disabled={saving} className={btnCls}>
-          {saving ? 'Saving…' : 'Save connections'}
+          {saving ? (de ? 'Wird gespeichert…' : 'Saving…') : (de ? 'Verbindungen speichern' : 'Save connections')}
         </button>
         {msg && <span className="text-sm text-slate-300">{msg}</span>}
       </div>

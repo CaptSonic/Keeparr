@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MediaCardData } from '@/lib/types';
 import MediaCard, { CARD_GRID_CLASS } from './MediaCard';
 import { useToast } from './Toaster';
+import { useLocale } from './LocaleProvider';
+import { interpolate } from '@/lib/i18n';
 
 export default function SearchResults({ query }: { query: string }) {
   const [items, setItems] = useState<MediaCardData[]>([]);
@@ -12,6 +14,7 @@ export default function SearchResults({ query }: { query: string }) {
   const [loading, setLoading] = useState(false);
   const [requested, setRequested] = useState<Set<string>>(new Set());
   const toast = useToast();
+  const { messages: m } = useLocale();
   // Guards against out-of-order responses: only the latest request may commit
   // state (a slow old response must not clobber a newer one).
   const fetchSeq = useRef(0);
@@ -46,12 +49,12 @@ export default function SearchResults({ query }: { query: string }) {
         setItems((prev) => (reset ? list : [...prev, ...list]));
       } catch {
         if (seq !== fetchSeq.current) return; // superseded — don't toast for it
-        toast("Couldn't load search results — is the server reachable?", 'error');
+        toast(m.searchResults.loadError, 'error');
       } finally {
         if (seq === fetchSeq.current) setLoading(false);
       }
     },
-    [query, offset, toast]
+    [m.searchResults.loadError, query, offset, toast]
   );
 
   // Reset + reload when the query changes.
@@ -75,14 +78,14 @@ export default function SearchResults({ query }: { query: string }) {
   }, [hasMore, loading, fetchPage]);
 
   if (!query.trim()) {
-    return <p className="text-slate-400 py-12 text-center">Type something to search.</p>;
+    return <p className="text-slate-400 py-12 text-center">{m.searchResults.prompt}</p>;
   }
 
   return (
     <div>
       {items.length === 0 && !loading ? (
         <p className="text-slate-400 py-12 text-center">
-          No matches for “{query}”.
+          {interpolate(m.searchResults.noMatches, { query })}
         </p>
       ) : (
         <div className={CARD_GRID_CLASS}>
@@ -98,7 +101,7 @@ export default function SearchResults({ query }: { query: string }) {
       )}
 
       <div ref={sentinel} className="h-8" />
-      {loading && <p className="text-center text-slate-500 text-sm">Loading…</p>}
+      {loading && <p className="text-center text-slate-500 text-sm">{m.common.loading}</p>}
     </div>
   );
 }

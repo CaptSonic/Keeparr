@@ -1,12 +1,15 @@
 'use client';
 
 import { useTheme, type ThemePreference } from './ThemeProvider';
+import { useLocale } from './LocaleProvider';
+import { interpolate } from '@/lib/i18n';
 
 /**
  * Appearance controls live in the AppShell user menu so every signed-in user
  * can reach them. ThemeProvider owns persistence and live System-mode updates.
  */
 export default function ThemeMenu() {
+  const { messages: m } = useLocale();
   const { preference, resolvedTheme, colorImpaired, setPreference, setColorImpaired } =
     useTheme();
 
@@ -18,8 +21,8 @@ export default function ThemeMenu() {
   }[] = [
     {
       value: 'system',
-      label: 'System',
-      detail: `Currently ${resolvedTheme}`,
+      label: m.appearance.system,
+      detail: interpolate(m.appearance.currently, { theme: resolvedTheme === 'light' ? m.appearance.light : m.appearance.dark }),
       icon: (
         <svg viewBox="0 0 24 24" aria-hidden className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
           <rect x="3" y="4" width="18" height="13" rx="2" />
@@ -29,8 +32,8 @@ export default function ThemeMenu() {
     },
     {
       value: 'light',
-      label: 'Light',
-      detail: 'Bright surfaces',
+      label: m.appearance.light,
+      detail: m.appearance.bright,
       icon: (
         <svg viewBox="0 0 24 24" aria-hidden className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
           <circle cx="12" cy="12" r="4" />
@@ -40,8 +43,8 @@ export default function ThemeMenu() {
     },
     {
       value: 'dark',
-      label: 'Dark',
-      detail: 'Dimmed surfaces',
+      label: m.appearance.dark,
+      detail: m.appearance.dimmed,
       icon: (
         <svg viewBox="0 0 24 24" aria-hidden className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8">
           <path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5 8.5 8.5 0 1 0 20.5 14.2Z" />
@@ -53,10 +56,10 @@ export default function ThemeMenu() {
   return (
     <div className="mt-3 border-t border-slate-700 pt-3">
       <div className="mb-2">
-        <div className="text-xs font-semibold text-slate-200">Appearance</div>
-        <div className="mt-0.5 text-[11px] text-slate-500">Choose how Keeparr looks.</div>
+        <div className="text-xs font-semibold text-slate-200">{m.appearance.title}</div>
+        <div className="mt-0.5 text-[11px] text-slate-500">{m.appearance.description}</div>
       </div>
-      <div className="space-y-1" role="group" aria-label="Color theme">
+      <div className="space-y-1" role="group" aria-label={m.appearance.theme}>
         {choices.map((choice) => {
           const active = preference === choice.value;
           return (
@@ -98,9 +101,9 @@ export default function ThemeMenu() {
           onChange={(event) => setColorImpaired(event.target.checked)}
         />
         <span>
-          <span className="block">Color-impaired mode</span>
+          <span className="block">{m.appearance.impaired}</span>
           <span className="mt-0.5 block text-[10px] leading-tight text-slate-500">
-            Uses more distinguishable status colors.
+            {m.appearance.impairedDetail}
           </span>
         </span>
       </label>

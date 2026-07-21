@@ -1,8 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { formatSize } from '@/lib/format';
+import { formatBytes, formatNumber } from '@/lib/i18n';
 import { Card, btnGhost } from './ui';
+import { useLocale } from '../LocaleProvider';
 
 interface Unmatched {
   source: string;
@@ -23,6 +24,8 @@ interface Health {
  *  *arr but not found in Plex (media on disk Plex can't see — actionable). Plex
  *  items missing an external id (can never match) are shown as a count. Admin-only. */
 export default function MatchHealthCard() {
+  const { locale } = useLocale();
+  const de = locale === 'de';
   const [data, setData] = useState<Health | null>(null);
   const [resyncing, setResyncing] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -65,28 +68,27 @@ export default function MatchHealthCard() {
   const unmatchedBytes = unmatched.reduce((a, u) => a + (u.sizeBytes || 0), 0);
 
   return (
-    <Card title="Match health (Sonarr / Radarr)">
+    <Card title={de ? 'Zuordnungsstatus (Sonarr / Radarr)' : 'Match health (Sonarr / Radarr)'}>
       <div className="mb-3 flex flex-wrap items-center gap-3 text-sm">
         <span className="text-slate-300">
-          <span className="font-semibold text-white">{data?.matched ?? '—'}</span> matched
+          <span className="font-semibold text-white">{data ? formatNumber(data.matched, locale) : '—'}</span> {de ? 'zugeordnet' : 'matched'}
         </span>
         <span className="text-slate-300">
-          <span className="font-semibold text-white">{data ? unmatched.length : '—'}</span>{' '}
-          downloaded, not in Plex
+          <span className="font-semibold text-white">{data ? formatNumber(unmatched.length, locale) : '—'}</span>{' '}
+          {de ? 'heruntergeladen, nicht in Plex' : 'downloaded, not in Plex'}
           {unmatchedBytes > 0 && (
-            <span className="text-slate-500"> · {formatSize(unmatchedBytes)}</span>
+            <span className="text-slate-500"> · {formatBytes(unmatchedBytes, locale)}</span>
           )}
         </span>
         <button onClick={resync} disabled={resyncing} className={`${btnGhost} ml-auto`} type="button">
-          {resyncing ? 'Resyncing…' : 'Resync'}
+          {resyncing ? (de ? 'Neu synchronisieren…' : 'Resyncing…') : (de ? 'Neu synchronisieren' : 'Resync')}
         </button>
       </div>
 
       {missingTotal > 0 && (
         <div className="mb-3">
           <p className="text-sm text-amber-400">
-            {missing!.shows} show(s) / {missing!.movies} movie(s) have no tmdb/tvdb id on the Plex
-            side — they can never match Sonarr/Radarr.
+            {formatNumber(missing!.shows, locale)} {de ? 'Serie(n)' : 'show(s)'} / {formatNumber(missing!.movies, locale)} {de ? 'Film(e) haben auf Plex-Seite keine tmdb/tvdb-ID — sie können Sonarr/Radarr niemals zugeordnet werden.' : 'movie(s) have no tmdb/tvdb id on the Plex side — they can never match Sonarr/Radarr.'}
           </p>
           {(missing!.sample?.length ?? 0) > 0 && (
             <div className="mt-1.5 max-h-40 overflow-y-auto rounded border border-slate-800 bg-slate-900/40 p-2 text-xs">
@@ -98,7 +100,7 @@ export default function MatchHealthCard() {
               ))}
               {missingTotal > missing!.sample.length && (
                 <div className="mt-1 text-slate-600">
-                  …and {missingTotal - missing!.sample.length} more
+                  …{de ? 'und' : 'and'} {formatNumber(missingTotal - missing!.sample.length, locale)} {de ? 'weitere' : 'more'}
                 </div>
               )}
             </div>
@@ -108,7 +110,7 @@ export default function MatchHealthCard() {
 
       {data && unmatched.length === 0 ? (
         <p className="text-sm text-slate-400">
-          Everything downloaded in Sonarr/Radarr is in Plex. 🎉
+          {de ? 'Alles in Sonarr/Radarr Heruntergeladene ist in Plex vorhanden. 🎉' : 'Everything downloaded in Sonarr/Radarr is in Plex. 🎉'}
         </p>
       ) : (
         <div className="max-h-64 space-y-1 overflow-y-auto text-sm">
@@ -116,7 +118,7 @@ export default function MatchHealthCard() {
             <div key={i} className="flex items-center gap-2">
               <span className="min-w-0 flex-1 truncate text-slate-300">{u.title}</span>
               <span className="shrink-0 font-mono text-xs text-slate-400">
-                {formatSize(u.sizeBytes)}
+                {formatBytes(u.sizeBytes, locale)}
               </span>
               <span className="shrink-0 text-xs uppercase text-slate-500">{u.source}</span>
               <span className="shrink-0 font-mono text-xs text-slate-600">
@@ -127,10 +129,7 @@ export default function MatchHealthCard() {
         </div>
       )}
       <p className="mt-2 text-[11px] text-slate-500">
-        These are titles with files on disk in Sonarr/Radarr that Keeparr couldn&apos;t find in
-        Plex — usually the Plex item is missing its tmdb/tvdb id, or Plex hasn&apos;t scanned the
-        file yet. Fix it in Plex (or rescan), then Resync. Wanted-but-not-downloaded titles aren&apos;t
-        listed — that&apos;s just missing media.
+        {de ? 'Dies sind Titel mit Dateien auf dem Datenträger in Sonarr/Radarr, die Keeparr nicht in Plex finden konnte — meist fehlt dem Plex-Eintrag die tmdb/tvdb-ID oder Plex hat die Datei noch nicht gescannt. Korrigiere dies in Plex (oder scanne erneut) und synchronisiere dann neu. Gesuchte, aber nicht heruntergeladene Titel werden nicht aufgeführt — das sind lediglich fehlende Medien.' : 'These are titles with files on disk in Sonarr/Radarr that Keeparr couldn’t find in Plex — usually the Plex item is missing its tmdb/tvdb id, or Plex hasn’t scanned the file yet. Fix it in Plex (or rescan), then Resync. Wanted-but-not-downloaded titles aren’t listed — that’s just missing media.'}
       </p>
     </Card>
   );

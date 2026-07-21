@@ -42,9 +42,14 @@ per-user. See README.md for the feature overview.
   storage. Route tests mock only `next/headers` (the cookie jar) plus, where a
   test would otherwise hit the network or the real data dir, the
   network-facing lib clients (plex/jellyfin) or path config — never storage.
-- The size unit on cards is `x.xx GB` via `formatGB` in `lib/format.ts`. Library/
-  storage aggregates (sidebar sizes, the storage header) use `formatSize`, which
-  auto-switches GB↔TB at 2 decimals.
+- User-facing UI is bilingual German/English. Keep API/domain ids and status codes
+  stable; map them to translated labels at the UI boundary (`lib/ui-labels.ts`).
+  Browser locales normalize to `de` for `de*`, otherwise `en`. Before login use
+  `localStorage` key `keeparr.locale`; after login persist `users.locale` via
+  `PUT /api/preferences/locale`, and give the account preference precedence.
+- User-facing dates, relative times, numbers, and byte sizes use the locale-aware
+  helpers in `lib/i18n.ts`. Do not introduce `toLocaleString()` without an explicit
+  locale or use the legacy `formatGB` / `formatSize` helpers for visible UI.
 - **Smart Reclaim safety is a hard query invariant:** `queryReclaimQueue` excludes
   a title when *any* `keeps` row exists. Never weaken this to a caller-only keep.
   Its score is deterministic and explainable: size 5–30, any requester release 30,
@@ -63,7 +68,9 @@ lib/
                      (+ closeDbForSwap() so backup restore can swap the db file)
   queries.ts         ALL SQL
   types.ts           shared DTOs
-  format.ts          formatGB / formatSize
+  format.ts          legacy non-UI formatGB / formatSize helpers
+  i18n.ts            de/en messages, locale detection, interpolation + Intl formatters
+  ui-labels.ts       stable job/health/status ids → localized UI labels
   crypto.ts          AES-GCM encrypt/decrypt for stored tokens
   session.ts         signed cookie (Edge-safe, Web Crypto)
   auth.ts            session read/write + requireUser/requireAdmin (Node)
@@ -549,8 +556,9 @@ A fuller source-verified reference is in the planning doc
   silent-failure paths (keep/skip/delete revert, feed/library/search/stats load
   errors + a failed Keep batch, job/backup actions); settings panels keep their
   inline `msg` text (success shown only after `res.ok`).
-- **Dates in lists**: `formatRelative(unixSec)` from `lib/format.ts` as the
-  visible text with the absolute `toLocaleString()` in `title` (hover).
+- **Dates in lists**: use `formatRelativeTime(unixSec, locale)` from `lib/i18n.ts`
+  as the visible text and `formatDate(unixSec, locale)` for the absolute hover
+  `title`.
 - `lib/clipboard.ts copyText()` for all copy-to-clipboard (has the
   plain-HTTP fallback).
 - **PWA**: `app/manifest.ts` (dynamic, uses `getAppTitle()`); icons in

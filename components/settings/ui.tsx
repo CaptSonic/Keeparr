@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useLocale } from '../LocaleProvider';
 
 /** Shared form chrome for the Settings panels. */
 export const inputCls =
@@ -36,20 +37,22 @@ export function CardColumns({ children }: { children: React.ReactNode }) {
 }
 
 const TABS = [
-  { href: '/settings/general', label: 'General' },
-  { href: '/settings/users', label: 'Users' },
-  { href: '/settings/connections', label: 'Connections' },
-  { href: '/settings/jobs', label: 'Jobs & Cache' },
-  { href: '/settings/logs', label: 'Logs' },
-  { href: '/settings/about', label: 'About' },
+  { href: '/settings/general', en: 'General', de: 'Allgemein' },
+  { href: '/settings/users', en: 'Users', de: 'Benutzer' },
+  { href: '/settings/connections', en: 'Connections', de: 'Verbindungen' },
+  { href: '/settings/jobs', en: 'Jobs & Cache', de: 'Jobs & Cache' },
+  { href: '/settings/logs', en: 'Logs', de: 'Protokolle' },
+  { href: '/settings/about', en: 'About', de: 'Info' },
 ];
 
 /** Settings shell: a horizontal sub-tab nav + the active panel. */
 export function SettingsLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const { locale } = useLocale();
+  const de = locale === 'de';
   return (
     <div className="px-6 py-6">
-      <h1 className="text-2xl font-bold mb-4">Settings</h1>
+      <h1 className="text-2xl font-bold mb-4">{de ? 'Einstellungen' : 'Settings'}</h1>
       <nav className="mb-6 flex flex-wrap gap-1 border-b border-slate-800">
         {TABS.map((t) => {
           const active = pathname.startsWith(t.href);
@@ -63,7 +66,7 @@ export function SettingsLayout({ children }: { children: React.ReactNode }) {
                   : 'border-transparent text-slate-400 hover:text-white'
               }`}
             >
-              {t.label}
+              {de ? t.de : t.en}
             </Link>
           );
         })}

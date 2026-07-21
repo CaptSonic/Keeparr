@@ -93,6 +93,7 @@ const API_PRINCIPAL: SessionUser = {
   thumb: null,
   isAdmin: true,
   enabled: true,
+  locale: 'en',
 };
 
 function apiKeyMatches(req: Request): boolean {

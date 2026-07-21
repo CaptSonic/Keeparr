@@ -11,6 +11,7 @@ import { sectionSizeSummary } from '@/lib/queries';
 import AppShell from '@/components/AppShell';
 import LibraryBrowser from '@/components/LibraryBrowser';
 import type { LibrarySection } from '@/lib/types';
+import { NotSetUpYet } from '@/components/LocalizedPageText';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -33,7 +34,7 @@ export default async function LibraryPage() {
   return (
     <AppShell>
       {!isServerConfigured() ? (
-        <p className="text-slate-400 p-6">Not set up yet.</p>
+        <NotSetUpYet className="p-6 text-slate-400" />
       ) : (
         <LibraryBrowser
           sections={sections}

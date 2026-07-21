@@ -13,6 +13,7 @@ import type {
   SessionUser,
   SyncStatus,
 } from './types';
+import type { Locale } from './i18n';
 
 const now = () => Math.floor(Date.now() / 1000);
 
@@ -102,7 +103,7 @@ export function upsertUser(input: UpsertUserInput): void {
 export function getUser(plexUserId: string): SessionUser | null {
   const row = getDb()
     .prepare(
-      'SELECT plex_user_id, username, email, thumb, is_admin, enabled FROM users WHERE plex_user_id = ?'
+      'SELECT plex_user_id, username, email, thumb, is_admin, enabled, locale FROM users WHERE plex_user_id = ?'
     )
     .get(plexUserId) as
     | {
@@ -112,6 +113,7 @@ export function getUser(plexUserId: string): SessionUser | null {
         thumb: string | null;
         is_admin: number;
         enabled: number;
+        locale: Locale | null;
       }
     | undefined;
   if (!row) return null;
@@ -122,7 +124,16 @@ export function getUser(plexUserId: string): SessionUser | null {
     thumb: row.thumb,
     isAdmin: row.is_admin === 1,
     enabled: row.enabled === 1,
+    locale: row.locale,
   };
+}
+
+/** Persist a personal UI language without affecting identity or session state. */
+export function setUserLocale(plexUserId: string, locale: Locale): boolean {
+  const result = getDb()
+    .prepare(`UPDATE users SET locale = ? WHERE plex_user_id = ?`)
+    .run(locale, plexUserId);
+  return result.changes > 0;
 }
 
 /**

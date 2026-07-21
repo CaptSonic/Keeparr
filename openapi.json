@@ -190,6 +190,43 @@
           "createdAt": { "type": "integer", "description": "Unix seconds" }
         }
       },
+      "Locale": {
+        "type": "string",
+        "enum": ["de", "en"],
+        "description": "Supported UI locale. Regional tags are detected in the browser but normalized to one of these values."
+      },
+      "SessionUser": {
+        "type": "object",
+        "required": ["plexUserId", "username", "email", "thumb", "isAdmin", "enabled", "locale"],
+        "properties": {
+          "plexUserId": { "type": "string", "description": "Historical field name; contains the active media-server account id." },
+          "username": { "type": "string", "nullable": true },
+          "email": { "type": "string", "nullable": true },
+          "thumb": { "type": "string", "nullable": true },
+          "isAdmin": { "type": "boolean" },
+          "enabled": { "type": "boolean" },
+          "locale": {
+            "allOf": [{ "$ref": "#/components/schemas/Locale" }],
+            "nullable": true,
+            "description": "Persisted account preference. Null until the signed-in user explicitly chooses a language."
+          }
+        }
+      },
+      "LocalePreferenceRequest": {
+        "type": "object",
+        "required": ["locale"],
+        "properties": {
+          "locale": { "$ref": "#/components/schemas/Locale" }
+        }
+      },
+      "LocalePreferenceResponse": {
+        "type": "object",
+        "required": ["ok", "locale"],
+        "properties": {
+          "ok": { "type": "boolean", "enum": [true] },
+          "locale": { "$ref": "#/components/schemas/Locale" }
+        }
+      },
       "Error": {
         "type": "object",
         "properties": { "error": { "type": "string" } }
@@ -210,7 +247,55 @@
       "get": {
         "tags": ["auth"],
         "summary": "Current session user + app title",
-        "responses": { "200": { "description": "`{user, appTitle, serverConfigured}` (user is null when signed out)" } }
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Current app/session state. `user` is null when signed out; a signed-in user's nullable `locale` is the persisted account preference.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["user", "appTitle"],
+                  "properties": {
+                    "user": { "allOf": [{ "$ref": "#/components/schemas/SessionUser" }], "nullable": true },
+                    "appTitle": { "type": "string" },
+                    "serverType": { "type": "string", "enum": ["plex", "jellyfin", "emby"], "description": "Present when signed in." },
+                    "serverConfigured": { "type": "boolean" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/preferences/locale": {
+      "put": {
+        "tags": ["auth"],
+        "summary": "Persist the signed-in user's UI locale",
+        "description": "Stores the normalized account preference. It takes precedence over browser detection and the anonymous `keeparr.locale` localStorage preference on future signed-in visits.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/LocalePreferenceRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Preference stored",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LocalePreferenceResponse" } } }
+          },
+          "400": {
+            "description": "Unsupported or missing locale",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          },
+          "401": {
+            "description": "No valid session",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
       }
     },
     "/api/auth/logout": {

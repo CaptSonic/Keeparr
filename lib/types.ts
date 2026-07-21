@@ -1,5 +1,7 @@
 /** Shared data-transfer types across the queries layer, API routes, and UI. */
 
+import type { Locale } from './i18n';
+
 export type LibraryKind = 'movie' | 'show';
 
 /** A row from media_items as stored. */
@@ -121,6 +123,8 @@ export interface SessionUser {
   isAdmin: boolean;
   /** False = account is blocked from signing in. */
   enabled: boolean;
+  /** Preferred UI language, synchronized across the user's devices. */
+  locale: Locale | null;
 }
 
 /** A user as the admin "Users" management screen sees them. */

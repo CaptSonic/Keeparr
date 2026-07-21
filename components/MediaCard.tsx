@@ -1,8 +1,9 @@
 'use client';
 
 import type { MediaCardData } from '@/lib/types';
-import { formatGB } from '@/lib/format';
+import { formatBytes } from '@/lib/i18n';
 import { useKeepState } from './useKeepState';
+import { useLocale } from './LocaleProvider';
 
 // Shared so every page sizes its cards identically. CARD_MIN_W must match the
 // px in CARD_GRID_CLASS (kept as a literal so Tailwind's scanner sees it).
@@ -35,6 +36,7 @@ export default function MediaCard({
   onDeleteChange,
   requested,
 }: Props) {
+  const { locale, messages: m } = useLocale();
   // Per user: keptByMe / skipped / markedForDelete / neither (shared logic). An
   // item can also be "kept by others" (item.kept true while not mine) —
   // protected, but their keep is never ours to remove. Snapshot fixed at load.
@@ -72,6 +74,7 @@ export default function MediaCard({
     e.stopPropagation();
     void toggleDelete();
   };
+  const stopActionKey = (e: React.KeyboardEvent) => e.stopPropagation();
 
   // Only "don't care" greys the card out. "OK to delete" stays full-color with a
   // rose ring (a deliberate flag, not a dismissal) so the two read differently.
@@ -132,8 +135,8 @@ export default function MediaCard({
           <div
             title={
               item.qualityKind === 'profile'
-                ? `Quality profile: ${item.quality}`
-                : `Quality: ${item.quality}`
+                ? `${m.media.qualityProfile}: ${item.quality}`
+                : `${m.media.quality}: ${item.quality}`
             }
             className="absolute bottom-1 right-1 max-w-[80%] truncate rounded bg-slate-900/75 px-1.5 py-0.5 text-[10px] text-slate-300 ring-1 ring-black/30"
           >
@@ -146,38 +149,38 @@ export default function MediaCard({
           then released-by-someone-else (name-less), then kept-by-others. */}
       {keptByMe ? (
         <div className="absolute right-2 top-2 rounded-full bg-brand px-2 py-0.5 text-xs font-bold text-ink">
-          ✓ Keep
+          ✓ {m.media.keep}
         </div>
       ) : markedForDelete ? (
         <div className="absolute right-2 top-2 rounded-full bg-rose-600 px-2 py-0.5 text-[10px] font-bold text-paper">
-          🗑 OK to delete
+          🗑 {m.media.okDelete}
         </div>
       ) : skipped ? (
         <div className="absolute right-2 top-2 rounded-full bg-slate-700 px-2 py-0.5 text-[10px] font-semibold text-slate-200">
-          Don&apos;t care
+          {m.media.dontCare}
         </div>
       ) : releasedByOther ? (
         <div className="absolute right-2 top-2 rounded-full bg-rose-900/70 px-2 py-0.5 text-[10px] font-semibold text-rose-200">
-          OK to delete
+          {m.media.okDelete}
         </div>
       ) : keptByOthers ? (
         <div className="absolute right-2 top-2 rounded-full bg-amber-900/80 px-2 py-0.5 text-[10px] font-semibold text-amber-200">
-          Kept
+          {m.media.kept}
         </div>
       ) : null}
       {(requested || item.watched) && (
         <div className="absolute left-2 top-2 flex flex-col items-start gap-1">
           {requested && (
             <div className="rounded-full bg-sky-600 px-2 py-0.5 text-[10px] font-semibold text-paper">
-              Requested
+              {m.media.requested}
             </div>
           )}
           {item.watched && (
             <div
-              title="You’ve watched this"
+              title={m.media.watchedTitle}
               className="rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-semibold text-paper"
             >
-              Watched
+              {m.media.watched}
             </div>
           )}
         </div>
@@ -189,16 +192,17 @@ export default function MediaCard({
         </div>
         <div className="mt-0.5 flex items-center justify-between text-xs text-slate-400">
           <span>{item.year ?? ''}</span>
-          <span className="font-mono">{formatGB(item.sizeBytes)}</span>
+          <span className="font-mono">{formatBytes(item.sizeBytes, locale)}</span>
         </div>
         {skippable && (
           <button
             type="button"
             onClick={onSkipClick}
+            onKeyDown={stopActionKey}
             disabled={skipBusy}
             className="mt-1.5 w-full rounded border border-slate-700 px-2 py-1 text-[11px] text-slate-400 hover:border-slate-500 hover:text-slate-200 disabled:opacity-60"
           >
-            {skipped ? '↺ I care after all' : "I don't care"}
+            {skipped ? `↺ ${m.media.careAgain}` : m.media.dontCare}
           </button>
         )}
         {/* "OK to delete" — on titles you requested on Seerr (you're the original
@@ -207,6 +211,7 @@ export default function MediaCard({
           <button
             type="button"
             onClick={onDeleteClick}
+            onKeyDown={stopActionKey}
             disabled={deleteBusy}
             className={`mt-1.5 w-full rounded border px-2 py-1 text-[11px] disabled:opacity-60 ${
               markedForDelete
@@ -214,7 +219,7 @@ export default function MediaCard({
                 : 'border-rose-900/70 text-rose-300 hover:border-rose-700 hover:text-rose-200'
             }`}
           >
-            {markedForDelete ? '↺ Never mind' : 'OK to delete'}
+            {markedForDelete ? `↺ ${m.media.neverMind}` : m.media.okDelete}
           </button>
         )}
       </div>

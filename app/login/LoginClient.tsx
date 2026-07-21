@@ -3,6 +3,9 @@
 import { useCallback, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { MediaServerType } from '@/lib/settings';
+import LanguageMenu from '@/components/LanguageMenu';
+import { useLocale } from '@/components/LocaleProvider';
+import { interpolate } from '@/lib/i18n';
 
 type Step = 'choose' | 'connect' | 'login';
 type Phase = 'idle' | 'waiting' | 'denied' | 'error';
@@ -24,6 +27,7 @@ export default function LoginClient({
   configured: boolean;
   serverName: string;
 }) {
+  const { messages: m } = useLocale();
   const router = useRouter();
   const params = useSearchParams();
   const next = params.get('next') || '/';
@@ -41,6 +45,7 @@ export default function LoginClient({
   return (
     <main className="min-h-screen flex items-center justify-center p-6">
       <div className="w-full max-w-sm text-center">
+        <div className="mb-5 flex justify-end"><LanguageMenu compact /></div>
         <h1 className="text-4xl font-bold text-brand mb-2">Keeparr</h1>
 
         {step === 'choose' && (
@@ -91,9 +96,10 @@ function ChooseServer({
   onPlex: () => void;
   onPick: (t: MediaServerType) => void;
 }) {
+  const { messages: m } = useLocale();
   return (
     <>
-      <p className="text-slate-400 mb-8">Which media server do you use?</p>
+      <p className="text-slate-400 mb-8">{m.login.chooseServer}</p>
       <div className="flex flex-col gap-3">
         <button
           onClick={onPlex}
@@ -115,7 +121,7 @@ function ChooseServer({
         </button>
       </div>
       <p className="mt-6 text-xs text-slate-500">
-        You can only choose this once during setup.
+        {m.login.chooseOnce}
       </p>
     </>
   );
@@ -130,6 +136,7 @@ function ConnectServer({
   onConnected: () => void;
   onBack: () => void;
 }) {
+  const { messages: m } = useLocale();
   const [url, setUrl] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -146,9 +153,9 @@ function ConnectServer({
       });
       const d = await r.json();
       if (r.ok && d.ok) onConnected();
-      else setErr(d.message || 'Could not reach that server.');
+       else setErr(d.message || m.login.unreachable);
     } catch {
-      setErr('Could not reach that server.');
+       setErr(m.login.unreachable);
     } finally {
       setBusy(false);
     }
@@ -157,7 +164,7 @@ function ConnectServer({
   return (
     <form onSubmit={submit}>
       <p className="text-slate-400 mb-6">
-        Enter your {LABEL[kind]} server address.
+         {interpolate(m.login.address, { server: LABEL[kind] })}
       </p>
       <input
         autoFocus
@@ -171,7 +178,7 @@ function ConnectServer({
         disabled={busy || !url.trim()}
         className="w-full rounded-lg bg-brand hover:bg-brand-light disabled:opacity-60 text-ink font-semibold py-3 transition-colors"
       >
-        {busy ? 'Connecting…' : 'Continue'}
+         {busy ? m.login.connecting : m.common.continue}
       </button>
       {err && <p className="mt-4 text-sm text-red-400">{err}</p>}
       <button
@@ -179,7 +186,7 @@ function ConnectServer({
         onClick={onBack}
         className="mt-4 text-sm text-slate-500 hover:text-slate-300"
       >
-        ← Back
+         ← {m.common.back}
       </button>
     </form>
   );
@@ -194,6 +201,7 @@ function CredentialsLogin({
   serverName: string;
   onAuthorized: (needsSetup: boolean) => void;
 }) {
+  const { messages: m } = useLocale();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -211,9 +219,9 @@ function CredentialsLogin({
       });
       const d = await r.json();
       if (d.status === 'authorized') onAuthorized(!!d.needsSetup);
-      else setErr(d.message || 'Invalid username or password.');
+       else setErr(d.message || m.login.invalidCredentials);
     } catch {
-      setErr('Something went wrong signing in.');
+       setErr(m.login.signInError);
     } finally {
       setBusy(false);
     }
@@ -222,12 +230,12 @@ function CredentialsLogin({
   return (
     <form onSubmit={submit}>
       <p className="text-slate-400 mb-6">
-        Sign in with your {serverName || LABEL[kind]} account.
+         {interpolate(m.login.signInAccount, { server: serverName || LABEL[kind] })}
       </p>
       <input
         autoFocus
         className="w-full rounded-md bg-slate-800 border border-slate-700 px-3 py-2 text-sm mb-3 focus:outline-none focus:border-brand"
-        placeholder="Username"
+         placeholder={m.login.username}
         autoComplete="username"
         value={username}
         onChange={(e) => setUsername(e.target.value)}
@@ -235,7 +243,7 @@ function CredentialsLogin({
       <input
         type="password"
         className="w-full rounded-md bg-slate-800 border border-slate-700 px-3 py-2 text-sm mb-3 focus:outline-none focus:border-brand"
-        placeholder="Password"
+         placeholder={m.login.password}
         autoComplete="current-password"
         value={password}
         onChange={(e) => setPassword(e.target.value)}
@@ -245,7 +253,7 @@ function CredentialsLogin({
         disabled={busy || !username}
         className="w-full rounded-lg bg-brand hover:bg-brand-light disabled:opacity-60 text-ink font-semibold py-3 transition-colors"
       >
-        {busy ? 'Signing in…' : 'Sign in'}
+         {busy ? m.login.signingIn : m.login.signIn}
       </button>
       {err && <p className="mt-4 text-sm text-red-400">{err}</p>}
     </form>
@@ -257,6 +265,7 @@ function PlexLogin({
 }: {
   onAuthorized: (needsSetup: boolean) => void;
 }) {
+  const { messages: m } = useLocale();
   const [phase, setPhase] = useState<Phase>('idle');
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -294,28 +303,27 @@ function PlexLogin({
 
   return (
     <>
-      <p className="text-slate-400 mb-8">Sign in with Plex to mark what to keep.</p>
+       <p className="text-slate-400 mb-8">{m.login.plexIntro}</p>
       <button
         onClick={startLogin}
         disabled={phase === 'waiting'}
         className="w-full rounded-lg bg-brand hover:bg-brand-light disabled:opacity-60 text-ink font-semibold py-3 transition-colors"
       >
-        {phase === 'waiting' ? 'Waiting for Plex…' : 'Sign in with Plex'}
+         {phase === 'waiting' ? m.login.plexWaiting : m.login.plexSignIn}
       </button>
       {phase === 'waiting' && (
         <p className="mt-4 text-sm text-slate-500">
-          Complete the login in the Plex window, then come back here.
+           {m.login.plexComplete}
         </p>
       )}
       {phase === 'denied' && (
         <p className="mt-4 text-sm text-red-400">
-          That Plex account doesn&apos;t have access to this server. Ask the owner
-          to share a library with you, then try again.
+           {m.login.plexDenied}
         </p>
       )}
       {phase === 'error' && (
         <p className="mt-4 text-sm text-red-400">
-          Something went wrong talking to Plex. Please try again.
+           {m.login.plexError}
         </p>
       )}
     </>

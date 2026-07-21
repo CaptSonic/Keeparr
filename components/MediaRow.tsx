@@ -1,8 +1,9 @@
 'use client';
 
 import type { MediaCardData } from '@/lib/types';
-import { formatGB } from '@/lib/format';
+import { formatBytes } from '@/lib/i18n';
 import { useKeepState } from './useKeepState';
+import { useLocale } from './LocaleProvider';
 
 /** One row of Browse's List view — the dense, quality/tags-forward counterpart
  *  to MediaCard. Reuses `useKeepState` for keep / "I don't care" / "OK to delete". */
@@ -13,6 +14,7 @@ export default function MediaRow({
   item: MediaCardData;
   sectionTitle: string;
 }) {
+  const { locale, messages: m } = useLocale();
   const keptByOthers = item.kept && !item.keptByMe;
   const {
     keptByMe,
@@ -72,7 +74,7 @@ export default function MediaRow({
         {item.year && <span className="text-slate-500"> ({item.year})</span>}
         {releasedByOther && (
           <span className="ml-2 rounded bg-rose-900/60 px-1.5 py-0.5 text-[10px] font-semibold text-rose-200">
-            OK to delete
+            {m.media.okDelete}
           </span>
         )}
       </td>
@@ -81,21 +83,21 @@ export default function MediaRow({
         {item.sizeMismatch && (
           <span
             className="mr-1 cursor-help text-amber-400"
-            title={`Plex ${formatGB(item.sizeBytes)} vs *arr ${
-              item.arrSizeBytes != null ? formatGB(item.arrSizeBytes) : '—'
-            } — possible partial/broken file`}
+            title={`Plex ${formatBytes(item.sizeBytes, locale)} vs *arr ${
+              item.arrSizeBytes != null ? formatBytes(item.arrSizeBytes, locale) : '—'
+            } — ${m.media.possibleBroken}`}
           >
             ⚠
           </span>
         )}
-        {formatGB(item.sizeBytes)}
+        {formatBytes(item.sizeBytes, locale)}
       </td>
       <td className="px-3 py-2">
         {item.quality ? (
           <span>
             <span className="text-slate-200">{item.quality}</span>
             {item.qualityKind === 'profile' && (
-              <span className="ml-1 text-[10px] uppercase text-slate-500">target</span>
+              <span className="ml-1 text-[10px] uppercase text-slate-500">{m.media.target}</span>
             )}
           </span>
         ) : (
@@ -118,7 +120,7 @@ export default function MediaRow({
       <td className="px-3 py-2 text-slate-400">
         {item.status ? <span className="capitalize">{item.status}</span> : <span className="text-slate-600">—</span>}
         {item.monitored === false && (
-          <span className="ml-1 text-[10px] uppercase text-slate-600">unmonitored</span>
+          <span className="ml-1 text-[10px] uppercase text-slate-600">{m.media.unmonitored}</span>
         )}
       </td>
       <td className="px-3 py-2 text-center">
@@ -132,7 +134,7 @@ export default function MediaRow({
             type="button"
             onClick={() => void toggleKeep()}
             disabled={busy}
-            title={keptByOthers && !keptByMe ? 'Kept by someone else — keep it yourself too' : undefined}
+            title={keptByOthers && !keptByMe ? m.media.keptByOtherTitle : undefined}
             className={`w-16 shrink-0 rounded px-2 py-1 text-center text-[11px] disabled:opacity-60 ${
               keptByMe
                 ? 'bg-brand font-semibold text-ink'
@@ -141,7 +143,7 @@ export default function MediaRow({
                   : 'border border-slate-700 text-slate-300 hover:border-slate-500'
             }`}
           >
-            {keptByMe ? '✓ Keep' : keptByOthers ? 'Kept' : 'Keep'}
+            {keptByMe ? `✓ ${m.media.keep}` : keptByOthers ? m.media.kept : m.media.keep}
           </button>
           <button
             type="button"
@@ -153,21 +155,21 @@ export default function MediaRow({
                 : 'border border-slate-700 text-slate-400 hover:border-slate-500'
             }`}
           >
-            {skipped ? '↺ Care' : "I don't care"}
+            {skipped ? `↺ ${m.media.care}` : m.media.dontCare}
           </button>
           {(item.requestedByMe || markedForDelete) && (
             <button
               type="button"
               onClick={() => void toggleDelete()}
               disabled={deleteBusy}
-              title="You requested this — mark it OK to delete"
+              title={m.media.requestedDeleteTitle}
               className={`w-28 shrink-0 whitespace-nowrap rounded px-2 py-1 text-center text-[11px] disabled:opacity-60 ${
                 markedForDelete
                   ? 'bg-rose-800 font-semibold text-rose-100'
                   : 'border border-rose-900/70 text-rose-300 hover:border-rose-700'
               }`}
             >
-              {markedForDelete ? '✓ OK to delete' : 'OK to delete'}
+              {markedForDelete ? `✓ ${m.media.okDelete}` : m.media.okDelete}
             </button>
           )}
         </div>

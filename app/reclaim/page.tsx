@@ -3,6 +3,7 @@ import { getSessionUser } from '@/lib/auth';
 import { isServerConfigured } from '@/lib/settings';
 import AppShell from '@/components/AppShell';
 import ReclaimQueue from '@/components/ReclaimQueue';
+import { NotSetUpYet } from '@/components/LocalizedPageText';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -17,7 +18,7 @@ export default async function ReclaimPage() {
         {isServerConfigured() ? (
           <ReclaimQueue />
         ) : (
-          <p className="text-slate-400">Not set up yet.</p>
+          <NotSetUpYet />
         )}
       </div>
     </AppShell>

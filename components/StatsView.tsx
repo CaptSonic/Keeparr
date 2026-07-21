@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MediaCardData } from '@/lib/types';
-import { formatSize } from '@/lib/format';
+import { formatBytes, formatNumber } from '@/lib/i18n';
 import { RES_ORDER, resolutionBucket } from '@/lib/quality';
 import { useToast } from './Toaster';
 import {
@@ -18,15 +18,13 @@ import {
   TONE,
   type Overview,
 } from './breakdown';
+import { useLocale } from './LocaleProvider';
 
 type View = 'largest' | 'reclaimable' | 'unwatched' | 'markedForDelete';
 
-const VIEW_LABEL: Record<View, string> = {
-  largest: 'Largest on disk',
-  reclaimable: 'Not kept by anyone',
-  unwatched: 'Never watched',
-  markedForDelete: 'OK to delete',
-};
+const viewLabel = (view: View, de: boolean) => de
+  ? ({ largest: 'Größte auf dem Datenträger', reclaimable: 'Von niemandem behalten', unwatched: 'Nie angesehen', markedForDelete: 'Kann gelöscht werden' } as const)[view]
+  : ({ largest: 'Largest on disk', reclaimable: 'Not kept by anyone', unwatched: 'Never watched', markedForDelete: 'OK to delete' } as const)[view];
 
 /** A drill-down row. The "OK to delete" view adds who released it + whether it's
  *  still kept; other views leave those undefined. */
@@ -44,6 +42,8 @@ interface Summary {
 }
 
 export default function StatsView() {
+  const { locale, messages: m } = useLocale();
+  const de = locale === 'de';
   const [view, setView] = useState<View>('largest');
   const [summary, setSummary] = useState<Summary | null>(null);
   const [items, setItems] = useState<StatRow[]>([]);
@@ -72,12 +72,12 @@ export default function StatsView() {
         setItems((prev) => (reset ? list : [...prev, ...list]));
       } catch {
         if (seq !== fetchSeq.current) return; // superseded — don't toast for it
-        toast("Couldn't load the stats — is the server reachable?", 'error');
+        toast(de ? 'Die Statistiken konnten nicht geladen werden — ist der Server erreichbar?' : "Couldn't load the stats — is the server reachable?", 'error');
       } finally {
         if (seq === fetchSeq.current) setLoading(false);
       }
     },
-    [offset, toast]
+    [de, offset, toast]
   );
 
   useEffect(() => {
@@ -105,10 +105,9 @@ export default function StatsView() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Big Picture</h1>
+        <h1 className="text-2xl font-bold">{de ? 'Gesamtübersicht' : 'Big Picture'}</h1>
         <p className="mt-1 text-sm text-slate-400">
-          What’s on your server, what’s safe to keep, and how much space you could
-          win back.
+          {de ? 'Was auf deinem Server liegt, was geschützt ist und wie viel Speicherplatz du zurückgewinnen könntest.' : 'What’s on your server, what’s safe to keep, and how much space you could win back.'}
         </p>
       </div>
 
@@ -130,7 +129,7 @@ export default function StatsView() {
                 view === v ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'
               }`}
             >
-              {VIEW_LABEL[v]}
+              {viewLabel(v, de)}
             </button>
           ))}
         </div>
@@ -140,14 +139,14 @@ export default function StatsView() {
             <thead className="bg-rail text-slate-500 text-xs uppercase tracking-wide">
               <tr>
                 <th className="text-left font-medium px-3 py-2 w-8">#</th>
-                <th className="text-left font-medium px-3 py-2">Title</th>
-                <th className="text-right font-medium px-3 py-2">Size</th>
+                <th className="text-left font-medium px-3 py-2">{de ? 'Titel' : 'Title'}</th>
+                <th className="text-right font-medium px-3 py-2">{m.common.size}</th>
                 {view === 'reclaimable' ? (
-                  <th className="text-right font-medium px-3 py-2">Cumulative</th>
+                  <th className="text-right font-medium px-3 py-2">{de ? 'Kumuliert' : 'Cumulative'}</th>
                 ) : view === 'markedForDelete' ? (
-                  <th className="text-left font-medium px-3 py-2">Marked by</th>
+                  <th className="text-left font-medium px-3 py-2">{de ? 'Markiert von' : 'Marked by'}</th>
                 ) : (
-                  <th className="text-right font-medium px-3 py-2">Kept</th>
+                  <th className="text-right font-medium px-3 py-2">{de ? 'Behalten' : 'Kept'}</th>
                 )}
               </tr>
             </thead>
@@ -156,15 +155,15 @@ export default function StatsView() {
                 cumulative += item.sizeBytes;
                 return (
                   <tr key={item.ratingKey} className="border-t border-slate-800 hover:bg-slate-900/60">
-                    <td className="px-3 py-2 text-slate-500">{idx + 1}</td>
+                    <td className="px-3 py-2 text-slate-500">{formatNumber(idx + 1, locale)}</td>
                     <td className="px-3 py-2">
                       <span className="font-medium">{item.title}</span>
                       {item.year && <span className="text-slate-500"> ({item.year})</span>}
                     </td>
-                    <td className="px-3 py-2 text-right font-mono">{formatSize(item.sizeBytes)}</td>
+                    <td className="px-3 py-2 text-right font-mono">{formatBytes(item.sizeBytes, locale)}</td>
                     {view === 'reclaimable' ? (
                       <td className="px-3 py-2 text-right font-mono text-slate-400">
-                        {formatSize(cumulative)}
+                        {formatBytes(cumulative, locale)}
                       </td>
                     ) : view === 'markedForDelete' ? (
                       <td className="px-3 py-2 text-slate-300">
@@ -172,9 +171,9 @@ export default function StatsView() {
                         {item.keptByAnyone && (
                           <span
                             className="ml-2 rounded bg-amber-900/70 px-1.5 py-0.5 text-[10px] font-semibold text-amber-200"
-                            title="Someone still keeps this, so it stays protected"
+                            title={de ? 'Jemand behält diesen Titel weiterhin, daher bleibt er geschützt' : 'Someone still keeps this, so it stays protected'}
                           >
-                            still kept
+                            {de ? 'weiterhin geschützt' : 'still kept'}
                           </span>
                         )}
                       </td>
@@ -201,7 +200,7 @@ export default function StatsView() {
               disabled={loading}
               className="rounded-md border border-slate-700 hover:border-slate-500 px-5 py-2 text-sm disabled:opacity-60"
             >
-              {loading ? 'Loading…' : 'Load more'}
+              {loading ? m.common.loading : (de ? 'Mehr laden' : 'Load more')}
             </button>
           </div>
         )}
@@ -239,6 +238,8 @@ function BigStat({
 /** The signature: one honest disk gauge (fills up; the empty part is free space)
  *  + headline numbers + legend. */
 function StorageHero({ overview }: { overview: Overview }) {
+  const { locale } = useLocale();
+  const de = locale === 'de';
   const { totals, storage, mediaUsedBytes } = overview;
   const configured = storage.configured;
   const otherBytes = configured ? Math.max(0, storage.usedBytes - mediaUsedBytes) : 0;
@@ -248,72 +249,78 @@ function StorageHero({ overview }: { overview: Overview }) {
 
   // Filled segments only — the unfilled remainder of the bar IS the free space.
   const segments = [
-    { tone: 'kept' as const, value: totals.keptByMeBytes, label: 'Kept by you' },
-    { tone: 'keptOther' as const, value: keptOtherBytes, label: 'Kept by others' },
-    { tone: 'dontcare' as const, value: totals.dontcareBytes, label: 'I don’t care' },
-    { tone: 'undecided' as const, value: totals.undecidedBytes, label: 'Undecided' },
-    ...(configured ? [{ tone: 'other' as const, value: otherBytes, label: 'Other files' }] : []),
+    { tone: 'kept' as const, value: totals.keptByMeBytes, label: de ? 'Von dir behalten' : 'Kept by you' },
+    { tone: 'keptOther' as const, value: keptOtherBytes, label: de ? 'Von anderen behalten' : 'Kept by others' },
+    { tone: 'dontcare' as const, value: totals.dontcareBytes, label: de ? 'Ist mir egal' : 'I don’t care' },
+    { tone: 'undecided' as const, value: totals.undecidedBytes, label: de ? 'Unentschieden' : 'Undecided' },
+    ...(configured ? [{ tone: 'other' as const, value: otherBytes, label: de ? 'Andere Dateien' : 'Other files' }] : []),
   ];
+  const bracketLabels = {
+    keptByYou: de ? 'Von dir behalten' : 'Kept by you',
+    keptByOthers: de ? 'Von anderen behalten' : 'Kept by others',
+    dontCare: de ? 'Ist mir egal' : 'I don’t care',
+    undecided: de ? 'Unentschieden' : 'Undecided',
+  };
 
   return (
     <section className="rounded-xl border border-slate-800 bg-panel p-5">
       <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-        Storage at a glance
+        {de ? 'Speicher auf einen Blick' : 'Storage at a glance'}
       </h2>
       <div className="mt-3 flex flex-wrap gap-x-10 gap-y-4">
         {configured && (
           <BigStat
-            value={formatSize(storage.freeBytes)}
-            label="Free"
+            value={formatBytes(storage.freeBytes, locale)}
+            label={de ? 'Frei' : 'Free'}
             tone="text-emerald-400"
-            sub={`of ${formatSize(storage.totalBytes)} · ${pct(
+            sub={`${de ? 'von' : 'of'} ${formatBytes(storage.totalBytes, locale)} · ${formatNumber(pct(
               storage.usedBytes,
               storage.totalBytes
-            )}% full`}
+            ), locale)}% ${de ? 'belegt' : 'full'}`}
           />
         )}
         <BigStat
-          value={formatSize(totals.keptByMeBytes)}
-          label="Kept by you"
+          value={formatBytes(totals.keptByMeBytes, locale)}
+          label={de ? 'Von dir behalten' : 'Kept by you'}
           tone="text-brand"
           dot="kept"
-          sub={`${totals.keptByMeItems} titles`}
+          sub={`${formatNumber(totals.keptByMeItems, locale)} ${de ? 'Titel' : 'titles'}`}
         />
         <BigStat
-          value={formatSize(keptOtherBytes)}
-          label="Kept by others"
+          value={formatBytes(keptOtherBytes, locale)}
+          label={de ? 'Von anderen behalten' : 'Kept by others'}
           tone="text-brand-dark"
           dot="keptOther"
-          sub={`${keptOtherItems} titles`}
+          sub={`${formatNumber(keptOtherItems, locale)} ${de ? 'Titel' : 'titles'}`}
         />
         <BigStat
-          value={formatSize(totals.dontcareBytes)}
-          label="I don’t care"
+          value={formatBytes(totals.dontcareBytes, locale)}
+          label={de ? 'Ist mir egal' : 'I don’t care'}
           tone="text-rose-400"
           dot="dontcare"
-          sub={`${totals.dontcareItems} titles`}
+          sub={`${formatNumber(totals.dontcareItems, locale)} ${de ? 'Titel' : 'titles'}`}
         />
         <BigStat
-          value={formatSize(totals.undecidedBytes)}
-          label="Undecided"
+          value={formatBytes(totals.undecidedBytes, locale)}
+          label={de ? 'Unentschieden' : 'Undecided'}
           tone="text-blue-400"
           dot="undecided"
-          sub={`${totals.undecidedItems} titles you’ve yet to review`}
+          sub={`${formatNumber(totals.undecidedItems, locale)} ${de ? 'noch zu prüfende Titel' : 'titles you’ve yet to review'}`}
         />
         {overview.tautulli && (
           <BigStat
-            value={formatSize(totals.unwatchedBytes)}
-            label="Never watched"
+            value={formatBytes(totals.unwatchedBytes, locale)}
+            label={de ? 'Nie angesehen' : 'Never watched'}
             tone="text-slate-200"
-            sub={`${totals.unwatchedItems} titles nobody has watched`}
+            sub={`${formatNumber(totals.unwatchedItems, locale)} ${de ? 'von niemandem angesehene Titel' : 'titles nobody has watched'}`}
           />
         )}
         {overview.seerr && overview.markedForDelete && (
           <BigStat
-            value={formatSize(overview.markedForDelete.bytes)}
-            label="OK to delete"
+            value={formatBytes(overview.markedForDelete.bytes, locale)}
+            label={de ? 'Kann gelöscht werden' : 'OK to delete'}
             tone="text-rose-300"
-            sub={`${overview.markedForDelete.titles} titles a requester released`}
+            sub={`${formatNumber(overview.markedForDelete.titles, locale)} ${de ? 'von Anfragenden freigegebene Titel' : 'titles a requester released'}`}
           />
         )}
       </div>
@@ -325,13 +332,13 @@ function StorageHero({ overview }: { overview: Overview }) {
         {overview.tautulli && totals.unwatchedBytes > 0 && (
           <>
             <div className="mt-1">
-              <UnwatchedBrackets segments={keptVsUnwatchedSegments(totals)} max={denom} />
+              <UnwatchedBrackets segments={keptVsUnwatchedSegments(totals, bracketLabels)} max={denom} />
             </div>
             <div className="mt-1 text-[11px] text-slate-500">
               <span className="mr-1 inline-block h-2 w-3 rounded-b-sm border-x border-b border-white/40 align-middle" />
-              Brackets mark titles never watched by anyone within each category ·{' '}
-              {totals.unwatchedItems} total · {formatSize(totals.unwatchedBytes)} ·{' '}
-              {pct(totals.unwatchedBytes, denom)}% of disk
+              {de ? 'Klammern markieren in jeder Kategorie Titel, die niemand angesehen hat' : 'Brackets mark titles never watched by anyone within each category'} ·{' '}
+              {formatNumber(totals.unwatchedItems, locale)} {de ? 'insgesamt' : 'total'} · {formatBytes(totals.unwatchedBytes, locale)} ·{' '}
+              {formatNumber(pct(totals.unwatchedBytes, denom), locale)}% {de ? 'des Datenträgers' : 'of disk'}
             </div>
           </>
         )}
@@ -344,17 +351,17 @@ function StorageHero({ overview }: { overview: Overview }) {
             key={s.tone}
             tone={s.tone}
             label={s.label}
-            value={formatSize(s.value)}
-            sub={`${pct(s.value, denom)}%`}
+            value={formatBytes(s.value, locale)}
+            sub={`${formatNumber(pct(s.value, denom), locale)}%`}
             muted={s.value <= 0}
           />
         ))}
         {configured && (
           <LegendRow
             dotClass="bg-slate-700"
-            label="Free (empty)"
-            value={formatSize(storage.freeBytes)}
-            sub={`${pct(storage.freeBytes, denom)}%`}
+            label={de ? 'Frei (leer)' : 'Free (empty)'}
+            value={formatBytes(storage.freeBytes, locale)}
+            sub={`${formatNumber(pct(storage.freeBytes, denom), locale)}%`}
           />
         )}
       </div>
@@ -364,6 +371,8 @@ function StorageHero({ overview }: { overview: Overview }) {
 
 /** Personal triage progress across all libraries (counts, not bytes). */
 function ReviewProgress({ overview }: { overview: Overview }) {
+  const { locale } = useLocale();
+  const de = locale === 'de';
   const { totals } = overview;
   const decided = totals.keptByMeItems + totals.dontcareItems;
   const reviewable = decided + totals.undecidedItems;
@@ -378,7 +387,7 @@ function ReviewProgress({ overview }: { overview: Overview }) {
   return (
     <section className="rounded-xl border border-slate-800 bg-panel p-5">
       <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-400">
-        Your review progress
+        {de ? 'Dein Prüfungsfortschritt' : 'Your review progress'}
       </h2>
       <div className="flex flex-col gap-8 lg:flex-row lg:items-center">
         <div className="flex items-center gap-6">
@@ -388,33 +397,34 @@ function ReviewProgress({ overview }: { overview: Overview }) {
               { tone: 'dontcare', value: totals.dontcareItems },
               { tone: 'undecided', value: totals.undecidedItems },
             ]}
-            center={`${reviewedPct}%`}
-            centerSub="reviewed"
+            center={`${formatNumber(reviewedPct, locale)}%`}
+            centerSub={de ? 'geprüft' : 'reviewed'}
           />
           <div className="w-64 space-y-2">
             <p className="mb-3 text-sm text-slate-400">
-              Decided on{' '}
-              <span className="font-semibold text-white">{decided.toLocaleString()}</span> of{' '}
-              <span className="font-semibold text-white">{reviewable.toLocaleString()}</span>{' '}
-              titles.
+              {de ? 'Entschieden bei' : 'Decided on'}{' '}
+              <span className="font-semibold text-white">{formatNumber(decided, locale)}</span>{' '}
+              {de ? 'von' : 'of'}{' '}
+              <span className="font-semibold text-white">{formatNumber(reviewable, locale)}</span>{' '}
+              {de ? 'Titeln.' : 'titles.'}
             </p>
             <LegendRow
               tone="kept"
-              label="Kept by you"
-              value={`${totals.keptByMeItems}`}
-              sub={formatSize(totals.keptByMeBytes)}
+              label={de ? 'Von dir behalten' : 'Kept by you'}
+              value={formatNumber(totals.keptByMeItems, locale)}
+              sub={formatBytes(totals.keptByMeBytes, locale)}
             />
             <LegendRow
               tone="dontcare"
-              label="I don’t care"
-              value={`${totals.dontcareItems}`}
-              sub={formatSize(totals.dontcareBytes)}
+              label={de ? 'Ist mir egal' : 'I don’t care'}
+              value={formatNumber(totals.dontcareItems, locale)}
+              sub={formatBytes(totals.dontcareBytes, locale)}
             />
             <LegendRow
               tone="undecided"
-              label="Undecided (yours)"
-              value={`${totals.undecidedItems}`}
-              sub={formatSize(totals.undecidedBytes)}
+              label={de ? 'Unentschieden (deine)' : 'Undecided (yours)'}
+              value={formatNumber(totals.undecidedItems, locale)}
+              sub={formatBytes(totals.undecidedBytes, locale)}
             />
           </div>
         </div>
@@ -422,14 +432,14 @@ function ReviewProgress({ overview }: { overview: Overview }) {
         {topToReview && topToReview.undecided > 0 && (
           <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-4 lg:ml-auto lg:max-w-xs">
             <div className="text-xs uppercase tracking-wide text-slate-500">
-              Most left to review
+              {de ? 'Am meisten zu prüfen' : 'Most left to review'}
             </div>
             <div className="mt-1 text-lg font-semibold">{topToReview.l.title}</div>
             <div className="mt-0.5 text-sm">
               <span className="font-mono text-blue-400">
-                {formatSize(topToReview.undecided)}
+                {formatBytes(topToReview.undecided, locale)}
               </span>{' '}
-              <span className="text-slate-400">you haven’t decided on yet</span>
+              <span className="text-slate-400">{de ? 'über die du noch nicht entschieden hast' : 'you haven’t decided on yet'}</span>
             </div>
           </div>
         )}
@@ -440,6 +450,8 @@ function ReviewProgress({ overview }: { overview: Overview }) {
 
 /** Per-library composition cards. */
 function LibraryGrid({ overview }: { overview: Overview }) {
+  const { locale } = useLocale();
+  const de = locale === 'de';
   const libs = [...overview.libraries].sort((a, b) => b.bytes - a.bytes);
   if (libs.length === 0) return null;
 
@@ -448,17 +460,23 @@ function LibraryGrid({ overview }: { overview: Overview }) {
   // Per-library bars share one scale (the biggest library) so their lengths are
   // directly comparable — a horizontal bar chart, not 4 full bars.
   const maxLib = Math.max(1, ...libs.map((l) => l.bytes));
+  const segmentLabels = {
+    keptByYou: de ? 'Von dir behalten' : 'Kept by you',
+    keptByOthers: de ? 'Von anderen behalten' : 'Kept by others',
+    dontCare: de ? 'Ist mir egal' : 'I don’t care',
+    undecided: de ? 'Unentschieden (von dir zu prüfen)' : 'Undecided (yours to review)',
+  };
 
   return (
     <section>
       <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">
-        By library
+        {de ? 'Nach Bibliothek' : 'By library'}
       </h2>
       <div className="grid gap-4 xl:grid-cols-[20rem_1fr]">
         {/* Share of the whole — a donut + library key. */}
         <div className="rounded-xl border border-slate-800 bg-panel p-4">
           <div className="mb-2 text-xs uppercase tracking-wide text-slate-500">
-            Where your space goes
+            {de ? 'Wofür dein Speicher verwendet wird' : 'Where your space goes'}
           </div>
           <div className="flex justify-center py-2">
             <Donut
@@ -467,10 +485,10 @@ function LibraryGrid({ overview }: { overview: Overview }) {
               max={storage.configured ? storage.totalBytes : undefined}
               center={
                 storage.configured
-                  ? `${pct(storage.usedBytes, storage.totalBytes)}%`
-                  : formatSize(totalBytes)
+                  ? `${formatNumber(pct(storage.usedBytes, storage.totalBytes), locale)}%`
+                  : formatBytes(totalBytes, locale)
               }
-              centerSub={storage.configured ? 'full' : 'total'}
+              centerSub={storage.configured ? (de ? 'belegt' : 'full') : (de ? 'gesamt' : 'total')}
               segments={libs.map((l, i) => ({
                 value: l.bytes,
                 stroke: libStroke(i),
@@ -485,22 +503,22 @@ function LibraryGrid({ overview }: { overview: Overview }) {
                 <span className={`h-2.5 w-2.5 shrink-0 rounded-sm ${libColor(i)}`} />
                 <span className="min-w-0 flex-1 truncate text-slate-300">{l.title}</span>
                 <span className="shrink-0 font-mono text-slate-300">
-                  {formatSize(l.bytes)}
+                  {formatBytes(l.bytes, locale)}
                 </span>
                 <span className="shrink-0 min-w-[2.75rem] text-right font-mono text-xs text-slate-500">
-                  {pct(l.bytes, storage.configured ? storage.totalBytes : totalBytes)}%
+                  {formatNumber(pct(l.bytes, storage.configured ? storage.totalBytes : totalBytes), locale)}%
                 </span>
               </div>
             ))}
             {storage.configured && (
               <div className="flex items-center gap-2 border-t border-slate-800 pt-1.5 text-sm">
                 <span className="h-2.5 w-2.5 shrink-0 rounded-sm bg-slate-700" />
-                <span className="min-w-0 flex-1 truncate text-slate-400">Free</span>
+                <span className="min-w-0 flex-1 truncate text-slate-400">{de ? 'Frei' : 'Free'}</span>
                 <span className="shrink-0 font-mono text-emerald-400">
-                  {formatSize(storage.freeBytes)}
+                  {formatBytes(storage.freeBytes, locale)}
                 </span>
                 <span className="shrink-0 min-w-[2.75rem] text-right font-mono text-xs text-slate-500">
-                  {pct(storage.freeBytes, storage.totalBytes)}%
+                  {formatNumber(pct(storage.freeBytes, storage.totalBytes), locale)}%
                 </span>
               </div>
             )}
@@ -517,9 +535,9 @@ function LibraryGrid({ overview }: { overview: Overview }) {
                 <div className="flex items-baseline gap-2">
                   <span className={`h-2.5 w-2.5 shrink-0 rounded-sm ${libColor(i)}`} />
                   <span className="min-w-0 flex-1 truncate font-semibold">{l.title}</span>
-                  <span className="shrink-0 text-xs text-slate-500">{l.items} titles</span>
+                  <span className="shrink-0 text-xs text-slate-500">{formatNumber(l.items, locale)} {de ? 'Titel' : 'titles'}</span>
                   <span className="shrink-0 font-mono text-slate-200">
-                    {formatSize(l.bytes)}
+                    {formatBytes(l.bytes, locale)}
                   </span>
                 </div>
 
@@ -531,11 +549,11 @@ function LibraryGrid({ overview }: { overview: Overview }) {
                     className="min-w-[10px]"
                     style={{ width: `${(l.bytes / maxLib) * 100}%` }}
                   >
-                    <StackedBar height="h-3" segments={compositionSegmentsSplit(l)} />
+                    <StackedBar height="h-3" segments={compositionSegmentsSplit(l, segmentLabels)} />
                     {overview.tautulli && l.unwatchedBytes > 0 && (
                       <div className="mt-0.5">
                         <UnwatchedBrackets
-                          segments={keptVsUnwatchedSegments(l)}
+                          segments={keptVsUnwatchedSegments(l, segmentLabels)}
                           max={l.bytes}
                           height="h-1.5"
                         />
@@ -546,23 +564,23 @@ function LibraryGrid({ overview }: { overview: Overview }) {
 
                 {overview.tautulli && (
                   <div className="mt-1.5 text-[11px] text-slate-500">
-                    {l.unwatchedItems} never watched by anyone ·{' '}
-                    {formatSize(l.unwatchedBytes)} · {pct(l.unwatchedBytes, l.bytes)}%
+                    {formatNumber(l.unwatchedItems, locale)} {de ? 'von niemandem angesehen' : 'never watched by anyone'} ·{' '}
+                    {formatBytes(l.unwatchedBytes, locale)} · {formatNumber(pct(l.unwatchedBytes, l.bytes), locale)}%
                   </div>
                 )}
 
                 <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  <MiniStat tone="kept" label="Kept by you" bytes={l.keptByMeBytes} items={l.keptByMeItems} />
-                  <MiniStat tone="keptOther" label="Kept by others" bytes={keptOther} items={keptOtherItems} />
+                  <MiniStat tone="kept" label={de ? 'Von dir behalten' : 'Kept by you'} bytes={l.keptByMeBytes} items={l.keptByMeItems} />
+                  <MiniStat tone="keptOther" label={de ? 'Von anderen behalten' : 'Kept by others'} bytes={keptOther} items={keptOtherItems} />
                   <MiniStat
                     tone="dontcare"
-                    label="I don’t care"
+                    label={de ? 'Ist mir egal' : 'I don’t care'}
                     bytes={l.dontcareBytes}
                     items={l.dontcareItems}
                   />
                   <MiniStat
                     tone="undecided"
-                    label="Undecided"
+                    label={de ? 'Unentschieden' : 'Undecided'}
                     bytes={l.undecidedBytes}
                     items={l.undecidedItems}
                   />
@@ -580,6 +598,8 @@ function LibraryGrid({ overview }: { overview: Overview }) {
  *  by resolution, plus a "Not in *arr" row. Surfaces e.g. how much 4K is
  *  reclaimable. Only rendered when arr is connected. */
 function QualityReclaim({ overview }: { overview: Overview }) {
+  const { locale } = useLocale();
+  const de = locale === 'de';
   const qb = overview.qualityBreakdown!;
   // Bucket the per-quality rows by resolution (Unknown folds into Other).
   const buckets = new Map<
@@ -602,37 +622,37 @@ function QualityReclaim({ overview }: { overview: Overview }) {
     reclaimableBytes: number;
     unwatchedBytes: number;
   }[] = RES_ORDER.filter((b) => buckets.has(b)).map((b) => ({ label: b, ...buckets.get(b)! }));
-  if (qb.notInArr.titles > 0) rows.push({ label: 'Not in *arr', ...qb.notInArr });
+  if (qb.notInArr.titles > 0) rows.push({ label: de ? 'Nicht in *arr' : 'Not in *arr', ...qb.notInArr });
   const showWatched = !!overview.tautulli;
 
   return (
     <section>
       <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">
-        By quality
+        {de ? 'Nach Qualität' : 'By quality'}
       </h2>
       <div className="overflow-x-auto rounded-lg border border-slate-800">
         <table className="w-full text-sm">
           <thead className="bg-rail text-xs uppercase tracking-wide text-slate-500">
             <tr>
-              <th className="px-3 py-2 text-left font-medium">Quality</th>
-              <th className="px-3 py-2 text-right font-medium">Titles</th>
-              <th className="px-3 py-2 text-right font-medium">On disk</th>
-              <th className="px-3 py-2 text-right font-medium">Not kept</th>
-              {showWatched && <th className="px-3 py-2 text-right font-medium">Never watched</th>}
+              <th className="px-3 py-2 text-left font-medium">{de ? 'Qualität' : 'Quality'}</th>
+              <th className="px-3 py-2 text-right font-medium">{de ? 'Titel' : 'Titles'}</th>
+              <th className="px-3 py-2 text-right font-medium">{de ? 'Auf Datenträger' : 'On disk'}</th>
+              <th className="px-3 py-2 text-right font-medium">{de ? 'Nicht behalten' : 'Not kept'}</th>
+              {showWatched && <th className="px-3 py-2 text-right font-medium">{de ? 'Nie angesehen' : 'Never watched'}</th>}
             </tr>
           </thead>
           <tbody>
             {rows.map((r) => (
               <tr key={r.label} className="border-t border-slate-800">
                 <td className="px-3 py-2 font-medium">{r.label}</td>
-                <td className="px-3 py-2 text-right text-slate-400">{r.titles}</td>
-                <td className="px-3 py-2 text-right font-mono">{formatSize(r.bytes)}</td>
+                <td className="px-3 py-2 text-right text-slate-400">{formatNumber(r.titles, locale)}</td>
+                <td className="px-3 py-2 text-right font-mono">{formatBytes(r.bytes, locale)}</td>
                 <td className="px-3 py-2 text-right font-mono text-rose-300">
-                  {formatSize(r.reclaimableBytes)}
+                  {formatBytes(r.reclaimableBytes, locale)}
                 </td>
                 {showWatched && (
                   <td className="px-3 py-2 text-right font-mono text-slate-300">
-                    {formatSize(r.unwatchedBytes)}
+                    {formatBytes(r.unwatchedBytes, locale)}
                   </td>
                 )}
               </tr>
@@ -641,9 +661,9 @@ function QualityReclaim({ overview }: { overview: Overview }) {
         </table>
       </div>
       <p className="mt-2 text-[11px] text-slate-500">
-        &ldquo;Not kept&rdquo; = nobody pressed Keep on it — the candidates to review for
-        freeing space (Keeparr never deletes). Scan the biggest high-resolution rows for
-        downgrades. &ldquo;Not in *arr&rdquo; = titles Keeparr couldn&apos;t match.
+        {de
+          ? '„Nicht behalten“ = Niemand hat dafür „Behalten“ gewählt — diese Titel kommen für eine Prüfung zur Speicherfreigabe infrage (Keeparr löscht niemals selbst). Prüfe die größten hochauflösenden Zeilen auf mögliche Herabstufungen. „Nicht in *arr“ = Titel, die Keeparr nicht zuordnen konnte.'
+          : '“Not kept” = nobody pressed Keep on it — the candidates to review for freeing space (Keeparr never deletes). Scan the biggest high-resolution rows for downgrades. “Not in *arr” = titles Keeparr couldn’t match.'}
       </p>
     </section>
   );
@@ -660,14 +680,16 @@ function MiniStat({
   bytes: number;
   items: number;
 }) {
+  const { locale } = useLocale();
+  const de = locale === 'de';
   return (
     <div className="rounded-lg bg-slate-900/60 px-2.5 py-2">
       <div className="flex items-center gap-1.5">
         <span className={`h-2 w-2 rounded-sm ${TONE[tone].dot}`} />
         <span className="text-[11px] text-slate-400">{label}</span>
       </div>
-      <div className="mt-1 font-mono text-sm">{formatSize(bytes)}</div>
-      <div className="text-[11px] text-slate-500">{items} titles</div>
+      <div className="mt-1 font-mono text-sm">{formatBytes(bytes, locale)}</div>
+      <div className="text-[11px] text-slate-500">{formatNumber(items, locale)} {de ? 'Titel' : 'titles'}</div>
     </div>
   );
 }

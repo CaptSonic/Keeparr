@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { useLocale } from './LocaleProvider';
 
 type ToastType = 'info' | 'success' | 'error';
 
@@ -45,6 +46,7 @@ const TONE: Record<ToastType, string> = {
  * every page/component can call useToast().
  */
 export function ToastProvider({ children }: { children: ReactNode }) {
+  const { locale } = useLocale();
   const [toasts, setToasts] = useState<Toast[]>([]);
   const nextId = useRef(1);
 
@@ -80,7 +82,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             <button
               onClick={() => dismiss(t.id)}
               className="shrink-0 text-slate-500 hover:text-white"
-              aria-label="Dismiss"
+              aria-label={locale === 'de' ? 'Schließen' : 'Dismiss'}
             >
               ×
             </button>

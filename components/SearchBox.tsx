@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useLocale } from './LocaleProvider';
 
 interface Suggestion {
   ratingKey: string;
@@ -13,6 +14,7 @@ interface Suggestion {
 }
 
 export default function SearchBox() {
+  const { locale } = useLocale();
   const router = useRouter();
   const [q, setQ] = useState('');
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
@@ -74,7 +76,7 @@ export default function SearchBox() {
           if (e.key === 'Enter') go(q);
           if (e.key === 'Escape') setOpen(false);
         }}
-        placeholder="Search…"
+        placeholder={locale === 'de' ? 'Suchen…' : 'Search…'}
         className="w-full rounded-md bg-slate-800 border border-slate-700 px-3 py-1.5 text-sm focus:outline-none focus:border-brand"
       />
       {open && suggestions.length > 0 && (
@@ -101,7 +103,7 @@ export default function SearchBox() {
                   <span className="block truncate text-sm">{s.title}</span>
                   <span className="text-xs text-slate-500">
                     {s.year ?? ''}
-                    {s.kept ? ' · kept' : s.skipped ? ' · I don’t care' : ''}
+                    {s.kept ? (locale === 'de' ? ' · geschützt' : ' · kept') : s.skipped ? (locale === 'de' ? ' · egal' : ' · I don’t care') : ''}
                   </span>
                 </span>
               </button>
@@ -111,7 +113,7 @@ export default function SearchBox() {
             onClick={() => go(q)}
             className="block w-full border-t border-slate-800 bg-panel px-3 py-2 text-left text-xs text-brand hover:bg-slate-800"
           >
-            See all results for “{q.trim()}” →
+            {locale === 'de' ? `Alle Ergebnisse für „${q.trim()}“` : `See all results for “${q.trim()}”`} →
           </button>
         </div>
       )}

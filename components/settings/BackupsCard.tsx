@@ -1,9 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { formatRelative, formatSize } from '@/lib/format';
+import { formatBytes, formatDate, formatRelativeTime } from '@/lib/i18n';
 import { useToast } from '../Toaster';
 import { Card, btnCls, btnGhost } from './ui';
+import { useLocale } from '../LocaleProvider';
 
 interface BackupRow {
   name: string;
@@ -19,6 +20,8 @@ const ctrl =
  * setting. Backups run on the scheduled 'backup' job too (Scheduled jobs card).
  */
 export default function BackupsCard() {
+  const { locale } = useLocale();
+  const de = locale === 'de';
   const [backups, setBackups] = useState<BackupRow[]>([]);
   const [retention, setRetention] = useState(14);
   const [msg, setMsg] = useState('');
@@ -42,7 +45,7 @@ export default function BackupsCard() {
 
   async function backupNow() {
     setBusy(true);
-    setMsg('Backing up…');
+    setMsg(de ? 'Sicherung wird erstellt…' : 'Backing up…');
     try {
       await fetch('/api/admin/backups', {
         method: 'POST',
@@ -52,8 +55,8 @@ export default function BackupsCard() {
       // The job is fire-and-forget but fast — refresh shortly after.
       await new Promise((res) => setTimeout(res, 1200));
       await load();
-      setMsg('Backup created.');
-      toast('Backup created.', 'success');
+      setMsg(de ? 'Sicherung erstellt.' : 'Backup created.');
+      toast(de ? 'Sicherung erstellt.' : 'Backup created.', 'success');
     } finally {
       setBusy(false);
     }
@@ -62,13 +65,13 @@ export default function BackupsCard() {
   async function restore(name: string) {
     if (
       !window.confirm(
-        `Restore ${name}?\n\nThe current database is snapshotted first (pre-restore), then replaced. Everyone's keeps/settings revert to this backup.`
+        de ? `${name} wiederherstellen?\n\nDie aktuelle Datenbank wird zuerst gesichert und dann ersetzt. Die Behalten-Entscheidungen und Einstellungen aller Personen werden auf diesen Stand zurückgesetzt.` : `Restore ${name}?\n\nThe current database is snapshotted first (pre-restore), then replaced. Everyone's keeps/settings revert to this backup.`
       )
     ) {
       return;
     }
     setBusy(true);
-    setMsg('Restoring…');
+    setMsg(de ? 'Wiederherstellung läuft…' : 'Restoring…');
     try {
       const r = await fetch('/api/admin/backups', {
         method: 'POST',
@@ -76,12 +79,12 @@ export default function BackupsCard() {
         body: JSON.stringify({ action: 'restore', name }),
       });
       if (r.ok) {
-        setMsg('Restored — reloading…');
+        setMsg(de ? 'Wiederhergestellt — Seite wird neu geladen…' : 'Restored — reloading…');
         window.location.reload();
       } else {
         const d = await r.json().catch(() => ({}));
-        setMsg(`Restore failed: ${d.error ?? r.status}`);
-        toast(`Restore failed: ${d.error ?? r.status}`, 'error');
+        setMsg(`${de ? 'Wiederherstellung fehlgeschlagen' : 'Restore failed'}: ${d.error ?? r.status}`);
+        toast(`${de ? 'Wiederherstellung fehlgeschlagen' : 'Restore failed'}: ${d.error ?? r.status}`, 'error');
       }
     } finally {
       setBusy(false);
@@ -103,23 +106,21 @@ export default function BackupsCard() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ backupRetention: retention }),
     });
-    setMsg('Retention saved.');
+    setMsg(de ? 'Aufbewahrung gespeichert.' : 'Retention saved.');
   }
 
   return (
-    <Card title="Backups">
+    <Card title={de ? 'Sicherungen' : 'Backups'}>
       <p className="text-sm text-slate-400">
-        Snapshots of the whole database (keeps, users, settings). The scheduled{' '}
-        <span className="text-slate-300">Backup</span> job runs daily; old backups are
-        pruned past the retention count.
+        {de ? 'Momentaufnahmen der gesamten Datenbank (Entscheidungen, Benutzer, Einstellungen). Der geplante ' : 'Snapshots of the whole database (keeps, users, settings). The scheduled '}<span className="text-slate-300">Backup</span>{de ? '-Job läuft täglich; ältere Sicherungen über der Aufbewahrungsanzahl werden entfernt.' : ' job runs daily; old backups are pruned past the retention count.'}
       </p>
 
       <div className="mt-3 flex items-center gap-3">
         <button onClick={backupNow} disabled={busy} className={btnCls}>
-          Backup now
+          {de ? 'Jetzt sichern' : 'Backup now'}
         </button>
         <label className="ml-auto flex items-center gap-2 text-sm text-slate-400">
-          Keep
+          {de ? 'Behalte' : 'Keep'}
           <input
             className={`${ctrl} w-16`}
             type="number"
@@ -128,12 +129,12 @@ export default function BackupsCard() {
             onChange={(e) => setRetention(Math.max(1, Number(e.target.value) || 1))}
             onBlur={saveRetention}
           />
-          backups
+          {de ? 'Sicherungen' : 'backups'}
         </label>
       </div>
 
       {backups.length === 0 ? (
-        <p className="mt-3 text-sm text-slate-500">No backups yet.</p>
+        <p className="mt-3 text-sm text-slate-500">{de ? 'Noch keine Sicherungen.' : 'No backups yet.'}</p>
       ) : (
         <div className="mt-3 divide-y divide-slate-800 text-sm">
           {backups.map((b) => (
@@ -142,30 +143,30 @@ export default function BackupsCard() {
                 <div className="truncate font-mono text-xs">{b.name}</div>
                 <div
                   className="text-[11px] text-slate-500"
-                  title={new Date(b.createdAt * 1000).toLocaleString()}
+                  title={formatDate(b.createdAt * 1000, locale, { dateStyle: 'medium', timeStyle: 'medium' })}
                 >
-                  {formatRelative(b.createdAt)} · {formatSize(b.sizeBytes)}
+                  {formatRelativeTime(b.createdAt, locale)} · {formatBytes(b.sizeBytes, locale)}
                 </div>
               </div>
               <a
                 className="shrink-0 text-xs text-slate-400 underline hover:text-white"
                 href={`/api/admin/backups/download?name=${encodeURIComponent(b.name)}`}
               >
-                Download
+                {de ? 'Herunterladen' : 'Download'}
               </a>
               <button
                 onClick={() => restore(b.name)}
                 disabled={busy}
                 className="shrink-0 text-xs text-amber-400 underline hover:text-amber-300 disabled:opacity-50"
               >
-                Restore
+                {de ? 'Wiederherstellen' : 'Restore'}
               </button>
               <button
                 onClick={() => remove(b.name)}
                 disabled={busy}
                 className="shrink-0 text-xs text-red-400 underline hover:text-red-300 disabled:opacity-50"
               >
-                Delete
+                {de ? 'Löschen' : 'Delete'}
               </button>
             </div>
           ))}

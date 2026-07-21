@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { formatSize } from '@/lib/format';
+import { formatBytes, formatNumber } from '@/lib/i18n';
+import { useLocale } from './LocaleProvider';
 
 /**
  * Shared visual language for "what's kept vs what you don't care about" across
@@ -87,6 +88,7 @@ function ChartTooltip({
   value: string;
   share: number;
 }) {
+  const { locale } = useLocale();
   return (
     <div
       className="pointer-events-none fixed z-50 -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-md border border-slate-700 bg-slate-900/95 px-2.5 py-1.5 text-xs shadow-xl"
@@ -96,7 +98,7 @@ function ChartTooltip({
         <span className={`h-2 w-2 shrink-0 rounded-sm ${dot}`} />
         <span className="text-slate-200">{label}</span>
         <span className="font-mono text-white">{value}</span>
-        <span className="text-slate-400">{share}%</span>
+        <span className="text-slate-400">{formatNumber(share, locale)}%</span>
       </span>
     </div>
   );
@@ -120,6 +122,7 @@ export function StackedBar({
   rounded?: boolean;
   max?: number;
 }) {
+  const { locale } = useLocale();
   const sum = segments.reduce((a, s) => a + Math.max(0, s.value), 0);
   const total = (max && max > sum ? max : sum) || 1;
   const [hover, setHover] = useState<HoverState | null>(null);
@@ -150,7 +153,7 @@ export function StackedBar({
           y={hover!.y}
           dot={segDot(hs)}
           label={hs.label ?? ''}
-          value={formatSize(hs.value)}
+          value={formatBytes(hs.value, locale)}
           share={Math.round((hs.value / total) * 100)}
         />
       )}
@@ -177,6 +180,7 @@ export function Donut({
   centerSub?: string;
   max?: number;
 }) {
+  const { locale } = useLocale();
   const sum = segments.reduce((a, s) => a + Math.max(0, s.value), 0);
   const total = (max && max > sum ? max : sum) || 1;
   // Reserve room so a hovered slice can grow (POP px) without clipping the SVG.
@@ -242,7 +246,7 @@ export function Donut({
           y={hover!.y}
           dot={segDot(hs)}
           label={hs.label ?? ''}
-          value={formatSize(hs.value)}
+          value={formatBytes(hs.value, locale)}
           share={Math.round((hs.value / total) * 100)}
         />
       )}
@@ -345,11 +349,13 @@ export function compositionSegments(b: {
   keptBytes: number;
   dontcareBytes: number;
   undecidedBytes: number;
+}, labels: { kept: string; dontCare: string; undecided: string } = {
+  kept: 'Kept', dontCare: 'I don’t care', undecided: 'Undecided',
 }): Segment[] {
   return [
-    { tone: 'kept', value: b.keptBytes, label: 'Kept' },
-    { tone: 'dontcare', value: b.dontcareBytes, label: 'I don’t care' },
-    { tone: 'undecided', value: b.undecidedBytes, label: 'Undecided' },
+    { tone: 'kept', value: b.keptBytes, label: labels.kept },
+    { tone: 'dontcare', value: b.dontcareBytes, label: labels.dontCare },
+    { tone: 'undecided', value: b.undecidedBytes, label: labels.undecided },
   ];
 }
 
@@ -364,17 +370,19 @@ export function keptVsUnwatchedSegments(b: {
   unwatchedKeptByMeBytes: number;
   unwatchedDontcareBytes: number;
   unwatchedUndecidedBytes: number;
+}, labels: { keptByYou: string; keptByOthers: string; dontCare: string; undecided: string } = {
+  keptByYou: 'Kept by you', keptByOthers: 'Kept by others', dontCare: 'I don’t care', undecided: 'Undecided',
 }): { value: number; unwatched: number; label: string; tone: ToneKey }[] {
   return [
-    { tone: 'kept', value: b.keptByMeBytes, unwatched: b.unwatchedKeptByMeBytes, label: 'Kept by you' },
+    { tone: 'kept', value: b.keptByMeBytes, unwatched: b.unwatchedKeptByMeBytes, label: labels.keptByYou },
     {
       tone: 'keptOther',
       value: Math.max(0, b.keptBytes - b.keptByMeBytes),
       unwatched: Math.max(0, b.unwatchedKeptBytes - b.unwatchedKeptByMeBytes),
-      label: 'Kept by others',
+      label: labels.keptByOthers,
     },
-    { tone: 'dontcare', value: b.dontcareBytes, unwatched: b.unwatchedDontcareBytes, label: 'I don’t care' },
-    { tone: 'undecided', value: b.undecidedBytes, unwatched: b.unwatchedUndecidedBytes, label: 'Undecided' },
+    { tone: 'dontcare', value: b.dontcareBytes, unwatched: b.unwatchedDontcareBytes, label: labels.dontCare },
+    { tone: 'undecided', value: b.undecidedBytes, unwatched: b.unwatchedUndecidedBytes, label: labels.undecided },
   ];
 }
 
@@ -389,11 +397,15 @@ export function UnwatchedBrackets({
   segments,
   max,
   height = 'h-2',
+  titleSuffix,
 }: {
   segments: { value: number; unwatched: number; label: string; tone?: ToneKey }[];
   max?: number;
   height?: string;
+  titleSuffix?: string;
 }) {
+  const { locale } = useLocale();
+  const suffix = titleSuffix ?? (locale === 'de' ? 'von niemandem angesehen' : 'never watched by anyone');
   const sum = segments.reduce((a, s) => a + Math.max(0, s.value), 0);
   const total = (max && max > sum ? max : sum) || 1;
   let offset = 0;
@@ -416,7 +428,7 @@ export function UnwatchedBrackets({
           width: `calc(${brPct}% - 4px)`,
           minWidth: '3px',
         }}
-        title={`${s.label}: never watched by anyone`}
+        title={`${s.label}: ${suffix}`}
       />
     );
   });
@@ -430,11 +442,13 @@ export function compositionSegmentsSplit(b: {
   keptByMeBytes: number;
   dontcareBytes: number;
   undecidedBytes: number;
+}, labels: { keptByYou: string; keptByOthers: string; dontCare: string; undecided: string } = {
+  keptByYou: 'Kept by you', keptByOthers: 'Kept by others', dontCare: 'I don’t care', undecided: 'Undecided (yours to review)',
 }): Segment[] {
   return [
-    { tone: 'kept', value: b.keptByMeBytes, label: 'Kept by you' },
-    { tone: 'keptOther', value: Math.max(0, b.keptBytes - b.keptByMeBytes), label: 'Kept by others' },
-    { tone: 'dontcare', value: b.dontcareBytes, label: 'I don’t care' },
-    { tone: 'undecided', value: b.undecidedBytes, label: 'Undecided (yours to review)' },
+    { tone: 'kept', value: b.keptByMeBytes, label: labels.keptByYou },
+    { tone: 'keptOther', value: Math.max(0, b.keptBytes - b.keptByMeBytes), label: labels.keptByOthers },
+    { tone: 'dontcare', value: b.dontcareBytes, label: labels.dontCare },
+    { tone: 'undecided', value: b.undecidedBytes, label: labels.undecided },
   ];
 }

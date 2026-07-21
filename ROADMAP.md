@@ -41,6 +41,21 @@ demand.
   + apple-touch), Keep/Browse/Big Picture shortcuts.
 - [x] **`?` keyboard-shortcuts overlay** (+ `/` focuses search).
 
+## Localization — done (post-v0.5.0, unreleased)
+
+- [x] **German and English UI** — browser detection (`de*` → German, all other
+  locales → English), manual switchers on login and in the app shell, anonymous
+  `localStorage` persistence, and a per-account SQLite preference after login.
+- [x] **Locale-aware presentation** — visible UI/admin copy, dialogs, toasts,
+  empty states, accessibility labels, stable job/health labels, dates, relative
+  times, numbers, and byte sizes follow the active locale. API/domain ids remain
+  unchanged.
+- [x] **Contract and regression coverage** — locale helper tests, real-SQL route
+  tests for preference validation/persistence/auth, and OpenAPI documentation.
+
+This section describes the current uncommitted work after v0.5.0; it is not yet a
+published release.
+
 ## Tier 3 — parked (decided July 2026: not needed for now)
 
 - **"Show Advanced Settings" toggle** — progressive disclosure of power-user
