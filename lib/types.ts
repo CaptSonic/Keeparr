@@ -63,6 +63,17 @@ export interface MediaCardData {
   sizeMismatch?: boolean;
 }
 
+/** One explainable suggestion in the Smart Reclaim Queue. */
+export interface ReclaimQueueItem extends MediaCardData {
+  /** Deterministic 0–100 priority assembled from the reasons below. */
+  score: number;
+  strength: 'strong' | 'medium' | 'review';
+  /** Human-readable signals that contributed points; never an opaque AI score. */
+  reasons: { code: string; label: string; points: number }[];
+  lastWatched: number | null;
+  markedForDeleteAny: boolean;
+}
+
 export interface SessionUser {
   plexUserId: string;
   username: string | null;

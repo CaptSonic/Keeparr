@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { getSetting, setSetting } from './queries';
 import { decryptSecret, encryptSecret } from './crypto';
 import {
@@ -129,6 +129,21 @@ export const isTautulliConfigured = () =>
  */
 export const isWatchAvailable = () =>
   getMediaServerType() === 'plex' ? isTautulliConfigured() : isServerConfigured();
+
+/**
+ * Stable, non-secret identity for the currently configured watch source. A
+ * successful refresh stores this value so consumers cannot mistake an old
+ * source's `ok` job state for a refresh of newly changed connection settings.
+ */
+export function getWatchSourceFingerprint(): string | null {
+  if (!isWatchAvailable()) return null;
+  const type = getMediaServerType();
+  const source =
+    type === 'plex'
+      ? [type, getTautulliUrl(), getTautulliKey()]
+      : [type, getServerId(), getServerBaseUrl(), getServerToken()];
+  return createHash('sha256').update(JSON.stringify(source)).digest('hex');
+}
 
 // --- Seerr ---
 export const getSeerrUrl = () => readSetting('seerr_url');

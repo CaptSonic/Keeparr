@@ -8,6 +8,7 @@ import {
   replaceArrUnmatched,
   seerrRequestKeys,
   upsertMediaBatch,
+  upsertWatchBatch,
   upsertUser,
   watchedRatingKeys,
   queryLibrary,
@@ -289,6 +290,9 @@ describe('syncSizes', () => {
 
 describe('syncWatchHistory', () => {
   it('uses native backend watch data when available', async () => {
+    upsertWatchBatch([
+      { plexUserId: 'old-source', ratingKey: 'stale', plays: 1, lastWatched: 100 },
+    ]);
     fakeBackend = {
       ...backendWith([], {}),
       getWatchData: async () => [
@@ -299,6 +303,7 @@ describe('syncWatchHistory', () => {
     expect(res.result).toBe(1);
     expect(res.message).toContain('native');
     expect(watchedRatingKeys('u1').has('1')).toBe(true);
+    expect(watchedRatingKeys('old-source').has('stale')).toBe(false);
   });
 
   it('reports no source when the backend has none and Tautulli is unconfigured', async () => {

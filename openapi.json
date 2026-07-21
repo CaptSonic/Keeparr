@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Keeparr API",
-    "version": "0.3.10",
+    "version": "0.4.0",
     "description": "Keeparr tags what to keep and reports what can be deleted — it never deletes anything itself.\n\n**Authentication**: most endpoints use the `keeparr_session` cookie (set by logging in through the web UI). Endpoints marked with `X-Api-Key` security also accept the admin API key (Settings → General) in the `X-Api-Key` header — intended for automation (`/api/stats`, `/api/admin/jobs`).\n\nAll ids (`ratingKey`) are the media server's item ids (Plex ratingKey or Jellyfin/Emby item id)."
   },
   "servers": [{ "url": "/", "description": "This Keeparr instance" }],
@@ -51,6 +51,65 @@
           "quality": { "type": "string" },
           "tags": { "type": "array", "items": { "type": "string" } }
         }
+      },
+      "ReclaimQueueItem": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/MediaCard"
+          },
+          {
+            "type": "object",
+            "required": [
+              "score",
+              "strength",
+              "reasons",
+              "lastWatched",
+              "markedForDeleteAny"
+            ],
+            "properties": {
+              "score": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "strength": {
+                "type": "string",
+                "enum": [
+                  "review",
+                  "medium",
+                  "strong"
+                ]
+              },
+              "reasons": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "code",
+                    "label",
+                    "points"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "points": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              },
+              "lastWatched": {
+                "type": "integer",
+                "nullable": true,
+                "description": "Newest server-wide watch timestamp (Unix seconds)"
+              }
+            }
+          }
+        ]
       },
       "HealthIssue": {
         "type": "object",
@@ -279,6 +338,99 @@
         "tags": ["media"],
         "summary": "Values for the Browse arr filter dropdowns",
         "responses": { "200": { "description": "`{instances, tags, qualities, statuses}`" } }
+      }
+    },
+    "/api/reclaim-queue": {
+      "get": {
+        "tags": [
+          "insights"
+        ],
+        "summary": "Explainable Smart Reclaim priority queue (session only)",
+        "description": "Returns only titles kept by nobody. The deterministic score combines size (5–30), requester OK-to-delete (+30), watch age (+5–25), terminal Sonarr/Radarr status (+10), and material size mismatch (+5). Missing integrations are neutral; watch scoring activates only after a successful watch refresh. This endpoint never deletes or mutates media.",
+        "parameters": [
+          {
+            "name": "sections",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Comma list of library ids (empty = all)"
+          },
+          {
+            "name": "minScore",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100,
+              "default": 0
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One 40-item page plus totals for the filtered candidate set",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ReclaimQueueItem"
+                      }
+                    },
+                    "summary": {
+                      "type": "object",
+                      "properties": {
+                        "items": {
+                          "type": "integer"
+                        },
+                        "bytes": {
+                          "type": "integer"
+                        },
+                        "strong": {
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    "signals": {
+                      "type": "object",
+                      "properties": {
+                        "watch": {
+                          "type": "boolean",
+                          "description": "Configured and successfully refreshed"
+                        },
+                        "arr": {
+                          "type": "boolean"
+                        }
+                      }
+                    },
+                    "hasMore": {
+                      "type": "boolean"
+                    },
+                    "nextOffset": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Valid web session required"
+          }
+        }
       }
     },
     "/api/search": {

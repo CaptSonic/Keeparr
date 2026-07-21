@@ -39,6 +39,7 @@ import {
   type LibraryQuery,
   listUsers,
   queryLibrary,
+  queryReclaimQueue,
   searchMedia,
   reclaimableItems,
   reclaimableTotalBytes,
@@ -619,6 +620,87 @@ describe('reclaimable + library views', () => {
     expect(row.kept_bytes + row.dontcare_bytes + row.undecided_bytes).toBe(
       row.bytes
     );
+  });
+});
+
+describe('Smart Reclaim Queue', () => {
+  const arr = (ratingKey: string, status: string, arrSizeBytes: number): ArrItemInput => ({
+    ratingKey,
+    source: 'sonarr',
+    instanceId: 's1',
+    instanceName: 'Sonarr',
+    arrId: 1,
+    monitored: true,
+    status,
+    quality: 'HD-1080p',
+    qualityKind: 'profile',
+    rootFolder: '/tv',
+    arrSizeBytes,
+    tags: [],
+  });
+
+  it('excludes every title protected by any user and exposes aggregate totals', () => {
+    upsertMediaBatch([
+      media('protected', { sizeBytes: 200 * GB }),
+      media('candidate', { sizeBytes: 20 * GB }),
+    ]);
+    addKeep('other', 'protected');
+    const rows = queryReclaimQueue({
+      plexUserId: 'me', watchAvailable: false, arrAvailable: false,
+      limit: 10, offset: 0,
+    });
+    expect(rows.map((r) => r.rating_key)).toEqual(['candidate']);
+    expect(rows[0]).toMatchObject({
+      total_items: 1,
+      total_bytes: 20 * GB,
+      total_strong: 0,
+    });
+  });
+
+  it('scores only available signals and orders deterministically', () => {
+    const old = Math.floor(Date.now() / 1000) - 400 * 86400;
+    upsertMediaBatch([
+      media('strong', { sizeBytes: 120 * GB }),
+      media('medium', { sizeBytes: 20 * GB }),
+      media('small', { sizeBytes: 1 * GB }),
+    ]);
+    addDelete('requester', 'strong');
+    upsertWatchBatch([
+      { plexUserId: 'viewer', ratingKey: 'medium', plays: 1, lastWatched: old },
+      { plexUserId: 'viewer', ratingKey: 'small', plays: 1, lastWatched: Math.floor(Date.now() / 1000) },
+    ]);
+    replaceArrItems([
+      arr('strong', 'ended', 10 * GB),
+      arr('medium', 'continuing', 20 * GB),
+    ]);
+    const rows = queryReclaimQueue({
+      plexUserId: 'me', watchAvailable: true, arrAvailable: true,
+      limit: 10, offset: 0,
+    });
+    expect(rows.map((r) => r.rating_key)).toEqual(['strong', 'medium', 'small']);
+    expect(rows[0]).toMatchObject({
+      size_points: 30, delete_points: 30, watch_points: 25,
+      status_points: 10, mismatch_points: 5, score: 100, total_strong: 1,
+    });
+    expect(rows[1]).toMatchObject({ watch_points: 15, score: 35 });
+    expect(rows[2]).toMatchObject({ watch_points: 0, score: 5 });
+  });
+
+  it('treats unavailable watch and arr sources as neutral and supports filters', () => {
+    upsertMediaBatch([
+      media('one', { sectionId: '1', sizeBytes: 120 * GB }),
+      media('two', { sectionId: '2', sizeBytes: 20 * GB }),
+    ]);
+    addDelete('someone', 'two');
+    const rows = queryReclaimQueue({
+      plexUserId: 'me', sectionIds: ['2'], minScore: 45,
+      watchAvailable: false, arrAvailable: false, limit: 10, offset: 0,
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      rating_key: 'two', score: 50, watch_points: 0,
+      status_points: 0, mismatch_points: 0,
+    });
   });
 });
 

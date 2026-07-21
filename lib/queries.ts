@@ -1089,6 +1089,122 @@ export function reclaimableItems(limit: number, offset: number): MediaItem[] {
     .all(limit, offset) as MediaItem[];
 }
 
+/** Raw, explainable signals for one Smart Reclaim Queue candidate. */
+export interface ReclaimQueueRow extends MediaItem {
+  skipped: number;
+  marked_for_delete_by_me: number;
+  marked_for_delete_any: number;
+  last_watched_any: number | null;
+  arr_status: string | null;
+  arr_size_bytes: number | null;
+  size_points: number;
+  delete_points: number;
+  watch_points: number;
+  status_points: number;
+  mismatch_points: number;
+  score: number;
+  total_items: number;
+  total_bytes: number;
+  total_strong: number;
+}
+
+/**
+ * Titles protected by nobody, ranked by transparent reclaim signals. Optional
+ * integrations only contribute when configured; a missing source is neutral.
+ */
+export function queryReclaimQueue(q: {
+  plexUserId: string;
+  sectionIds?: string[];
+  minScore?: number;
+  watchAvailable: boolean;
+  arrAvailable: boolean;
+  limit: number;
+  offset: number;
+}): ReclaimQueueRow[] {
+  const params: Record<string, unknown> = {
+    uid: q.plexUserId,
+    now: now(),
+    minScore: Math.max(0, Math.min(100, q.minScore ?? 0)),
+    limit: q.limit,
+    offset: q.offset,
+    watchAvailable: q.watchAvailable ? 1 : 0,
+    arrAvailable: q.arrAvailable ? 1 : 0,
+  };
+  let sectionSql = '';
+  if (q.sectionIds?.length) {
+    const named = q.sectionIds.map((_, i) => `@rqSec${i}`);
+    q.sectionIds.forEach((id, i) => (params[`rqSec${i}`] = id));
+    sectionSql = `AND m.section_id IN (${named.join(', ')})`;
+  }
+
+  return getDb()
+    .prepare(
+      `WITH signals AS (
+         SELECT m.*,
+                (s.rating_key IS NOT NULL) AS skipped,
+                (ud.rating_key IS NOT NULL) AS marked_for_delete_by_me,
+                EXISTS (SELECT 1 FROM user_deletes d WHERE d.rating_key = m.rating_key)
+                  AS marked_for_delete_any,
+                (SELECT MAX(w.last_watched) FROM watch_history w
+                  WHERE w.rating_key = m.rating_key) AS last_watched_any,
+                a.status AS arr_status, a.arr_size_bytes AS arr_size_bytes,
+                CASE
+                  WHEN m.size_bytes >= 107374182400 THEN 30
+                  WHEN m.size_bytes >= 53687091200 THEN 25
+                  WHEN m.size_bytes >= 21474836480 THEN 20
+                  WHEN m.size_bytes >= 10737418240 THEN 15
+                  WHEN m.size_bytes >= 5368709120 THEN 10
+                  ELSE 5
+                END AS size_points,
+                CASE WHEN EXISTS (
+                  SELECT 1 FROM user_deletes d WHERE d.rating_key = m.rating_key
+                ) THEN 30 ELSE 0 END AS delete_points,
+                CASE
+                  WHEN @watchAvailable = 0 THEN 0
+                  WHEN NOT EXISTS (
+                    SELECT 1 FROM watch_history w WHERE w.rating_key = m.rating_key
+                  ) THEN 25
+                  WHEN (SELECT MAX(w.last_watched) FROM watch_history w
+                        WHERE w.rating_key = m.rating_key) < @now - 31536000 THEN 15
+                  WHEN (SELECT MAX(w.last_watched) FROM watch_history w
+                        WHERE w.rating_key = m.rating_key) < @now - 15552000 THEN 10
+                  WHEN (SELECT MAX(w.last_watched) FROM watch_history w
+                        WHERE w.rating_key = m.rating_key) < @now - 7776000 THEN 5
+                  ELSE 0
+                END AS watch_points,
+                CASE WHEN @arrAvailable = 1 AND LOWER(COALESCE(a.status, ''))
+                  IN ('ended', 'released', 'deleted') THEN 10 ELSE 0 END AS status_points,
+                CASE WHEN @arrAvailable = 1 AND a.arr_size_bytes IS NOT NULL
+                  AND ABS(m.size_bytes - a.arr_size_bytes) > 1073741824
+                  AND ABS(m.size_bytes - a.arr_size_bytes) > 0.1 * m.size_bytes
+                  THEN 5 ELSE 0 END AS mismatch_points
+         FROM media_items m
+         LEFT JOIN user_skips s
+           ON s.rating_key = m.rating_key AND s.plex_user_id = @uid
+         LEFT JOIN user_deletes ud
+           ON ud.rating_key = m.rating_key AND ud.plex_user_id = @uid
+         LEFT JOIN arr_items a ON a.rating_key = m.rating_key
+         WHERE m.removed = 0
+           AND NOT EXISTS (SELECT 1 FROM keeps k WHERE k.rating_key = m.rating_key)
+           ${sectionSql}
+       ), scored AS (
+         SELECT *, size_points + delete_points + watch_points + status_points
+                   + mismatch_points AS score
+         FROM signals
+       ), filtered AS (
+         SELECT * FROM scored WHERE score >= @minScore
+       )
+       SELECT *, COUNT(*) OVER () AS total_items,
+                 COALESCE(SUM(size_bytes) OVER (), 0) AS total_bytes,
+                 COALESCE(SUM(CASE WHEN score >= 70 THEN 1 ELSE 0 END) OVER (), 0)
+                   AS total_strong
+       FROM filtered
+       ORDER BY score DESC, size_bytes DESC, title COLLATE NOCASE ASC, rating_key ASC
+       LIMIT @limit OFFSET @offset`
+    )
+    .all(params) as ReclaimQueueRow[];
+}
+
 /**
  * Largest titles NOBODY on the server has ever watched, largest first. The
  * strongest reclaim signal (Big Picture "Never watched" drill-down). Carries
@@ -1382,6 +1498,24 @@ export function upsertWatchBatch(
   return rows.length;
 }
 
+/** Replace the complete watch cache after a successful full-source refresh. */
+export function replaceWatchBatch(
+  rows: {
+    plexUserId: string;
+    ratingKey: string;
+    plays: number;
+    lastWatched: number | null;
+  }[]
+): number {
+  const db = getDb();
+  const replace = db.transaction((rs: typeof rows) => {
+    db.prepare('DELETE FROM watch_history').run();
+    upsertWatchBatch(rs);
+  });
+  replace(rows);
+  return rows.length;
+}
+
 /** Rating keys the given user has watched (for the "you watched" badge). */
 export function watchedRatingKeys(plexUserId: string): Set<string> {
   const rows = getDb()
@@ -1588,7 +1722,13 @@ export function clearSeerrRequests(): number {
 
 /** Clear cached watch history (rebuilt by the Tautulli job). */
 export function clearWatchHistory(): number {
-  return getDb().prepare('DELETE FROM watch_history').run().changes;
+  const db = getDb();
+  return db.transaction(() => {
+    const changes = db.prepare('DELETE FROM watch_history').run().changes;
+    // A cleared cache must not be interpreted as a successful empty refresh.
+    db.prepare("DELETE FROM settings WHERE key = 'watch_source_fingerprint'").run();
+    return changes;
+  })();
 }
 
 /**

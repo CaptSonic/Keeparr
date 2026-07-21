@@ -45,6 +45,12 @@ per-user. See README.md for the feature overview.
 - The size unit on cards is `x.xx GB` via `formatGB` in `lib/format.ts`. Library/
   storage aggregates (sidebar sizes, the storage header) use `formatSize`, which
   auto-switches GB↔TB at 2 decimals.
+- **Smart Reclaim safety is a hard query invariant:** `queryReclaimQueue` excludes
+  a title when *any* `keeps` row exists. Never weaken this to a caller-only keep.
+  Its score is deterministic and explainable: size 5–30, any requester release 30,
+  watch age 5–25, terminal *arr status 10, material size mismatch 5. Optional
+  integrations are neutral; watch scoring activates only after the `watch` job has
+  completed successfully. Keeparr never executes a deletion.
 
 ## Architecture
 
@@ -102,6 +108,7 @@ app/
                      selection via rail, + Sonarr/Radarr quality/tag/monitored filters)
   search/            AppShell → SearchResults
   stats/             AppShell → StatsView (full-width dashboard)
+  reclaim/           AppShell → ReclaimQueue (explainable, protected-title-safe queue)
   api-docs/          interactive API reference (Scalar over /api/openapi.json;
                      session-gated server component + client dynamic import)
   settings/<tab>/    admin Settings sub-tabs: general, users, connections, libraries,
@@ -110,7 +117,8 @@ app/
 components/          AppShell (rail + top bar + user menu), MediaCard (grid), MediaRow
                      (Browse List view), MultiSelect (grouped checkbox-dropdown filter),
                      useKeepState (shared keep/skip hook), KeepView,
-                     LibraryBrowser, StatsView, UsersManager, SearchBox, SearchResults;
+                     LibraryBrowser, ReclaimQueue, StatsView, UsersManager, SearchBox,
+                     SearchResults;
                      breakdown.tsx (shared keep/reclaim visual language: StackedBar,
                        Donut, LegendRow + the TONE palette — used by KeepView's totals
                        column and the StatsView dashboard);
@@ -272,6 +280,14 @@ when it has no tvdb/tmdb **and** no imdb.
   multi-value filters restrict to arr-matched titles; `match`/`sizeMismatch` don't.)
 - `GET /api/library/facets` → `{instances,tags,qualities,statuses}` for the Browse
   arr filter dropdowns (from `arrFacets()`).
+- `GET /api/reclaim-queue?sections=<id,id,…>&minScore=0..100&offset=` — session-only
+  Smart Reclaim page (40 rows). `queryReclaimQueue` first excludes every globally
+  kept title, then ranks candidates by explicit signal points and returns reason
+  chips plus filtered-set totals (`items`, `bytes`, `strong`). Watch points are
+  enabled only when watch data is configured **and** the `watch` job's last status
+  is `ok`; missing/not-yet-synced watch and missing *arr are neutral. Strengths:
+  review <45, medium 45–69, strong 70+. This route deliberately does **not** accept
+  `X-Api-Key` and performs no deletion.
 - `GET /api/search?q=&offset=` → ranked results (exact>prefix>word>substring,
   multi-token AND), with kept + per-user skipped/watched/requestedByMe +
   markedForDeleteByMe/markedForDeleteAny flags (so search cards show the "OK to

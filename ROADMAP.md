@@ -78,6 +78,44 @@ un-parked (a weekly reclaimable digest fits Keeparr's purpose),
 is the most strategically interesting (turns Keeparr's report into automated
 maintenance without Keeparr itself ever deleting).
 
+## Next-level workflow — Smart Reclaim Queue done; campaigns proposed
+
+The strongest product-level next step is a guided workflow from Keeparr's
+existing reclaim insights to a household-reviewed action list — while keeping
+the core promise that Keeparr **never deletes media itself**.
+
+Delivery stages:
+
+1. [x] **Smart Reclaim Queue** — implemented July 2026. A deterministic,
+   explainable priority list using
+   signals Keeparr already stores: protected by nobody, never/stale watched,
+   requester marked OK-to-delete, size on disk, ended status, and optional
+   quality/size mismatch. Every suggestion must show its reasons; no opaque AI
+   score or external service is required. The authenticated `/reclaim` page and
+   session-only `/api/reclaim-queue` expose score filters, aggregate potential,
+   source readiness, and one-click **Protect / Keep**. Any keep excludes the title
+   in SQL; unavailable integrations are neutral and watch scoring waits for one
+   successful watch refresh.
+2. [ ] **Cleanup Campaigns** — an admin sets a reclaim target and deadline, Keeparr
+   snapshots candidate titles, household members review or protect them, and a
+   final report/export records planned, reviewed, released, and protected
+   bytes. Include a grace period and preserve the rule that any keep wins.
+3. [ ] **Optional automation bridge** — explicit opt-in export/webhook or a future
+   Maintainerr-compatible label/collection. Any external release marker must
+   be removed immediately when a user keeps the title. Preview/report-only is
+   the default.
+
+Suggested order after the first queue: validate Jellyfin/Emby against live
+servers, add storage-history snapshots, then add an in-app weekly reclaim
+digest before considering external notification agents.
+
+**Documentation gate:** completed for Smart Reclaim phase 1. Before committing
+future campaign/automation work, update
+`README.md` (user-facing behavior and setup), `CLAUDE.md` (architecture,
+schema/routes/settings and canonical rules), `openapi.json` for any API changes,
+and this roadmap's status. Add real-SQL tests for scoring, protection,
+campaign snapshots, and state transitions.
+
 ## Explicitly not doing
 
 - **Analytics/telemetry toggle** — Keeparr collects nothing, so there is

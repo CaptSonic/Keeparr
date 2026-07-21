@@ -13,6 +13,8 @@ import {
   getSonarrInstances,
   getRadarrInstances,
   isArrConfigured,
+  getWatchSourceFingerprint,
+  writeSetting,
 } from './settings';
 import { aggregatedWatchHistory } from './tautulli';
 import { requestedRatingKeysForUser } from './seerr';
@@ -28,7 +30,7 @@ import {
   tombstoneStale,
   updateItemSize,
   upsertMediaBatch,
-  upsertWatchBatch,
+  replaceWatchBatch,
   type ArrItemInput,
   type ArrUnmatchedInput,
   type UpsertMediaInput,
@@ -192,7 +194,12 @@ export async function syncWatchHistory(): Promise<JobResult> {
   if (isServerConfigured()) {
     const native = await getBackend().getWatchData();
     if (native) {
-      const n = upsertWatchBatch(native);
+      const n = replaceWatchBatch(native);
+      const fingerprint = getWatchSourceFingerprint();
+      // A custom/test backend may provide native data without a complete
+      // persisted source configuration. Keep the refresh successful but leave
+      // readiness neutral unless the source can be identified safely.
+      if (fingerprint) writeSetting('watch_source_fingerprint', fingerprint);
       return { result: n, message: `Refreshed ${n} watch-history rows (native).` };
     }
   }
@@ -200,7 +207,9 @@ export async function syncWatchHistory(): Promise<JobResult> {
     return { result: 0, message: 'No watch source configured.' };
   }
   const rows = await aggregatedWatchHistory(getTautulliUrl()!, getTautulliKey()!);
-  const n = upsertWatchBatch(rows);
+  const n = replaceWatchBatch(rows);
+  const fingerprint = getWatchSourceFingerprint();
+  if (fingerprint) writeSetting('watch_source_fingerprint', fingerprint);
   return { result: n, message: `Refreshed ${n} watch-history rows.` };
 }
 

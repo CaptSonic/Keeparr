@@ -31,6 +31,7 @@ import {
   setSonarrInstances,
   setStorageMappings,
   writeSetting,
+  getWatchSourceFingerprint,
   type MediaServerType,
 } from './settings';
 import { DEV_USER_ID } from './dev-constants';
@@ -388,6 +389,7 @@ export function seedDevData(opts: { reset?: boolean } = {}): SeedResult {
     ['requests', 'ok', 'Cached Seerr requests for 1 user(s).', 1],
     ['arr', 'ok', 'Matched 300 of 300 titles (0 unmatched).', 300],
   ];
+  writeSetting('watch_source_fingerprint', getWatchSourceFingerprint()!);
   for (const [jobId, status, msg, result] of jobStates) {
     setJobState(jobId, {
       lastStatus: status,

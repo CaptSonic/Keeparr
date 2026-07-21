@@ -10,7 +10,9 @@ password). Keeparr reads whatever libraries you have, along with each series'/mo
 keeping; keeps are **per-user but protective** — an item is kept (safe) if
 **anyone** keeps it, and you can only remove your own keep. Keep and "don't
 care" are mutually exclusive per person. Everything nobody keeps shows up in a
-**Reclaimable** report, largest first.
+**Reclaimable** report, largest first. **Smart Reclaim** turns the same safe set
+into an explainable priority queue using size, requester sign-off, watch age, and
+optional Sonarr/Radarr signals.
 
 Keeparr **never deletes anything** — it only tags and reports. You delete
 manually in Plex / Jellyfin / Emby / Sonarr / Radarr.
@@ -76,6 +78,14 @@ manually in Plex / Jellyfin / Emby / Sonarr / Radarr.
   Keeps are per-user but protective: an item stays safe while anyone keeps it, and
   you only remove your own keep. Marking "I don't care" clears your keep (and
   vice-versa) and greys the card.
+- **Smart Reclaim** — a ranked, transparent action list containing **only titles
+  nobody keeps**. Every suggestion shows its deterministic score and point reasons:
+  size (5–30), any requester's **OK to delete** (+30), never/stale watched (+5–25),
+  finished/released Sonarr or Radarr status (+10), and a material media-server vs
+  *arr size mismatch (+5). Missing watch or *arr data is neutral; watch scoring stays
+  off until a watch refresh succeeds. Filter to all, medium (45+), or strong (70+)
+  candidates. **Protect / Keep** removes a title immediately; Keeparr still performs
+  no deletion or external mutation.
 - **OK to delete** (needs Seerr) — the person who originally **requested** a title
   can sign off on it ("I'm done with it"). The button only appears on titles *you*
   requested, in Browse and the keep loop. It's a fourth, mutually-exclusive state
@@ -398,6 +408,8 @@ required), backed by the OpenAPI spec at `/api/openapi.json` (also in the repo
 root as `openapi.json`).
 
 - Most endpoints use the session cookie from the web login.
+- `GET /api/reclaim-queue` is session-only and powers Smart Reclaim; it does not
+  accept the automation API key.
 - For automation, generate an **API key** (Settings → General → API access) and
   send it as the `X-Api-Key` header. It works on `GET/POST /api/admin/jobs`
   (read job status / trigger refreshes) and `GET /api/stats` (largest /
