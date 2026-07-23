@@ -326,6 +326,14 @@ export const getApiKey = () => readSetting('api_key');
 export const setApiKey = (key: string) => writeSetting('api_key', key);
 export const isApiKeyConfigured = () => !!getApiKey();
 
+// --- Optional read-only automation bridge ---
+// Disabled by default even when an API key exists: exposing campaign decisions to
+// an external consumer must be a separate, deliberate admin opt-in.
+export const isAutomationBridgeEnabled = () =>
+  readSetting('automation_bridge_enabled') === 'true';
+export const setAutomationBridgeEnabled = (enabled: boolean) =>
+  writeSetting('automation_bridge_enabled', enabled ? 'true' : 'false');
+
 // --- Backups ---
 /** How many backup files to keep (oldest pruned first). */
 export function getBackupRetention(): number {

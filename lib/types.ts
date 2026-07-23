@@ -115,6 +115,26 @@ export interface CleanupCampaignDetail extends CleanupCampaignSummary {
   items: CleanupCampaignItem[];
 }
 
+/** Read-only hand-off candidate exposed by the optional automation bridge. */
+export interface AutomationReleaseItem {
+  campaignId: number;
+  campaignName: string;
+  campaignClosedAt: number;
+  ratingKey: string;
+  sectionId: string;
+  libraryKind: LibraryKind;
+  title: string;
+  year: number | null;
+  sizeBytes: number;
+  score: number;
+  rank: number;
+  reasons: { code: string; label: string; points: number }[];
+  reviewCount: number;
+  guidTmdb: string | null;
+  guidTvdb: string | null;
+  guidImdb: string | null;
+}
+
 export interface SessionUser {
   plexUserId: string;
   username: string | null;

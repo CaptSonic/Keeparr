@@ -16,6 +16,7 @@ import {
   getAppUrl,
   getTautulliUrl,
   isApiKeyConfigured,
+  isAutomationBridgeEnabled,
   isSeerrConfigured,
   isServerConfigured,
   isTautulliConfigured,
@@ -24,6 +25,7 @@ import {
   setJobSchedules,
   setManagedSectionIds,
   setApiKey,
+  setAutomationBridgeEnabled,
   setAppTitle,
   setAppUrl,
   getApiKey,
@@ -118,6 +120,7 @@ export async function GET() {
       // The automation key IS returned (admin-only route) so the UI can show a
       // masked copy-able field, Servarr-style. Service secrets stay hidden.
       apiKey: getApiKey() ?? '',
+      automationBridgeEnabled: isAutomationBridgeEnabled(),
       backupRetention: getBackupRetention(),
     });
   } catch (e) {
@@ -145,6 +148,8 @@ interface PutBody {
   appUrl?: string;
   /** New API key value, or '' to clear it. */
   apiKey?: string;
+  /** Expose closed, currently unprotected campaign releases via the read-only API. */
+  automationBridgeEnabled?: boolean;
   /** How many backup files to keep (oldest pruned first). */
   backupRetention?: number;
 }
@@ -218,6 +223,10 @@ export async function PUT(req: Request) {
 
     if (typeof body.apiKey === 'string') {
       setApiKey(body.apiKey.trim());
+    }
+
+    if (typeof body.automationBridgeEnabled === 'boolean') {
+      setAutomationBridgeEnabled(body.automationBridgeEnabled);
     }
 
     if (typeof body.backupRetention === 'number' && body.backupRetention >= 1) {

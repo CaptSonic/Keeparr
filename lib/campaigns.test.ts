@@ -6,6 +6,7 @@ import {
   closeCleanupCampaign,
   createCleanupCampaign,
   getCleanupCampaignDetail,
+  listAutomationReleases,
   removeCleanupCampaignReview,
   reviewCleanupCampaignItem,
   upsertMediaBatch,
@@ -90,5 +91,40 @@ describe('Cleanup Campaigns', () => {
     vi.setSystemTime((base + 100 + 86400) * 1000);
     expect(closeCleanupCampaign(c.id)).toBe(true);
     expect(getCleanupCampaignDetail(c.id, 'member')!.status).toBe('closed');
+  });
+
+  it('exports only reviewed items from closed campaigns and applies keeps live', () => {
+    const start = new Date('2026-07-21T12:00:00Z');
+    vi.useFakeTimers();
+    vi.setSystemTime(start);
+    const base = Math.floor(start.getTime() / 1000);
+    upsertMediaBatch([item('release', 10 * GB), item('pending', 5 * GB)]);
+    const c = createCleanupCampaign({
+      name: 'Bridge', targetBytes: GB, deadlineAt: base + 60,
+      gracePeriodDays: 0, minScore: 0, createdBy: 'admin',
+      watchAvailable: false, arrAvailable: false,
+    });
+    reviewCleanupCampaignItem(c.id, 'release', 'member');
+    expect(listAutomationReleases()).toEqual([]);
+    vi.setSystemTime((base + 61) * 1000);
+    expect(closeCleanupCampaign(c.id)).toBe(true);
+    expect(listAutomationReleases()).toHaveLength(1);
+    expect(listAutomationReleases()[0]).toMatchObject({
+      campaignId: c.id, ratingKey: 'release', reviewCount: 1,
+    });
+    // Reusing a title in another closed campaign must not produce duplicate
+    // downstream actions; the newest closed campaign is the canonical release.
+    const newer = createCleanupCampaign({
+      name: 'Bridge 2', targetBytes: GB, deadlineAt: base + 120,
+      gracePeriodDays: 0, minScore: 0, createdBy: 'admin',
+      watchAvailable: false, arrAvailable: false,
+    });
+    reviewCleanupCampaignItem(newer.id, 'release', 'other');
+    vi.setSystemTime((base + 121) * 1000);
+    closeCleanupCampaign(newer.id);
+    expect(listAutomationReleases()).toHaveLength(1);
+    expect(listAutomationReleases()[0]).toMatchObject({ campaignId: newer.id, ratingKey: 'release' });
+    addKeep('protector', 'release');
+    expect(listAutomationReleases()).toEqual([]);
   });
 });

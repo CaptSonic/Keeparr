@@ -106,6 +106,14 @@ manually in Plex / Jellyfin / Emby / Sonarr / Radarr.
   so released/protected totals and the admin CSV reflect the current safety state.
   Admins can close only after deadline + grace period. Campaigns report planned,
   reviewed, released, and protected titles/bytes and never execute deletion.
+- **Optional automation bridge** — an admin can explicitly enable a read-only
+  JSON hand-off under **Settings → General → API access**. `GET
+  /api/automation/releases` returns one current record per released title from a
+  **closed** campaign, including stable TMDB/TVDB/IMDb ids when available. Active
+  campaigns, pending titles, removed media, and anything currently kept by anyone
+  are excluded. The response is recalculated on every request (`no-store`), so a
+  later keep removes the title immediately. This is report-only: Keeparr sends no
+  webhook and never labels, deletes, or otherwise mutates an external system.
 - **OK to delete** (needs Seerr) — the person who originally **requested** a title
   can sign off on it ("I'm done with it"). The button only appears on titles *you*
   requested, in Browse and the keep loop. It's a fourth, mutually-exclusive state
@@ -443,11 +451,22 @@ root as `openapi.json`).
   send it as the `X-Api-Key` header. It works on `GET/POST /api/admin/jobs`
   (read job status / trigger refreshes) and `GET /api/stats` (largest /
   reclaimable / never-watched / marked-for-delete views).
+- `GET /api/automation/releases` is the optional read-only Cleanup Campaign
+  bridge. It accepts an admin session or `X-Api-Key`, but returns data only after
+  the separate **Enable read-only automation bridge** opt-in is saved. Only
+  reviewed, currently unprotected items from closed campaigns are returned; one
+  latest closed-campaign record is emitted per media-server item. Consumers must
+  treat each response as the full current desired set and stop acting on ids that
+  disappear after a household keep.
 
 ```bash
 # Trigger the library scan from a cron/script:
 curl -X POST -H "X-Api-Key: <key>" -H "Content-Type: application/json" \
   -d '{"job":"library"}' https://keeparr.example.net/api/admin/jobs
+
+# Pull the current report-only hand-off set (after enabling the bridge):
+curl -H "X-Api-Key: <key>" \
+  https://keeparr.example.net/api/automation/releases
 ```
 
 **Telemetry: none.** Keeparr never phones home; its only outbound call beyond

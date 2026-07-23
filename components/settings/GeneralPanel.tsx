@@ -11,6 +11,7 @@ export default function GeneralPanel() {
   const [appTitle, setAppTitle] = useState('');
   const [appUrl, setAppUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
+  const [automationBridgeEnabled, setAutomationBridgeEnabled] = useState(false);
   const [keyDirty, setKeyDirty] = useState(false); // regenerated but not saved yet
   const [showKey, setShowKey] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -24,6 +25,7 @@ export default function GeneralPanel() {
         setAppTitle(d.appTitle ?? 'Keeparr');
         setAppUrl(d.appUrl ?? '');
         setApiKey(d.apiKey ?? '');
+        setAutomationBridgeEnabled(d.automationBridgeEnabled === true);
       })
       .catch(() => {});
   }, []);
@@ -55,6 +57,7 @@ export default function GeneralPanel() {
           appTitle,
           appUrl,
           ...(keyDirty ? { apiKey } : {}),
+          automationBridgeEnabled,
         }),
       });
       if (!res.ok) throw new Error(String(res.status));
@@ -145,6 +148,24 @@ export default function GeneralPanel() {
             {de ? 'API-Dokumentation →' : 'API docs →'}
           </a>
         </div>
+        <label className="mt-5 flex items-start gap-3 text-sm text-slate-300">
+          <input
+            type="checkbox"
+            className="mt-1 accent-violet-500"
+            checked={automationBridgeEnabled}
+            onChange={(e) => setAutomationBridgeEnabled(e.target.checked)}
+          />
+          <span>
+            <span className="font-medium text-slate-200">
+              {de ? 'Read-only Automation Bridge aktivieren' : 'Enable read-only automation bridge'}
+            </span>
+            <span className="mt-1 block text-xs text-slate-500">
+              {de
+                ? 'Erlaubt API-Schlüssel-Abrufe von /api/automation/releases. Enthalten sind nur freigegebene Titel aus geschlossenen Kampagnen, die aktuell niemand schützt. Keeparr schreibt oder löscht weiterhin nichts extern.'
+                : 'Allows API-key reads from /api/automation/releases. Only released titles from closed campaigns that nobody currently protects are included. Keeparr still writes or deletes nothing externally.'}
+            </span>
+          </span>
+        </label>
       </Card>
       </CardColumns>
 

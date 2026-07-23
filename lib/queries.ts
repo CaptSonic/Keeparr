@@ -2,6 +2,7 @@ import { getDb } from './db';
 import { FEED_MOVIE_RESERVE_MIN, FEED_MOVIE_RESERVE_RATIO } from './config';
 import type {
   AdminUserRow,
+  AutomationReleaseItem,
   CleanupCampaignDetail,
   CleanupCampaignItem,
   CleanupCampaignSummary,
@@ -1474,6 +1475,65 @@ export function closeCleanupCampaign(id: number): boolean {
     `UPDATE cleanup_campaigns SET status = 'closed', closed_at = ?
      WHERE id = ? AND status = 'active'`
   ).run(now(), id).changes > 0;
+}
+
+/**
+ * Current safe hand-off set for external automation. Only closed campaigns are
+ * eligible. Reviews are campaign snapshots, while media existence and the global
+ * keep veto are evaluated live so a later keep removes an item on the next read.
+ */
+export function listAutomationReleases(): AutomationReleaseItem[] {
+  const rows = getDb().prepare(
+    `WITH eligible AS (
+       SELECT c.id AS campaign_id, c.name AS campaign_name, c.closed_at,
+              ci.rating_key, ci.section_id, ci.library_kind, ci.title, ci.year,
+              ci.size_bytes, ci.score, ci.rank, ci.reasons_json,
+              (SELECT COUNT(*) FROM cleanup_campaign_reviews cr
+               WHERE cr.campaign_id = ci.campaign_id
+                 AND cr.rating_key = ci.rating_key) AS review_count,
+              m.guid_tmdb, m.guid_tvdb, m.guid_imdb,
+              ROW_NUMBER() OVER (
+                PARTITION BY ci.rating_key
+                ORDER BY c.closed_at DESC, c.id DESC
+              ) AS release_version
+       FROM cleanup_campaigns c
+       JOIN cleanup_campaign_items ci ON ci.campaign_id = c.id
+       JOIN media_items m ON m.rating_key = ci.rating_key AND m.removed = 0
+       WHERE c.status = 'closed'
+         AND EXISTS (SELECT 1 FROM cleanup_campaign_reviews cr
+                     WHERE cr.campaign_id = ci.campaign_id
+                       AND cr.rating_key = ci.rating_key)
+         AND NOT EXISTS (SELECT 1 FROM keeps k WHERE k.rating_key = ci.rating_key)
+     )
+     SELECT * FROM eligible
+     WHERE release_version = 1
+     ORDER BY closed_at ASC, campaign_id ASC, rank ASC`
+  ).all() as Array<{
+    campaign_id: number; campaign_name: string; closed_at: number;
+    rating_key: string; section_id: string; library_kind: LibraryKind;
+    title: string; year: number | null; size_bytes: number; score: number;
+    rank: number; reasons_json: string; review_count: number;
+    guid_tmdb: string | null; guid_tvdb: string | null; guid_imdb: string | null;
+    release_version: number;
+  }>;
+  return rows.map((r) => ({
+    campaignId: r.campaign_id,
+    campaignName: r.campaign_name,
+    campaignClosedAt: r.closed_at,
+    ratingKey: r.rating_key,
+    sectionId: r.section_id,
+    libraryKind: r.library_kind,
+    title: r.title,
+    year: r.year,
+    sizeBytes: r.size_bytes,
+    score: r.score,
+    rank: r.rank,
+    reasons: JSON.parse(r.reasons_json) as AutomationReleaseItem['reasons'],
+    reviewCount: r.review_count,
+    guidTmdb: r.guid_tmdb,
+    guidTvdb: r.guid_tvdb,
+    guidImdb: r.guid_imdb,
+  }));
 }
 
 /**

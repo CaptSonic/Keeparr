@@ -120,17 +120,24 @@ Delivery stages:
    including after closure. Dynamic planned/reviewed/released/protected item + byte
    totals, admin CSV export, audit events, and close-after-grace complete the report
    workflow. Keeparr still never deletes or mutates external media.
-3. [ ] **Optional automation bridge** — explicit opt-in export/webhook or a future
-   Maintainerr-compatible label/collection. Any external release marker must
-   be removed immediately when a user keeps the title. Preview/report-only is
-   the default.
+3. [x] **Optional automation bridge (read-only pull)** — implemented July 2026.
+   A separate admin opt-in exposes `GET /api/automation/releases` to an admin
+   session or the existing automation API key. It returns only reviewed titles
+   from closed campaigns that still exist and remain protected by nobody, with
+   one latest campaign record per media item and stable external ids where known.
+   Responses are live and `no-store`, so any keep removes the title on the next
+   pull. This phase is deliberately report-only: no webhook, media-server label,
+   Maintainerr write, or deletion is performed. A future push/label transport
+   would be a separate opt-in project and must preserve the same immediate keep
+   veto semantics.
 
 Suggested order after the first queue: validate Jellyfin/Emby against live
 servers, add storage-history snapshots, then add an in-app weekly reclaim
 digest before considering external notification agents.
 
-**Documentation gate:** completed for Smart Reclaim phase 1 and Cleanup Campaigns
-phase 2. Before committing future automation work, update
+**Documentation gate:** completed for Smart Reclaim phase 1, Cleanup Campaigns
+phase 2, and the read-only Automation Bridge phase 3. Before committing future
+push or external-mutation work, update
 `README.md` (user-facing behavior and setup), `CLAUDE.md` (architecture,
 schema/routes/settings and canonical rules), `openapi.json` for any API changes,
 and this roadmap's status. Add real-SQL tests for scoring, protection,

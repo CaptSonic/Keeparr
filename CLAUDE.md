@@ -206,6 +206,10 @@ The chrome is a Sonarr/Radarr-style left rail (logo → Keep; Keep / Browse[expa
   more reviews makes an unprotected item released. Keeps are deliberately not copied
   into the snapshot: a live global keep always changes the outcome to protected,
   including after campaign closure. Closing freezes workflow state, not the keep veto.
+- The optional Automation Bridge adds no tables. `listAutomationReleases()` derives
+  a live, read-only desired set from closed campaign snapshots + reviews, joins the
+  current non-removed media ids, reapplies the global keep veto, and deduplicates a
+  title appearing in multiple campaigns to its newest closed campaign record.
 - `settings` — key/value; secret values encrypted.
 - `job_state` — one row per scheduled job (`recentlyAdded`/`library`/`sizes`/`watch`/
   `requests`/`arr`): last run/status/message/duration/result. Rows stuck at
@@ -319,6 +323,11 @@ when it has no tvdb/tmdb **and** no imdb.
   deadline + grace period. Both actions write app audit events.
 - `GET /api/admin/campaigns/:id/export` — admin-only current CSV report. All campaign
   routes require a web session and deliberately do not accept `X-Api-Key`.
+- `GET /api/automation/releases` — optional read-only pull bridge; accepts an admin
+  session or `X-Api-Key`, then additionally requires `automation_bridge_enabled`.
+  Returns the full current report-only set from closed campaigns with `Cache-Control:
+  no-store`. Keeps and media tombstones are live exclusions; consumers must reconcile
+  removals. No webhook or external write occurs.
 - `GET /api/search?q=&offset=` → ranked results (exact>prefix>word>substring,
   multi-token AND), with kept + per-user skipped/watched/requestedByMe +
   markedForDeleteByMe/markedForDeleteAny flags (so search cards show the "OK to
@@ -364,7 +373,7 @@ when it has no tvdb/tmdb **and** no imdb.
 - Admin (require `is_admin`): `GET/PUT /api/admin/settings` (PUT accepts
   `storageMappings`, `managedSectionIds`, `appTitle`, `appUrl`, `apiKey`, `plexBaseUrl`,
   `jobSchedules`, `plexServer`, `tautulli`, `seerr`, `sonarrInstances`,
-  `radarrInstances`, `backupRetention` — GET returns instances as `[{id,name,url,hasKey}]`, never their
+  `radarrInstances`, `backupRetention`, `automationBridgeEnabled` — GET returns instances as `[{id,name,url,hasKey}]`, never their
   apiKeys; the automation `apiKey` IS returned so the UI can show a masked
   copy-able field, Servarr-style),
   `GET /api/admin/plex-servers`, `POST /api/admin/test-connection` (services
@@ -410,6 +419,7 @@ the legacy single `sync_interval_minutes`, which is no longer read),
 `storage_mappings` (json `{sectionId,path}[]` — container paths for free-space
 measurement), `managed_section_ids` (json; which libraries Keeparr tracks, empty =
 all), `open_signin` (`'true'`/`'false'`), `api_key`* (automation), `app_title`,
+`automation_bridge_enabled` (`'true'` only after explicit admin opt-in; defaults off),
 `app_url` (Plex sign-in forwardUrl; overrides the `APP_URL` env var),
 `backup_retention` (how many backup files to keep; default 14),
 `dev_storage_total` (demo-only synthetic capacity, set by the seed). `*` = encrypted
@@ -476,8 +486,9 @@ backend-aware UI are clickable offline (default = Plex). All inert/absent in pro
   becoming a path. `KEEPARR_DEV_LOGIN` is the only auth bypass and is env-gated +
   `NODE_ENV`-guarded + inert in production (never set it in the image).
 - **API key** (`api_key`): `requireAdminOrApiKey`/`requireUserOrApiKey` (`lib/auth.ts`)
-  accept an `X-Api-Key` header as an alternative to a session (for `/api/admin/jobs`
-  + `/api/stats`). `middleware.ts` lets `/api/` requests carrying that header past the
+  accept an `X-Api-Key` header as an alternative to a session (for `/api/admin/jobs`,
+  `/api/stats`, and the separately enabled `/api/automation/releases`). `middleware.ts`
+  lets `/api/` requests carrying that header past the
   edge session gate; the Node route validates the key.
 - Server owner's account token (`plex_admin_token`) is used for shared-user
   checks + server discovery. The per-device server token (`plex_server_token`)

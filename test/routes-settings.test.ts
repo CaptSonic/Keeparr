@@ -61,12 +61,15 @@ describe('/api/admin/settings', () => {
     expect(body.apiKeyConfigured).toBe(false);
   });
 
-  it('PUT round-trips apiKey + backupRetention', async () => {
+  it('PUT round-trips apiKey + backupRetention + automation bridge opt-in', async () => {
     await loginAs('admin', true);
-    const res = await settingsPut(putReq({ apiKey: 'fresh-key', backupRetention: 30 }));
+    const res = await settingsPut(putReq({
+      apiKey: 'fresh-key', backupRetention: 30, automationBridgeEnabled: true,
+    }));
     expect(res.status).toBe(200);
     const body = await settingsGet().then((r) => r.json());
     expect(body.apiKey).toBe('fresh-key');
+    expect(body.automationBridgeEnabled).toBe(true);
     expect(getBackupRetention()).toBe(30);
   });
 });
