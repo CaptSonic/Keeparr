@@ -195,11 +195,19 @@ manually in Plex / Jellyfin / Emby / Sonarr / Radarr.
 
 ## Local development
 
+Use **Node.js 22 LTS**, the same major version used by CI, releases, and the
+Docker image. Version managers can read `.nvmrc` (nvm) or `.node-version`
+(fnm/asdf); for example, run `nvm use` before installing dependencies.
+
 ```bash
-npm install
+npm ci
 cp .env.example .env        # set SESSION_SECRET
 npm run dev                 # http://localhost:3000
 ```
+
+Using another Node major can make native dependencies such as `better-sqlite3`
+fall back to a local C/C++ build when no matching prebuilt binary exists. Switch
+to Node 22 instead of requiring a platform compiler for the normal dev setup.
 
 The SQLite db lives at `./data/keeparr.db` locally (gitignored).
 

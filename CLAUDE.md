@@ -476,8 +476,10 @@ backend-aware UI are clickable offline (default = Plex). All inert/absent in pro
   `instrumentation.ts` **fails closed** (throws) on a production boot with a missing/
   default `SESSION_SECRET` and warns on a short one. The Docker image runs the app as a
   non-root `PUID:PGID` (root only chowns `/data`, then drops via `su-exec`), strips
-  npm/yarn/corepack from the runtime stage, pins the base image by digest, and `npm
-  audit` is clean (postcss pinned via an `overrides` entry). CI/release pin every
+  npm/yarn/corepack from the runtime stage, pins the base image by digest, and the
+  production dependency audit is clean (`postcss` and `sharp` are pinned via
+  `overrides`; CI/release gate on `npm audit --omit=dev --audit-level=high`).
+  CI/release pin every
   GitHub Action to a commit SHA (Dependabot keeps them fresh). Baseline response headers
   set in `next.config.js` (`X-Frame-Options`, `X-Content-Type-Options`,
   `Referrer-Policy`, CSP `frame-ancestors 'self'`) — deliberately NO strict
@@ -547,6 +549,12 @@ A fuller source-verified reference is in the planning doc
 
 ## Conventions
 
+- **Node.js 22 is the project runtime baseline.** `.nvmrc` is the source for
+  GitHub Actions and nvm; `.node-version` supports fnm/asdf, and
+  `package.json#engines` rejects accidental drift to another major. Use Node 22
+  for dependency/lockfile updates because native `better-sqlite3` binaries are
+  Node-major-specific. CI, releases, and the digest-pinned Docker image use the
+  same major.
 - **Theming is CSS-variable-driven**: every used color family (slate ladder,
   brand, app/rail/panel surfaces, status hues) resolves through `--c-*`
   variables (`tailwind.config.ts` → `rgb(var(--c-…) / <alpha-value>)`), with
