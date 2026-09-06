@@ -379,7 +379,8 @@
         "parameters": [
           { "name": "limit", "in": "query", "schema": { "type": "integer" } },
           { "name": "section", "in": "query", "schema": { "type": "string" }, "description": "Limit to one library" },
-          { "name": "largest", "in": "query", "schema": { "type": "string", "enum": ["1"] }, "description": "Biggest titles regardless of eligibility" }
+          { "name": "requestedByMe", "in": "query", "schema": { "type": "string", "enum": ["1"] }, "description": "Limit to titles requested by the current user via Seerr" },
+          { "name": "largest", "in": "query", "schema": { "type": "string", "enum": ["1"] }, "description": "Biggest titles regardless of keep eligibility; still respects requestedByMe when supplied" }
         ],
         "responses": { "200": { "description": "`{items: MediaCard[], remaining}`" } }
       }

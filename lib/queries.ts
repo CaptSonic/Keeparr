@@ -556,6 +556,8 @@ export interface FeedOptions {
    * Libraries are whatever Plex reports — nothing is hardcoded by category.
    */
   sectionId?: string;
+  /** Limit the feed to titles this user requested via Seerr. */
+  requestedByMe?: boolean;
   /** Override the reserved movie count for the mixed (all-libraries) feed. */
   reserveMovies?: number;
 }
@@ -590,7 +592,12 @@ export function getFeed(
   opts: FeedOptions = {}
 ): MediaItem[] {
   if (opts.sectionId) {
-    return weightedPull(plexUserId, { sectionId: opts.sectionId }, limit, []);
+    return weightedPull(
+      plexUserId,
+      { sectionId: opts.sectionId, requestedByMe: opts.requestedByMe },
+      limit,
+      []
+    );
   }
   return getFeedAll(plexUserId, limit, opts);
 }
@@ -602,7 +609,7 @@ export function getFeed(
  */
 function weightedPull(
   plexUserId: string,
-  filter: { libraryKind?: LibraryKind; sectionId?: string },
+  filter: { libraryKind?: LibraryKind; sectionId?: string; requestedByMe?: boolean },
   limit: number,
   excludeKeys: string[]
 ): MediaItem[] {
@@ -616,6 +623,12 @@ function weightedPull(
   if (filter.sectionId) {
     clauses.push('m.section_id = @sectionId');
     params.sectionId = filter.sectionId;
+  }
+  if (filter.requestedByMe) {
+    clauses.push(
+      `EXISTS (SELECT 1 FROM seerr_requests sr
+               WHERE sr.rating_key = m.rating_key AND sr.plex_user_id = @uid)`
+    );
   }
   excludeKeys.forEach((k, i) => (params[`ex${i}`] = k));
   if (excludeKeys.length) {
@@ -653,13 +666,13 @@ function getFeedAll(
 
   const movies = weightedPull(
     plexUserId,
-    { libraryKind: 'movie' },
+    { libraryKind: 'movie', requestedByMe: opts.requestedByMe },
     Math.min(reserveMovies, limit),
     []
   );
   const shows = weightedPull(
     plexUserId,
-    { libraryKind: 'show' },
+    { libraryKind: 'show', requestedByMe: opts.requestedByMe },
     limit - movies.length,
     []
   );
@@ -669,7 +682,12 @@ function getFeedAll(
     // Shows ran short — backfill with more movies we haven't used.
     const used = combined.map((m) => m.rating_key);
     combined = combined.concat(
-      weightedPull(plexUserId, { libraryKind: 'movie' }, limit - combined.length, used)
+      weightedPull(
+        plexUserId,
+        { libraryKind: 'movie', requestedByMe: opts.requestedByMe },
+        limit - combined.length,
+        used
+      )
     );
   }
 
@@ -684,18 +702,25 @@ function getFeedAll(
 /** How many items remain for this user to triage (not kept, not skipped). */
 export function countFeedRemaining(
   plexUserId: string,
-  opts: { sectionId?: string } = {}
+  opts: { sectionId?: string; requestedByMe?: boolean } = {}
 ): number {
   const params: Record<string, unknown> = { uid: plexUserId };
-  let sectionSql = '';
+  const clauses: string[] = [];
   if (opts.sectionId) {
-    sectionSql = ' AND m.section_id = @sectionId';
+    clauses.push('m.section_id = @sectionId');
     params.sectionId = opts.sectionId;
   }
+  if (opts.requestedByMe) {
+    clauses.push(
+      `EXISTS (SELECT 1 FROM seerr_requests sr
+               WHERE sr.rating_key = m.rating_key AND sr.plex_user_id = @uid)`
+    );
+  }
+  const extra = clauses.length ? ` AND ${clauses.join(' AND ')}` : '';
   const row = getDb()
     .prepare(
       `SELECT COUNT(*) AS n FROM media_items m
-       WHERE ${FEED_ELIGIBILITY}${sectionSql}`
+       WHERE ${FEED_ELIGIBILITY}${extra}`
     )
     .get(params) as { n: number };
   return row.n;
@@ -1074,7 +1099,8 @@ export function searchMedia(params: {
 export function largestItems(
   limit: number,
   offset: number,
-  plexUserId: string
+  plexUserId: string,
+  requestedByMeOnly = false
 ): MediaWithKeep[] {
   return getDb()
     .prepare(
@@ -1085,10 +1111,14 @@ export function largestItems(
        LEFT JOIN keeps km
          ON km.rating_key = m.rating_key AND km.plex_user_id = @uid
        WHERE m.removed = 0
+         AND (@requestedByMeOnly = 0 OR EXISTS (
+           SELECT 1 FROM seerr_requests sr
+           WHERE sr.rating_key = m.rating_key AND sr.plex_user_id = @uid
+         ))
        ORDER BY m.size_bytes DESC
        LIMIT @limit OFFSET @offset`
     )
-    .all({ uid: plexUserId, limit, offset }) as MediaWithKeep[];
+    .all({ uid: plexUserId, requestedByMeOnly: requestedByMeOnly ? 1 : 0, limit, offset }) as MediaWithKeep[];
 }
 
 /** Reclaimable items: NOT kept by anyone, largest first. */

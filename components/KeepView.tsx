@@ -186,7 +186,10 @@ export default function KeepView({ libraries }: { libraries: Library[] }) {
   const loadFeed = useCallback(async () => {
     const seq = ++feedSeq.current;
     setLoading(true);
-    const params = new URLSearchParams({ limit: String(FETCH_LIMIT) });
+    const params = new URLSearchParams({
+      limit: String(FETCH_LIMIT),
+      requestedByMe: '1',
+    });
     if (selection === 'largest') params.set('largest', '1');
     else if (selection !== 'all') params.set('section', selection);
     try {

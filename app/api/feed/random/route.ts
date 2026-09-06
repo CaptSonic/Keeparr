@@ -14,7 +14,8 @@ import { FEED_BATCH_SIZE } from '@/lib/config';
 export const runtime = 'nodejs';
 
 /**
- * A fresh feed batch. Query: limit, largest (1 = biggest titles overall,
+ * A fresh feed batch. Query: limit, requestedByMe (1 = only this user's Seerr
+ * requests), largest (1 = biggest titles overall,
  * regardless of library/keep-eligibility), section (a single Plex library id;
  * omit for a mix across all libraries). Categories are real Plex libraries —
  * nothing is hardcoded.
@@ -31,9 +32,10 @@ export async function GET(req: Request) {
     const watched = watchedRatingKeys(user.plexUserId);
     // So requested titles can show the "OK to delete" control in the feed.
     const requested = new Set(seerrRequestKeys(user.plexUserId));
+    const requestedByMe = p.get('requestedByMe') === '1';
 
     if (p.get('largest') === '1') {
-      const rows = largestItems(limit, 0, user.plexUserId);
+      const rows = largestItems(limit, 0, user.plexUserId, requestedByMe);
       const items = rows.map((r) => ({
         ...toCard(r, r.kept === 1, r.kept_by_me === 1, undefined, watched.has(r.rating_key)),
         requestedByMe: requested.has(r.rating_key),
@@ -42,12 +44,12 @@ export async function GET(req: Request) {
     }
 
     const sectionId = p.get('section') || undefined;
-    const rows = getFeed(user.plexUserId, limit, { sectionId });
+    const rows = getFeed(user.plexUserId, limit, { sectionId, requestedByMe });
     const items = rows.map((m) => ({
       ...toCard(m, false, undefined, undefined, watched.has(m.rating_key)),
       requestedByMe: requested.has(m.rating_key),
     }));
-    const remaining = countFeedRemaining(user.plexUserId, { sectionId });
+    const remaining = countFeedRemaining(user.plexUserId, { sectionId, requestedByMe });
     return NextResponse.json({ items, remaining });
   } catch (e) {
     return errorResponse(e);

@@ -53,8 +53,9 @@ manually in Plex / Jellyfin / Emby / Sonarr / Radarr.
   the selected locale.
 - **API key** — generate a key in Settings and send it as `X-Api-Key` to read the
   stats/reclaimable report or trigger refresh jobs from scripts (no login needed).
-- **Keep loop** — the home page shows a screen-filling batch of not-yet-kept
-  titles, a mix weighted toward the big series (with a few movies always seeded).
+- **Keep loop** — the home page shows a screen-filling batch of your own Seerr
+  requests that nobody has kept yet, weighted toward the big series (with a few
+  movies seeded when available).
   Tap to keep, then **"Next →"** marks everything you didn't keep as "you don't
   care" (per-user) and rolls a fresh set. Switch the feed to any of **your Plex
   libraries** (or **Largest**) — your choice is remembered. Designed for a

@@ -357,6 +357,26 @@ describe('feed by library + weighting', () => {
     expect(countFeedRemaining('userA', { sectionId: '2' })).toBe(2);
     expect(countFeedRemaining('userA')).toBe(4);
   });
+
+  it('limits feed items and remaining count to this user\'s Seerr requests', () => {
+    replaceSeerrRequests('userA', ['mov1', 'show1', 'show3']);
+    replaceSeerrRequests('userB', ['show2']);
+
+    const all = getFeed('userA', 10, { requestedByMe: true })
+      .map((r) => r.rating_key)
+      .sort();
+    const section = getFeed('userA', 10, {
+      sectionId: '2',
+      requestedByMe: true,
+    }).map((r) => r.rating_key);
+
+    expect(all).toEqual(['mov1', 'show1', 'show3']);
+    expect(section).toEqual(['show1']);
+    expect(countFeedRemaining('userA', { requestedByMe: true })).toBe(3);
+    expect(
+      countFeedRemaining('userA', { sectionId: '2', requestedByMe: true })
+    ).toBe(1);
+  });
 });
 
 describe('per-item skips (don\'t care)', () => {

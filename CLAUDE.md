@@ -252,9 +252,11 @@ when it has no tvdb/tmdb **and** no imdb.
   (`/api/auth/plex/pin`, `/api/auth/plex/check`) and the credential
   `/api/auth/login` are per-IP rate-limited (`lib/rate-limit.ts`); login also
   buckets per-username + globally so `X-Forwarded-For` rotation can't bypass it.
-- `GET /api/feed/random?limit=&section=&largest=1` → home batch. Default (no
+- `GET /api/feed/random?limit=&section=&requestedByMe=1&largest=1` → home batch. Default (no
   params) = screen-fill mix across **all Plex libraries**, weighted toward big
   series with a guaranteed few movies. `section=<id>` limits to one Plex library;
+  `requestedByMe=1` limits every feed variant to this user's cached Seerr requests
+  (the Keep UI always sends it);
   `largest=1` = biggest titles regardless of library/keep-eligibility
   (`remaining` is null). Categories are real Plex libraries — never hardcoded.
 - `POST/DELETE /api/keep` `{ratingKey}` — toggle **this user's** keep. POST also

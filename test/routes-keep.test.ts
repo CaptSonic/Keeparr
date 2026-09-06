@@ -209,6 +209,50 @@ describe('feed + skip-batch', () => {
     expect(body.remaining).toBe(3);
   });
 
+  it('requestedByMe=1 returns only the signed-in user\'s requests', async () => {
+    await loginAs('userA');
+    replaceSeerrRequests('userA', ['1', '3']);
+    replaceSeerrRequests('userB', ['2']);
+
+    const res = await feedRandom(
+      new Request('http://localhost/api/feed/random?requestedByMe=1')
+    );
+    const body = await res.json();
+    const keys = body.items.map((i: { ratingKey: string }) => i.ratingKey).sort();
+
+    expect(keys).toEqual(['1', '3']);
+    expect(body.remaining).toBe(2);
+  });
+
+  it('requestedByMe=1 composes with section and largest filters', async () => {
+    await loginAs('userA');
+    upsertMediaBatch([
+      media('1', { sectionId: 'one', sizeBytes: 1 * GB }),
+      media('2', { sectionId: 'two', sizeBytes: 4 * GB }),
+      media('3', { sectionId: 'two', sizeBytes: 3 * GB }),
+      media('4', { sectionId: 'one', sizeBytes: 2 * GB }),
+    ]);
+    replaceSeerrRequests('userA', ['1', '2', '4']);
+
+    const section = await feedRandom(
+      new Request('http://localhost/api/feed/random?requestedByMe=1&section=one')
+    ).then((r) => r.json());
+    const largest = await feedRandom(
+      new Request('http://localhost/api/feed/random?requestedByMe=1&largest=1')
+    ).then((r) => r.json());
+
+    expect(section.items.map((i: { ratingKey: string }) => i.ratingKey).sort()).toEqual([
+      '1',
+      '4',
+    ]);
+    expect(largest.items.map((i: { ratingKey: string }) => i.ratingKey)).toEqual([
+      '2',
+      '4',
+      '1',
+    ]);
+    expect(largest.remaining).toBeNull();
+  });
+
   it('skip-batch clears my keep + OK-to-delete on the skipped keys (exclusive)', async () => {
     await loginAs('userA');
     await keepPost(jsonReq({ ratingKey: '2' }));
