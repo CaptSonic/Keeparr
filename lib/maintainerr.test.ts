@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
 import { __closeDb, __setTestDbToMemory } from './db';
 import {
   addKeep,
+  addDelete,
   closeCleanupCampaign,
   createCleanupCampaign,
   reviewCleanupCampaignItem,
@@ -75,6 +76,23 @@ function releasedMedia(): void {
   reviewCleanupCampaignItem(campaign.id, 'show-1', 'member');
   vi.setSystemTime((BASE + 61) * 1000);
   expect(closeCleanupCampaign(campaign.id)).toBe(true);
+}
+
+function requesterReleasedMedia(): void {
+  upsertMediaBatch([
+    {
+      ratingKey: 'requester-movie', sectionId: 'movies', libraryKind: 'movie',
+      title: 'Requester movie', year: 2022, thumb: null, sizeBytes: 10 * GB, addedAt: 1,
+      guidTmdb: '3', guidTvdb: null,
+    },
+    {
+      ratingKey: 'requester-show', sectionId: 'shows', libraryKind: 'show',
+      title: 'Requester show', year: 2023, thumb: null, sizeBytes: 15 * GB, addedAt: 1,
+      guidTmdb: null, guidTvdb: '4',
+    },
+  ]);
+  addDelete('requester', 'requester-movie');
+  addDelete('requester', 'requester-show');
 }
 
 function mockMaintainerr(opts: {
@@ -162,6 +180,43 @@ describe('Maintainerr safe hand-off', () => {
       '10': ['movie-1'],
       '20': ['show-1'],
     });
+  });
+
+  it('adds direct requester OK-to-delete marks without requiring a campaign', async () => {
+    requesterReleasedMedia();
+    const { members } = mockMaintainerr();
+
+    const result = await syncMaintainerr();
+
+    expect([...members.get(10)!]).toEqual(['requester-movie']);
+    expect([...members.get(20)!]).toEqual(['requester-show']);
+    expect(result).toMatchObject({ result: 2 });
+    expect(result.message).toContain('2 requester release(s)');
+    expect(result.message).toContain('0 closed-campaign release(s)');
+  });
+
+  it('applies the live keep veto to direct requester releases', async () => {
+    requesterReleasedMedia();
+    addKeep('protector', 'requester-movie');
+    const { members } = mockMaintainerr();
+
+    const result = await syncMaintainerr();
+
+    expect([...members.get(10)!]).toEqual([]);
+    expect([...members.get(20)!]).toEqual(['requester-show']);
+    expect(result.message).toContain('1 requester release(s)');
+  });
+
+  it('deduplicates a title released by requester and closed campaign', async () => {
+    releasedMedia();
+    addDelete('requester', 'movie-1');
+    const { members } = mockMaintainerr();
+
+    const result = await syncMaintainerr();
+
+    expect([...members.get(10)!]).toEqual(['movie-1']);
+    expect(result.message).toContain('1 requester release(s)');
+    expect(result.message).toContain('2 closed-campaign release(s)');
   });
 
   it('removes Keeparr-owned membership first after a later keep', async () => {

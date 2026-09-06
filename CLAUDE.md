@@ -212,7 +212,8 @@ The chrome is a Sonarr/Radarr-style left rail (logo → Keep; Keep / Browse[expa
   title appearing in multiple campaigns to its newest closed campaign record.
 - `lib/maintainerr.ts` is the optional non-destructive hand-off client. Settings
   select one Maintainerr movie/show collection and the `maintainerr` job reconciles
-  `listAutomationReleases()` into Maintainerr's internal membership using only
+  unprotected requester `user_deletes` plus `listAutomationReleases()` into
+  Maintainerr's internal membership using only
   `POST /api/collections/add` and `/remove`. It validates every collection/member
   before writing, requires `arrAction=4` (`DO_NOTHING`), `useRules=false`,
   `keepInMaintainerrOnly=true`, and `tagInArr=false`; removes keep-vetoed

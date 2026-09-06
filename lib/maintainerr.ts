@@ -1,4 +1,4 @@
-import { listAutomationReleases } from './queries';
+import { listAutomationReleases, markedForDeleteItems } from './queries';
 import {
   getMaintainerrConfig,
   getMaintainerrManagedItems,
@@ -172,6 +172,46 @@ interface Target {
   managed: Set<string>;
 }
 
+interface MaintainerrCandidate {
+  ratingKey: string;
+  sectionId: string;
+  libraryKind: 'movie' | 'show';
+}
+
+/**
+ * Maintainerr receives both explicit requester sign-offs ("OK to delete") and
+ * reviewed releases from closed cleanup campaigns. The global keep veto stays
+ * live for both sources; duplicate titles collapse to one media-server id.
+ */
+function maintainerrCandidates(): {
+  items: MaintainerrCandidate[];
+  requesterReleases: number;
+  campaignReleases: number;
+} {
+  const requester = markedForDeleteItems().filter((item) => !item.keptByAnyone);
+  const campaign = listAutomationReleases();
+  const byId = new Map<string, MaintainerrCandidate>();
+  for (const item of requester) {
+    byId.set(item.ratingKey, {
+      ratingKey: item.ratingKey,
+      sectionId: item.sectionId,
+      libraryKind: item.libraryKind,
+    });
+  }
+  for (const item of campaign) {
+    byId.set(item.ratingKey, {
+      ratingKey: item.ratingKey,
+      sectionId: item.sectionId,
+      libraryKind: item.libraryKind,
+    });
+  }
+  return {
+    items: [...byId.values()],
+    requesterReleases: requester.length,
+    campaignReleases: campaign.length,
+  };
+}
+
 /**
  * Reconcile Keeparr's live release set into two non-destructive Maintainerr
  * collections. This function NEVER calls Maintainerr's handle/delete endpoints.
@@ -199,7 +239,8 @@ export async function syncMaintainerr(): Promise<JobResult> {
   const collections = new Map(
     (await listMaintainerrCollections(config.url)).map((collection) => [collection.id, collection])
   );
-  const releases = listAutomationReleases();
+  const candidates = maintainerrCandidates();
+  const releases = candidates.items;
   const targets: Target[] = [];
   const selectedById = new Map(selected.map((value) => [value.id, value.kind]));
   const targetIds = new Set([
@@ -301,6 +342,10 @@ export async function syncMaintainerr(): Promise<JobResult> {
   const skipped = releases.length - matched;
   return {
     result: added + removed,
-    message: `Maintainerr hand-off: ${added} added, ${removed} removed, ${matched} managed${skipped ? `, ${skipped} outside selected libraries` : ''}.`,
+    message:
+      `Maintainerr hand-off: ${added} added, ${removed} removed, ${matched} managed; ` +
+      `${candidates.requesterReleases} requester release(s), ` +
+      `${candidates.campaignReleases} closed-campaign release(s)` +
+      `${skipped ? `, ${skipped} outside selected libraries` : ''}.`,
   };
 }

@@ -87,8 +87,8 @@ published release.
   protective), and this would be Keeparr's first write to the media server —
   gate it behind an explicit opt-in setting.
 
-  **Safe test hand-off implemented:** Keeparr can reconcile closed-campaign,
-  currently unprotected releases into administrator-selected Maintainerr movie
+  **Safe test hand-off implemented:** Keeparr can reconcile requester sign-offs
+  plus closed-campaign, currently unprotected releases into selected Maintainerr movie
   and show collections. It only changes Maintainerr's internal membership,
   tracks ownership so foreign manual members are untouched, removes keep-vetoed
   items first, and hard-blocks unless the collection action is `DO_NOTHING`,

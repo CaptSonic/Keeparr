@@ -470,8 +470,10 @@ root as `openapi.json`).
 
 ### Maintainerr hand-off (safe test mode)
 
-Keeparr can mirror that same live release set into dedicated Maintainerr movie
-and show collections while keeping deletion responsibility outside Keeparr:
+Keeparr can mirror its live release candidates into dedicated Maintainerr movie
+and show collections while keeping deletion responsibility outside Keeparr. The
+candidate set combines requester **OK to delete** marks with reviewed releases
+from closed cleanup campaigns; a live keep excludes either source immediately:
 
 1. In Maintainerr create one rule group per media-server library/type, turn
    **Use rules** off, enable **Keep in Maintainerr only**, disable *arr tagging,
