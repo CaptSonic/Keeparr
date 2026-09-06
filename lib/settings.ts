@@ -334,6 +334,73 @@ export const isAutomationBridgeEnabled = () =>
 export const setAutomationBridgeEnabled = (enabled: boolean) =>
   writeSetting('automation_bridge_enabled', enabled ? 'true' : 'false');
 
+// --- Maintainerr hand-off (membership sync only; no handling/deletion calls) ---
+export interface MaintainerrConfig {
+  url: string;
+  movieCollectionId: number | null;
+  showCollectionId: number | null;
+  enabled: boolean;
+}
+
+export function getMaintainerrConfig(): MaintainerrConfig {
+  const positiveId = (value: string | null) => {
+    const id = Number(value);
+    return Number.isSafeInteger(id) && id > 0 ? id : null;
+  };
+  return {
+    url: readSetting('maintainerr_url') ?? '',
+    movieCollectionId: positiveId(readSetting('maintainerr_movie_collection_id')),
+    showCollectionId: positiveId(readSetting('maintainerr_show_collection_id')),
+    enabled: readSetting('maintainerr_enabled') === 'true',
+  };
+}
+
+export function setMaintainerrConfig(config: MaintainerrConfig): void {
+  const url = config.url.trim().replace(/\/$/, '');
+  const previousUrl = readSetting('maintainerr_url') ?? '';
+  // Collection ids are local to one Maintainerr instance. Refuse to forget
+  // remote memberships: disable + run the job once to remove them before moving.
+  if (
+    previousUrl && previousUrl !== url &&
+    Object.values(getMaintainerrManagedItems()).some((ids) => ids.length > 0)
+  ) {
+    throw new Error(
+      'Disable the Maintainerr hand-off and run its job once before changing the URL.'
+    );
+  }
+  writeSetting('maintainerr_url', url);
+  writeSetting('maintainerr_movie_collection_id', config.movieCollectionId?.toString() ?? '');
+  writeSetting('maintainerr_show_collection_id', config.showCollectionId?.toString() ?? '');
+  writeSetting('maintainerr_enabled', config.enabled ? 'true' : 'false');
+}
+
+export const isMaintainerrConfigured = () => {
+  const config = getMaintainerrConfig();
+  return config.enabled && !!config.url &&
+    (config.movieCollectionId !== null || config.showCollectionId !== null);
+};
+
+/** Membership ids owned by Keeparr, keyed by Maintainerr collection id. */
+export function getMaintainerrManagedItems(): Record<string, string[]> {
+  const raw = readSetting('maintainerr_managed_items');
+  if (!raw) return {};
+  try {
+    const value = JSON.parse(raw) as unknown;
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([, ids]) => Array.isArray(ids))
+        .map(([id, ids]) => [id, (ids as unknown[]).map(String)])
+    );
+  } catch {
+    return {};
+  }
+}
+
+export function setMaintainerrManagedItems(items: Record<string, string[]>): void {
+  writeSetting('maintainerr_managed_items', JSON.stringify(items));
+}
+
 // --- Backups ---
 /** How many backup files to keep (oldest pruned first). */
 export function getBackupRetention(): number {

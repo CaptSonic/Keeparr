@@ -8,6 +8,7 @@ import type { JobSchedule } from './config';
 // Turn every job off, so a test can enable just the one it cares about.
 const ALL_OFF: Record<string, JobSchedule> = {
   recentlyAdded: { type: 'interval', minutes: 0 },
+  maintainerr: { type: 'interval', minutes: 0 },
   library: { type: 'interval', minutes: 0 },
   sizes: { type: 'interval', minutes: 0 },
   watch: { type: 'interval', minutes: 0 },

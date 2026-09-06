@@ -58,6 +58,17 @@ interface SectionInfo {
   type: string;
   paths?: string[];
 }
+interface MaintainerrCollection {
+  id: number;
+  title: string;
+  type: 'movie' | 'show' | 'season' | 'episode';
+  libraryId: string;
+  arrAction: number;
+  isActive: boolean;
+  deleteAfterDays: number | null;
+  keepInMaintainerrOnly: boolean;
+  tagInArr: boolean;
+}
 
 function parseUrl(url: string | null): Parts {
   if (!url) return { ssl: false, host: '', port: '', base: '' };
@@ -261,6 +272,11 @@ export default function ConnectionsPanel() {
   const [seerrConfigured, setSeerrConfigured] = useState(false);
   const [sonarr, setSonarr] = useState<ArrRow[]>([]);
   const [radarr, setRadarr] = useState<ArrRow[]>([]);
+  const [maintainerr, setMaintainerr] = useState<Parts>({ ssl: false, host: '', port: '', base: '' });
+  const [maintainerrEnabled, setMaintainerrEnabled] = useState(false);
+  const [maintainerrMovieCollectionId, setMaintainerrMovieCollectionId] = useState<number | null>(null);
+  const [maintainerrShowCollectionId, setMaintainerrShowCollectionId] = useState<number | null>(null);
+  const [maintainerrCollections, setMaintainerrCollections] = useState<MaintainerrCollection[]>([]);
 
   const [servers, setServers] = useState<DiscoveredServer[] | null>(null);
   const [discovering, setDiscovering] = useState(false);
@@ -299,6 +315,10 @@ export default function ConnectionsPanel() {
       }));
     setSonarr(toRows(d.sonarr?.instances));
     setRadarr(toRows(d.radarr?.instances));
+    setMaintainerr(parseUrl(d.maintainerr?.url));
+    setMaintainerrEnabled(d.maintainerr?.enabled === true);
+    setMaintainerrMovieCollectionId(d.maintainerr?.movieCollectionId ?? null);
+    setMaintainerrShowCollectionId(d.maintainerr?.showCollectionId ?? null);
     setSections(d.sections ?? []);
     const mgd: string[] = d.managedSectionIds ?? [];
     setAllManaged(mgd.length === 0);
@@ -441,9 +461,15 @@ export default function ConnectionsPanel() {
     }
   }
 
-  async function testConn(service: 'plex' | 'tautulli' | 'seerr') {
+  async function testConn(service: 'plex' | 'tautulli' | 'seerr' | 'maintainerr') {
     const url =
-      service === 'plex' ? buildUrl(plex) : service === 'tautulli' ? buildUrl(taut) : buildUrl(seerr);
+      service === 'plex'
+        ? buildUrl(plex)
+        : service === 'tautulli'
+          ? buildUrl(taut)
+          : service === 'seerr'
+            ? buildUrl(seerr)
+            : buildUrl(maintainerr);
     const apiKey = service === 'tautulli' ? tautKey : service === 'seerr' ? seerrKey : undefined;
     setTest((m) => ({ ...m, [service]: de ? 'Wird getestet…' : 'Testing…' }));
     const r = await fetch('/api/admin/test-connection', {
@@ -455,6 +481,9 @@ export default function ConnectionsPanel() {
       ...m,
       [service]: r.message ?? (r.ok ? 'OK' : de ? 'Fehlgeschlagen' : 'Failed'),
     }));
+    if (service === 'maintainerr' && r.ok && Array.isArray(r.collections)) {
+      setMaintainerrCollections(r.collections);
+    }
   }
 
   async function testArrInstance(kind: 'sonarr' | 'radarr', idx: number) {
@@ -511,6 +540,12 @@ export default function ConnectionsPanel() {
           seerr: { url: buildUrl(seerr), apiKey: seerrKey || undefined },
           sonarrInstances: toInstancesBody(sonarr),
           radarrInstances: toInstancesBody(radarr),
+          maintainerr: {
+            url: buildUrl(maintainerr),
+            movieCollectionId: maintainerrMovieCollectionId,
+            showCollectionId: maintainerrShowCollectionId,
+            enabled: maintainerrEnabled,
+          },
           managedSectionIds: allManaged ? [] : [...managed],
           storageMappings,
         }),
@@ -826,6 +861,96 @@ export default function ConnectionsPanel() {
         test={test}
         onTest={(idx) => testArrInstance('radarr', idx)}
       />
+
+      <Card title="Maintainerr">
+        <p className="mb-3 text-sm text-slate-400">
+          {de
+            ? 'Sichere Testübergabe: Keeparr synchronisiert nur Mitgliedschaften in Collections mit „Do nothing“ und deaktivierten Rules. Es startet niemals das Collection Handling.'
+            : 'Safe test hand-off: Keeparr only syncs membership into collections set to “Do nothing” with rules disabled. It never starts collection handling.'}
+        </p>
+        <ServiceFields parts={maintainerr} setParts={setMaintainerr} showBase />
+        <div className="mt-3 flex items-center gap-3">
+          <button onClick={() => testConn('maintainerr')} className={btnGhost} type="button">
+            {de ? 'Verbindung und Collections laden' : 'Test connection and load collections'}
+          </button>
+          {test.maintainerr && <span className="text-sm text-slate-400">{test.maintainerr}</span>}
+        </div>
+        <p className="mt-3 text-xs text-amber-400">
+          {de
+            ? 'Maintainerr 3.27 schützt seine API nicht selbst. Verwende ausschließlich ein privates Docker-/LAN-Netz oder einen authentifizierenden Reverse Proxy.'
+            : 'Maintainerr 3.27 does not protect its own API. Use only a private Docker/LAN network or an authenticating reverse proxy.'}
+        </p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <label className="text-sm text-slate-400">
+            {de ? 'Film-Collection' : 'Movie collection'}
+            <select
+              className={`${inputCls} mt-1`}
+              value={maintainerrMovieCollectionId ?? ''}
+              onChange={(e) => setMaintainerrMovieCollectionId(e.target.value ? Number(e.target.value) : null)}
+            >
+              <option value="">{de ? 'Nicht ausgewählt' : 'Not selected'}</option>
+              {maintainerrMovieCollectionId != null &&
+                !maintainerrCollections.some((c) => c.id === maintainerrMovieCollectionId) && (
+                  <option value={maintainerrMovieCollectionId}>
+                    {de
+                      ? `Gespeichert (#${maintainerrMovieCollectionId})`
+                      : `Saved (#${maintainerrMovieCollectionId})`}
+                  </option>
+                )}
+              {maintainerrCollections.filter((c) => c.type === 'movie').map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.title} — {c.arrAction === 4 && c.keepInMaintainerrOnly && !c.tagInArr
+                    ? 'Do nothing'
+                    : de ? 'BLOCKIERT' : 'BLOCKED'}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-sm text-slate-400">
+            {de ? 'Serien-Collection' : 'Show collection'}
+            <select
+              className={`${inputCls} mt-1`}
+              value={maintainerrShowCollectionId ?? ''}
+              onChange={(e) => setMaintainerrShowCollectionId(e.target.value ? Number(e.target.value) : null)}
+            >
+              <option value="">{de ? 'Nicht ausgewählt' : 'Not selected'}</option>
+              {maintainerrShowCollectionId != null &&
+                !maintainerrCollections.some((c) => c.id === maintainerrShowCollectionId) && (
+                  <option value={maintainerrShowCollectionId}>
+                    {de
+                      ? `Gespeichert (#${maintainerrShowCollectionId})`
+                      : `Saved (#${maintainerrShowCollectionId})`}
+                  </option>
+                )}
+              {maintainerrCollections.filter((c) => c.type === 'show').map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.title} — {c.arrAction === 4 && c.keepInMaintainerrOnly && !c.tagInArr
+                    ? 'Do nothing'
+                    : de ? 'BLOCKIERT' : 'BLOCKED'}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <label className="mt-4 flex items-start gap-3 text-sm text-slate-300">
+          <input
+            type="checkbox"
+            className="mt-1 accent-violet-500"
+            checked={maintainerrEnabled}
+            onChange={(e) => setMaintainerrEnabled(e.target.checked)}
+          />
+          <span>
+            <span className="font-medium text-slate-200">
+              {de ? 'Maintainerr-Übergabe aktivieren' : 'Enable Maintainerr hand-off'}
+            </span>
+            <span className="mt-1 block text-xs text-slate-500">
+              {de
+                ? 'Der Job läuft standardmäßig alle 5 Minuten. Nicht mehr freigegebene Titel werden zuerst aus der Collection entfernt.'
+                : 'The job runs every 5 minutes by default. Titles no longer released are removed from the collection first.'}
+            </span>
+          </span>
+        </label>
+      </Card>
 
       {(sonarr.length > 0 || radarr.length > 0) && <MatchHealthCard />}
 

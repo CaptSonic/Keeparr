@@ -7,6 +7,7 @@ const JOB_LABELS: Record<string, [string, string]> = {
   watch: ['Watch history', 'Wiedergabeverlauf'],
   requests: ['Requests', 'Anfragen'],
   arr: ['Sonarr / Radarr', 'Sonarr / Radarr'],
+  maintainerr: ['Maintainerr hand-off', 'Maintainerr-Übergabe'],
   backup: ['Backup', 'Datensicherung'],
   all: ['all', 'alle'],
 };

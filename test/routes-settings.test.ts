@@ -14,7 +14,12 @@ vi.mock('next/headers', () => ({
 import { __setTestDbToMemory, __closeDb } from '@/lib/db';
 import { upsertUser } from '@/lib/queries';
 import { setSessionCookie } from '@/lib/auth';
-import { setApiKey, setSonarrInstances, getBackupRetention } from '@/lib/settings';
+import {
+  setApiKey,
+  setSonarrInstances,
+  getBackupRetention,
+  getMaintainerrConfig,
+} from '@/lib/settings';
 import { GET as settingsGet, PUT as settingsPut } from '@/app/api/admin/settings/route';
 
 beforeEach(() => {
@@ -71,5 +76,45 @@ describe('/api/admin/settings', () => {
     expect(body.apiKey).toBe('fresh-key');
     expect(body.automationBridgeEnabled).toBe(true);
     expect(getBackupRetention()).toBe(30);
+  });
+
+  it('PUT round-trips the Maintainerr hand-off configuration', async () => {
+    await loginAs('admin', true);
+    const maintainerr = {
+      url: 'http://maintainerr:6246/',
+      movieCollectionId: 10,
+      showCollectionId: 20,
+      enabled: true,
+    };
+    expect((await settingsPut(putReq({ maintainerr }))).status).toBe(200);
+    expect(getMaintainerrConfig()).toEqual({ ...maintainerr, url: 'http://maintainerr:6246' });
+    const body = await settingsGet().then((response) => response.json());
+    expect(body.maintainerr).toEqual({ ...maintainerr, url: 'http://maintainerr:6246' });
+  });
+
+  it('rejects incomplete or duplicate Maintainerr targets', async () => {
+    await loginAs('admin', true);
+    const incomplete = await settingsPut(putReq({
+      maintainerr: {
+        url: 'http://maintainerr:6246',
+        movieCollectionId: null,
+        showCollectionId: null,
+        enabled: true,
+      },
+    }));
+    expect(incomplete.status).toBe(400);
+    expect((await incomplete.json()).error).toBe('maintainerr_incomplete');
+
+    const duplicate = await settingsPut(putReq({
+      maintainerr: {
+        url: 'http://maintainerr:6246',
+        movieCollectionId: 10,
+        showCollectionId: 10,
+        enabled: true,
+      },
+    }));
+    expect(duplicate.status).toBe(400);
+    expect((await duplicate.json()).error).toBe('maintainerr_duplicate_collection');
+    expect(getMaintainerrConfig().enabled).toBe(false);
   });
 });

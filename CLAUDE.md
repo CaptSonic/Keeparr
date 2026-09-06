@@ -210,9 +210,17 @@ The chrome is a Sonarr/Radarr-style left rail (logo → Keep; Keep / Browse[expa
   a live, read-only desired set from closed campaign snapshots + reviews, joins the
   current non-removed media ids, reapplies the global keep veto, and deduplicates a
   title appearing in multiple campaigns to its newest closed campaign record.
+- `lib/maintainerr.ts` is the optional non-destructive hand-off client. Settings
+  select one Maintainerr movie/show collection and the `maintainerr` job reconciles
+  `listAutomationReleases()` into Maintainerr's internal membership using only
+  `POST /api/collections/add` and `/remove`. It validates every collection/member
+  before writing, requires `arrAction=4` (`DO_NOTHING`), `useRules=false`,
+  `keepInMaintainerrOnly=true`, and `tagInArr=false`; removes keep-vetoed
+  Keeparr-owned memberships before additions and never touches foreign manual
+  members. Never add calls to `/handle` or media/Servarr/Seerr deletion here.
 - `settings` — key/value; secret values encrypted.
 - `job_state` — one row per scheduled job (`recentlyAdded`/`library`/`sizes`/`watch`/
-  `requests`/`arr`): last run/status/message/duration/result. Rows stuck at
+  `requests`/`arr`/`maintainerr`/`backup`): last run/status/message/duration/result. Rows stuck at
   `running` (process killed mid-job) are flipped to `error` at boot by
   `startScheduler()` → `resetInterruptedJobs()` — the persisted flag would
   otherwise gate that job out of the scheduler AND manual runs forever.
@@ -375,11 +383,11 @@ when it has no tvdb/tmdb **and** no imdb.
 - Admin (require `is_admin`): `GET/PUT /api/admin/settings` (PUT accepts
   `storageMappings`, `managedSectionIds`, `appTitle`, `appUrl`, `apiKey`, `plexBaseUrl`,
   `jobSchedules`, `plexServer`, `tautulli`, `seerr`, `sonarrInstances`,
-  `radarrInstances`, `backupRetention`, `automationBridgeEnabled` — GET returns instances as `[{id,name,url,hasKey}]`, never their
+  `radarrInstances`, `maintainerr`, `backupRetention`, `automationBridgeEnabled` — GET returns instances as `[{id,name,url,hasKey}]`, never their
   apiKeys; the automation `apiKey` IS returned so the UI can show a masked
   copy-able field, Servarr-style),
   `GET /api/admin/plex-servers`, `POST /api/admin/test-connection` (services
-  `plex`/`jellyfin`/`emby`/`tautulli`/`seerr`/`sonarr`/`radarr`),
+  `plex`/`jellyfin`/`emby`/`tautulli`/`seerr`/`sonarr`/`radarr`/`maintainerr`),
   `POST /api/admin/sync-libraries` (discover sections only, fast — backend-agnostic
   via `getBackend().listSections()`),
   `GET /api/admin/storage-check?path=`, `GET /api/admin/jobs` (status + recent runs)
@@ -601,13 +609,14 @@ A fuller source-verified reference is in the planning doc
 - Refresh work is split into scheduled jobs (`lib/jobs.ts`): `recentlyAdded` (cheap,
   newest items only), `library` (full inventory + movie sizes + new-show sizing),
   `sizes` (expensive per-series `getAllLeaves` recompute), `watch` (Tautulli),
-  `requests` (Seerr cache), `arr` (Sonarr/Radarr quality+tags cache), `backup`
+  `requests` (Seerr cache), `arr` (Sonarr/Radarr quality+tags cache), `maintainerr`
+  (safe collection-membership hand-off, `lib/maintainerr.ts`), `backup`
   (db snapshot + retention prune, `lib/backup.ts`). Each is
   single-flight per `job_state`, fire-and-forget from `/api/admin/jobs`, auto-run by
   `lib/scheduler.ts` on its `job_schedules` entry (`isDue`: every N minutes/hours, daily
   at a local HH:MM, or weekly on a local weekday at HH:MM). Defaults in `config.ts` (`DEFAULT_JOB_SCHEDULES`): recentlyAdded
   5 min; library 03:00; watch 04:00; requests 05:00; sizes 06:00; arr 07:00;
-  backup 08:00.
+  maintainerr 5 min; backup 08:00.
 - **Releases + images (continuous delivery)**: every push to `main` ships one
   release via `.github/workflows/release.yml`: test (tsc + vitest + `next
   build`) → **version** → build (native amd64 + arm64, no QEMU) → publish

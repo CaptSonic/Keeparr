@@ -8,17 +8,19 @@ import {
   getServerToken,
   getSonarrInstances,
   getTautulliKey,
+  getMaintainerrConfig,
 } from '@/lib/settings';
 import { logEvent } from '@/lib/queries';
 import { testTautulli } from '@/lib/tautulli';
 import { testSeerr } from '@/lib/seerr';
 import { testArr } from '@/lib/arr';
 import { testJellyfin } from '@/lib/jellyfin';
+import { testMaintainerr } from '@/lib/maintainerr';
 
 export const runtime = 'nodejs';
 
 interface Body {
-  service: 'plex' | 'jellyfin' | 'emby' | 'tautulli' | 'seerr' | 'sonarr' | 'radarr';
+  service: 'plex' | 'jellyfin' | 'emby' | 'tautulli' | 'seerr' | 'sonarr' | 'radarr' | 'maintainerr';
   url: string;
   apiKey?: string;
   token?: string;
@@ -34,7 +36,7 @@ export async function POST(req: Request) {
     await requireAdmin();
     const body = (await req.json()) as Body;
 
-    let result: { ok: boolean; message: string };
+    let result: { ok: boolean; message: string; collections?: unknown[] };
     if (body.service === 'plex') {
       try {
         // Fall back to the saved server token (e.g. when re-testing a manual URL).
@@ -60,6 +62,8 @@ export async function POST(req: Request) {
         key = insts.find((i) => i.id === body.instanceId)?.apiKey ?? '';
       }
       result = await testArr(body.url, key);
+    } else if (body.service === 'maintainerr') {
+      result = await testMaintainerr(body.url || getMaintainerrConfig().url);
     } else {
       return NextResponse.json({ error: 'bad_service' }, { status: 400 });
     }

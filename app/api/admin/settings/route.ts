@@ -38,6 +38,8 @@ import {
   setRadarrInstances,
   type ArrInstance,
   type JobSchedule,
+  getMaintainerrConfig,
+  setMaintainerrConfig,
 } from '@/lib/settings';
 
 export const runtime = 'nodejs';
@@ -121,6 +123,7 @@ export async function GET() {
       // masked copy-able field, Servarr-style. Service secrets stay hidden.
       apiKey: getApiKey() ?? '',
       automationBridgeEnabled: isAutomationBridgeEnabled(),
+      maintainerr: getMaintainerrConfig(),
       backupRetention: getBackupRetention(),
     });
   } catch (e) {
@@ -150,6 +153,12 @@ interface PutBody {
   apiKey?: string;
   /** Expose closed, currently unprotected campaign releases via the read-only API. */
   automationBridgeEnabled?: boolean;
+  maintainerr?: {
+    url?: string;
+    movieCollectionId?: number | null;
+    showCollectionId?: number | null;
+    enabled?: boolean;
+  };
   /** How many backup files to keep (oldest pruned first). */
   backupRetention?: number;
 }
@@ -227,6 +236,53 @@ export async function PUT(req: Request) {
 
     if (typeof body.automationBridgeEnabled === 'boolean') {
       setAutomationBridgeEnabled(body.automationBridgeEnabled);
+    }
+
+    if (body.maintainerr && typeof body.maintainerr === 'object') {
+      const current = getMaintainerrConfig();
+      const id = (value: unknown, fallback: number | null) =>
+        value === null
+          ? null
+          : Number.isSafeInteger(Number(value)) && Number(value) > 0
+            ? Number(value)
+            : fallback;
+      const nextMaintainerr = {
+        url: typeof body.maintainerr.url === 'string'
+          ? body.maintainerr.url
+          : current.url,
+        movieCollectionId: id(
+          body.maintainerr.movieCollectionId,
+          current.movieCollectionId
+        ),
+        showCollectionId: id(
+          body.maintainerr.showCollectionId,
+          current.showCollectionId
+        ),
+        enabled: typeof body.maintainerr.enabled === 'boolean'
+          ? body.maintainerr.enabled
+          : current.enabled,
+      };
+      if (
+        nextMaintainerr.enabled &&
+        (!nextMaintainerr.url.trim() ||
+          (nextMaintainerr.movieCollectionId === null &&
+            nextMaintainerr.showCollectionId === null))
+      ) {
+        return NextResponse.json(
+          { error: 'maintainerr_incomplete' },
+          { status: 400 }
+        );
+      }
+      if (
+        nextMaintainerr.movieCollectionId !== null &&
+        nextMaintainerr.movieCollectionId === nextMaintainerr.showCollectionId
+      ) {
+        return NextResponse.json(
+          { error: 'maintainerr_duplicate_collection' },
+          { status: 400 }
+        );
+      }
+      setMaintainerrConfig(nextMaintainerr);
     }
 
     if (typeof body.backupRetention === 'number' && body.backupRetention >= 1) {

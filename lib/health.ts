@@ -8,6 +8,7 @@ import {
   isSeerrConfigured,
   isServerConfigured,
   isWatchAvailable,
+  isMaintainerrConfigured,
 } from './settings';
 import { getVersionInfo } from './version';
 import type { JobSchedule } from './config';
@@ -36,6 +37,8 @@ function jobRelevant(id: JobId): boolean {
       return isSeerrConfigured();
     case 'arr':
       return isArrConfigured();
+    case 'maintainerr':
+      return isMaintainerrConfigured();
     case 'backup':
       return true;
     default:

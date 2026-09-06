@@ -46,6 +46,7 @@ export const DEFAULT_JOB_SCHEDULES: Record<string, JobSchedule> = {
   sizes: { type: 'daily', hour: 6, minute: 0 },
   // After 'library' (03:00) has populated guids that arr matches against.
   arr: { type: 'daily', hour: 7, minute: 0 },
+  maintainerr: { type: 'interval', minutes: 5 },
   // After the overnight refresh cycle, snapshot the database.
   backup: { type: 'daily', hour: 8, minute: 0 },
 };

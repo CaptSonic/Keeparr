@@ -87,6 +87,15 @@ published release.
   protective), and this would be Keeparr's first write to the media server —
   gate it behind an explicit opt-in setting.
 
+  **Safe test hand-off implemented:** Keeparr can reconcile closed-campaign,
+  currently unprotected releases into administrator-selected Maintainerr movie
+  and show collections. It only changes Maintainerr's internal membership,
+  tracks ownership so foreign manual members are untouched, removes keep-vetoed
+  items first, and hard-blocks unless the collection action is `DO_NOTHING`,
+  rules and *arr tagging are disabled, and `Keep in Maintainerr only` is on. It
+  never invokes Maintainerr handling or deletion APIs.
+  Production deletion remains a separate future phase.
+
 Of these, **notifications** delivers the most day-to-day value if ever
 un-parked (a weekly reclaimable digest fits Keeparr's purpose),
 **read-only guest** is the cheapest to build, and **Maintainerr integration**

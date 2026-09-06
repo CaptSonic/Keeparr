@@ -774,7 +774,7 @@
       "put": {
         "tags": ["admin"],
         "summary": "Update settings (only provided fields change)",
-        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "description": "Any of: plexServer, plexBaseUrl, tautulli, seerr, sonarrInstances, radarrInstances, jobSchedules, storageMappings, managedSectionIds, appTitle, appUrl, apiKey, backupRetention, automationBridgeEnabled" } } } },
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "description": "Any of: plexServer, plexBaseUrl, tautulli, seerr, sonarrInstances, radarrInstances, maintainerr, jobSchedules, storageMappings, managedSectionIds, appTitle, appUrl, apiKey, backupRetention, automationBridgeEnabled" } } } },
         "responses": { "200": { "description": "`{ok:true}`" } }
       }
     },
@@ -794,7 +794,7 @@
         "tags": ["admin", "automation"],
         "summary": "Trigger a job now (accepts X-Api-Key)",
         "security": [{ "cookieAuth": [] }, { "apiKeyAuth": [] }],
-        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "job": { "type": "string", "description": "recentlyAdded | library | sizes | watch | requests | arr | backup | all" } }, "required": ["job"] } } } },
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "job": { "type": "string", "description": "recentlyAdded | library | sizes | watch | requests | arr | maintainerr | backup | all" } }, "required": ["job"] } } } },
         "responses": { "200": { "description": "`{started:true}` (fire-and-forget)" } }
       }
     },
@@ -890,7 +890,7 @@
       "post": {
         "tags": ["admin"],
         "summary": "Test a service connection",
-        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "service": { "type": "string", "enum": ["plex", "jellyfin", "emby", "tautulli", "seerr", "sonarr", "radarr"] }, "url": { "type": "string" }, "apiKey": { "type": "string" } }, "required": ["service"] } } } },
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "service": { "type": "string", "enum": ["plex", "jellyfin", "emby", "tautulli", "seerr", "sonarr", "radarr", "maintainerr"] }, "url": { "type": "string" }, "apiKey": { "type": "string" } }, "required": ["service"] } } } },
         "responses": { "200": { "description": "`{ok, message}`" } }
       }
     },
