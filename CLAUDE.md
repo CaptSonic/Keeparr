@@ -621,7 +621,7 @@ A fuller source-verified reference is in the planning doc
 - **Releases + images (continuous delivery)**: every push to `main` ships one
   release via `.github/workflows/release.yml`: test (tsc + vitest + `next
   build`) → **version** → build (native amd64 + arm64, no QEMU) → publish
-  `ghcr.io/drohack/keeparr:{latest,X.Y.Z,X.Y}` + a GitHub release. The
+  `ghcr.io/CaptSonic/keeparr:{latest,X.Y.Z,X.Y}` + a GitHub release. The
   **version** job auto-increments the PATCH unless you bumped `package.json`
   yourself: if `v<package.json version>` is already a tag it bumps (patch by
   default; minor/major via the `workflow_dispatch` `bump` input), else it uses

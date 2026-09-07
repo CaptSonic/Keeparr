@@ -12,7 +12,7 @@ interface HealthIssue {
   docSlug: string;
 }
 
-const DOCS_BASE = 'https://github.com/drohack/Keeparr#';
+const DOCS_BASE = 'https://github.com/CaptSonic/Keeparr#';
 
 /** Standing health warnings (Servarr System → Status style), with fix-it links. */
 export default function HealthCard() {

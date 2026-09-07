@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { compareSemver, getVersionInfo, __clearVersionCache } from './version';
+import {
+  compareSemver,
+  getVersionInfo,
+  RELEASES_LATEST_URL,
+  __clearVersionCache,
+} from './version';
 import pkg from '../package.json';
 
 describe('compareSemver', () => {
@@ -61,4 +66,11 @@ describe('getVersionInfo', () => {
     expect(v.latest).toBe('99.0.0');
     expect(v.updateAvailable).toBe(true);
   });
+});
+
+it('checks releases from the maintained CaptSonic fork', () => {
+  expect(RELEASES_LATEST_URL).toBe(
+    'https://api.github.com/repos/CaptSonic/Keeparr/releases/latest'
+  );
+  expect(pkg.repository.url).toBe('https://github.com/CaptSonic/Keeparr.git');
 });

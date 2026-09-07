@@ -20,8 +20,10 @@ export interface VersionInfo {
   releaseUrl: string | null;
 }
 
-const RELEASES_LATEST_URL =
-  'https://api.github.com/repos/drohack/Keeparr/releases/latest';
+/** Release source for this maintained fork. Kept exported so tests catch a
+ * package-metadata regression that would silently check the upstream project. */
+export const RELEASES_LATEST_URL =
+  'https://api.github.com/repos/CaptSonic/Keeparr/releases/latest';
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6h
 
 /**

@@ -276,13 +276,13 @@ Not on Unraid? Run the same published image directly:
 docker run -d --name keeparr \
   -p 8767:3000 \
   -v /path/to/appdata/keeparr:/data \
-  ghcr.io/drohack/keeparr:latest
+  ghcr.io/CaptSonic/keeparr:latest
 ```
 
 …or with the repo's `docker-compose.yml`:
 
 ```bash
-docker compose up -d                          # pulls ghcr.io/${GHCR_NAMESPACE:-drohack}/keeparr:latest
+docker compose up -d                          # pulls ghcr.io/${GHCR_NAMESPACE:-CaptSonic}/keeparr:latest
 docker compose pull && docker compose up -d   # to update
 ```
 

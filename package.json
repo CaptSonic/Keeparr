@@ -7,9 +7,9 @@
   "author": "drohack",
   "repository": {
     "type": "git",
-    "url": "https://github.com/drohack/Keeparr.git"
+    "url": "https://github.com/CaptSonic/Keeparr.git"
   },
-  "homepage": "https://github.com/drohack/Keeparr#readme",
+  "homepage": "https://github.com/CaptSonic/Keeparr#readme",
   "engines": {
     "node": "22.x"
   },

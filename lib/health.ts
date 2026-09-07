@@ -24,7 +24,7 @@ export interface HealthIssue {
   id: string;
   severity: 'warning' | 'error';
   message: string;
-  /** README anchor: https://github.com/drohack/Keeparr#<docSlug> */
+  /** README anchor: https://github.com/CaptSonic/Keeparr#<docSlug> */
   docSlug: string;
 }
 
