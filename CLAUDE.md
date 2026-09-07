@@ -215,8 +215,8 @@ The chrome is a Sonarr/Radarr-style left rail (logo → Keep; Keep / Browse[expa
   unprotected requester `user_deletes` plus `listAutomationReleases()` into
   Maintainerr's internal membership using only
   `POST /api/collections/add` and `/remove`. It validates every collection/member
-  before writing, requires `useRules=false`, `keepInMaintainerrOnly=true`, and
-  `tagInArr=false` (Maintainerr owns `arrAction`); removes keep-vetoed
+  before writing, requires `useRules=false` and `tagInArr=false` (Maintainerr owns
+  `keepInMaintainerrOnly` visibility and `arrAction`); removes keep-vetoed
   Keeparr-owned memberships before additions and never touches foreign manual
   members. Never add calls to `/handle` or media/Servarr/Seerr deletion here.
 - `settings` — key/value; secret values encrypted.

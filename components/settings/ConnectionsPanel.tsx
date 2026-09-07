@@ -865,8 +865,8 @@ export default function ConnectionsPanel() {
       <Card title="Maintainerr">
         <p className="mb-3 text-sm text-slate-400">
           {de
-            ? 'Keeparr synchronisiert nur Mitgliedschaften in Collections mit deaktivierten Rules. Maintainerr führt die dort konfigurierte Aktion aus; Keeparr startet niemals das Collection Handling.'
-            : 'Keeparr only syncs membership into collections with rules disabled. Maintainerr owns the configured action; Keeparr never starts collection handling.'}
+            ? 'Keeparr synchronisiert nur Mitgliedschaften in Collections mit deaktivierten Rules. Maintainerr kann sie im Medienserver anzeigen und führt die dort konfigurierte Aktion aus; Keeparr startet niemals das Collection Handling.'
+            : 'Keeparr only syncs membership into collections with rules disabled. Maintainerr may expose them on the media server and owns the configured action; Keeparr never starts collection handling.'}
         </p>
         <ServiceFields parts={maintainerr} setParts={setMaintainerr} showBase />
         <div className="mt-3 flex items-center gap-3">
@@ -899,9 +899,9 @@ export default function ConnectionsPanel() {
                 )}
               {maintainerrCollections.filter((c) => c.type === 'movie').map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.title} — {c.keepInMaintainerrOnly && !c.tagInArr
-                    ? `${de ? 'Aktion' : 'action'} ${c.arrAction}`
-                    : de ? 'BLOCKIERT' : 'BLOCKED'}
+                  {c.title} — {!c.tagInArr
+                    ? `${de ? 'Aktion' : 'action'} ${c.arrAction}${c.keepInMaintainerrOnly ? ` · ${de ? 'nur Maintainerr' : 'Maintainerr only'}` : ` · ${de ? 'sichtbar' : 'visible'}`}`
+                    : de ? 'BLOCKIERT (*arr-Tag)' : 'BLOCKED (*arr tag)'}
                 </option>
               ))}
             </select>
@@ -924,9 +924,9 @@ export default function ConnectionsPanel() {
                 )}
               {maintainerrCollections.filter((c) => c.type === 'show').map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.title} — {c.keepInMaintainerrOnly && !c.tagInArr
-                    ? `${de ? 'Aktion' : 'action'} ${c.arrAction}`
-                    : de ? 'BLOCKIERT' : 'BLOCKED'}
+                  {c.title} — {!c.tagInArr
+                    ? `${de ? 'Aktion' : 'action'} ${c.arrAction}${c.keepInMaintainerrOnly ? ` · ${de ? 'nur Maintainerr' : 'Maintainerr only'}` : ` · ${de ? 'sichtbar' : 'visible'}`}`
+                    : de ? 'BLOCKIERT (*arr-Tag)' : 'BLOCKED (*arr tag)'}
                 </option>
               ))}
             </select>

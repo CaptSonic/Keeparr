@@ -476,8 +476,9 @@ candidate set combines requester **OK to delete** marks with reviewed releases
 from closed cleanup campaigns; a live keep excludes either source immediately:
 
 1. In Maintainerr create one rule group per media-server library/type, turn
-   **Use rules** off, enable **Keep in Maintainerr only**, disable *arr tagging,
-   and configure the desired action and grace period in Maintainerr.
+   **Use rules** off, disable *arr tagging, and configure the desired action and
+   grace period. Leave **Keep in Maintainerr only** off if users should see the
+   collection on Plex/Jellyfin/Emby.
 2. In **Settings → Connections → Maintainerr**, enter the private Maintainerr URL
    (for example `http://maintainerr:6246`), load collections, select the matching
    movie/show collections, enable the hand-off, and save.
@@ -490,8 +491,8 @@ new releases as manual members. Existing members that Keeparr did not add are
 never removed. It calls only Maintainerr's internal collection membership
 endpoints — never collection handling, media deletion, Servarr deletion, or Seerr
 deletion. The job hard-fails before writing if **Use rules** is enabled, a
-collection is inactive or wrongly typed, **Keep in Maintainerr only** is off,
-or *arr tagging is on. Keeparr deliberately does not validate or execute the
+collection is inactive or wrongly typed, or *arr tagging is on. Keeparr does not
+restrict collection visibility and deliberately does not validate or execute the
 collection action: Maintainerr owns its countdown, handling, and deletion policy.
 To move to another Maintainerr instance, disable the hand-off and run the job
 once so Keeparr removes its old memberships; URL changes are blocked while any

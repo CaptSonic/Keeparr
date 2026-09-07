@@ -263,11 +263,6 @@ export async function syncMaintainerr(): Promise<JobResult> {
     if (!collection.isActive) {
       throw new Error(`Maintainerr collection “${collection.title}” is inactive.`);
     }
-    if (!collection.keepInMaintainerrOnly) {
-      throw new Error(
-        `Maintainerr sync blocked: enable Keep in Maintainerr only for collection “${collection.title}”.`
-      );
-    }
     if (collection.tagInArr) {
       throw new Error(
         `Maintainerr sync blocked: disable *arr tagging for collection “${collection.title}”.`

@@ -279,16 +279,24 @@ describe('Maintainerr safe hand-off', () => {
     expect(writes.every((write) => write.path.endsWith('/add'))).toBe(true);
   });
 
-  it('blocks external media-server collection or arr-tag side effects', async () => {
+  it('allows Maintainerr to expose its collection on the media server', async () => {
     releasedMedia();
-    for (const unsafe of [
-      collections.map((row) => row.id === 10 ? { ...row, keepInMaintainerrOnly: false } : row),
-      collections.map((row) => row.id === 10 ? { ...row, tagInArr: true } : row),
-    ]) {
-      const { writes } = mockMaintainerr({ rows: unsafe });
-      await expect(syncMaintainerr()).rejects.toThrow('sync blocked');
-      expect(writes).toEqual([]);
-    }
+    const visible = collections.map((row) =>
+      row.id === 10 ? { ...row, keepInMaintainerrOnly: false } : row
+    );
+    const { members } = mockMaintainerr({ rows: visible });
+    await expect(syncMaintainerr()).resolves.toMatchObject({ result: 2 });
+    expect([...members.get(10)!]).toEqual(['movie-1']);
+  });
+
+  it('blocks arr-tag side effects', async () => {
+    releasedMedia();
+    const tagged = collections.map((row) =>
+      row.id === 10 ? { ...row, tagInArr: true } : row
+    );
+    const { writes } = mockMaintainerr({ rows: tagged });
+    await expect(syncMaintainerr()).rejects.toThrow('sync blocked');
+    expect(writes).toEqual([]);
   });
 
   it('fails closed before writing when a membership response is invalid', async () => {
