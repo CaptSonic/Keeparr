@@ -91,10 +91,9 @@ published release.
   plus closed-campaign, currently unprotected releases into selected Maintainerr movie
   and show collections. It only changes Maintainerr's internal membership,
   tracks ownership so foreign manual members are untouched, removes keep-vetoed
-  items first, and hard-blocks unless the collection action is `DO_NOTHING`,
-  rules and *arr tagging are disabled, and `Keep in Maintainerr only` is on. It
-  never invokes Maintainerr handling or deletion APIs.
-  Production deletion remains a separate future phase.
+  items first, and hard-blocks unless rules and *arr tagging are disabled and
+  `Keep in Maintainerr only` is on. Maintainerr owns the configured action and
+  grace period; Keeparr never invokes Maintainerr handling or deletion APIs.
 
 Of these, **notifications** delivers the most day-to-day value if ever
 un-parked (a weekly reclaimable digest fits Keeparr's purpose),

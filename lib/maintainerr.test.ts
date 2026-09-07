@@ -14,7 +14,6 @@ import {
   setMaintainerrManagedItems,
 } from './settings';
 import {
-  MAINTAINERR_DO_NOTHING,
   syncMaintainerr,
   testMaintainerr,
 } from './maintainerr';
@@ -38,12 +37,12 @@ interface RemoteCollection {
 const collections: RemoteCollection[] = [
   {
     id: 10, title: 'Keeparr movies', type: 'movie', libraryId: 'movies',
-    arrAction: MAINTAINERR_DO_NOTHING, isActive: true, deleteAfterDays: 14,
+    arrAction: 4, isActive: true, deleteAfterDays: 14,
     keepInMaintainerrOnly: true, tagInArr: false,
   },
   {
     id: 20, title: 'Keeparr shows', type: 'show', libraryId: 'shows',
-    arrAction: MAINTAINERR_DO_NOTHING, isActive: true, deleteAfterDays: 14,
+    arrAction: 4, isActive: true, deleteAfterDays: 14,
     keepInMaintainerrOnly: true, tagInArr: false,
   },
 ];
@@ -268,15 +267,16 @@ describe('Maintainerr safe hand-off', () => {
     expect(remote.writes.some((write) => write.path.endsWith('/remove'))).toBe(false);
   });
 
-  it('blocks every write when a selected collection is not Do nothing', async () => {
+  it('allows Maintainerr to own the configured collection action', async () => {
     releasedMedia();
-    const unsafe = collections.map((row) =>
+    const destructive = collections.map((row) =>
       row.id === 10 ? { ...row, arrAction: 0 } : row
     );
-    const { writes } = mockMaintainerr({ rows: unsafe });
+    const { members, writes } = mockMaintainerr({ rows: destructive });
 
-    await expect(syncMaintainerr()).rejects.toThrow('not set to Do nothing');
-    expect(writes).toEqual([]);
+    await expect(syncMaintainerr()).resolves.toMatchObject({ result: 2 });
+    expect([...members.get(10)!]).toEqual(['movie-1']);
+    expect(writes.every((write) => write.path.endsWith('/add'))).toBe(true);
   });
 
   it('blocks external media-server collection or arr-tag side effects', async () => {

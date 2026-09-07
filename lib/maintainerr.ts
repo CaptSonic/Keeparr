@@ -7,9 +7,6 @@ import {
 } from './settings';
 import type { JobResult } from './sync';
 
-/** Maintainerr 3.27 ServarrAction.DO_NOTHING. The test integration refuses all
- * other values and never calls any collection handling endpoint. */
-export const MAINTAINERR_DO_NOTHING = 4;
 const REQUEST_TIMEOUT_MS = 15_000;
 
 export interface MaintainerrCollection {
@@ -265,11 +262,6 @@ export async function syncMaintainerr(): Promise<JobResult> {
     }
     if (!collection.isActive) {
       throw new Error(`Maintainerr collection “${collection.title}” is inactive.`);
-    }
-    if (collection.arrAction !== MAINTAINERR_DO_NOTHING) {
-      throw new Error(
-        `Maintainerr sync blocked: collection “${collection.title}” is not set to Do nothing.`
-      );
     }
     if (!collection.keepInMaintainerrOnly) {
       throw new Error(

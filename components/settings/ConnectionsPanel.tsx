@@ -865,8 +865,8 @@ export default function ConnectionsPanel() {
       <Card title="Maintainerr">
         <p className="mb-3 text-sm text-slate-400">
           {de
-            ? 'Sichere Testübergabe: Keeparr synchronisiert nur Mitgliedschaften in Collections mit „Do nothing“ und deaktivierten Rules. Es startet niemals das Collection Handling.'
-            : 'Safe test hand-off: Keeparr only syncs membership into collections set to “Do nothing” with rules disabled. It never starts collection handling.'}
+            ? 'Keeparr synchronisiert nur Mitgliedschaften in Collections mit deaktivierten Rules. Maintainerr führt die dort konfigurierte Aktion aus; Keeparr startet niemals das Collection Handling.'
+            : 'Keeparr only syncs membership into collections with rules disabled. Maintainerr owns the configured action; Keeparr never starts collection handling.'}
         </p>
         <ServiceFields parts={maintainerr} setParts={setMaintainerr} showBase />
         <div className="mt-3 flex items-center gap-3">
@@ -899,8 +899,8 @@ export default function ConnectionsPanel() {
                 )}
               {maintainerrCollections.filter((c) => c.type === 'movie').map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.title} — {c.arrAction === 4 && c.keepInMaintainerrOnly && !c.tagInArr
-                    ? 'Do nothing'
+                  {c.title} — {c.keepInMaintainerrOnly && !c.tagInArr
+                    ? `${de ? 'Aktion' : 'action'} ${c.arrAction}`
                     : de ? 'BLOCKIERT' : 'BLOCKED'}
                 </option>
               ))}
@@ -924,8 +924,8 @@ export default function ConnectionsPanel() {
                 )}
               {maintainerrCollections.filter((c) => c.type === 'show').map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.title} — {c.arrAction === 4 && c.keepInMaintainerrOnly && !c.tagInArr
-                    ? 'Do nothing'
+                  {c.title} — {c.keepInMaintainerrOnly && !c.tagInArr
+                    ? `${de ? 'Aktion' : 'action'} ${c.arrAction}`
                     : de ? 'BLOCKIERT' : 'BLOCKED'}
                 </option>
               ))}

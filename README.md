@@ -468,7 +468,7 @@ root as `openapi.json`).
   treat each response as the full current desired set and stop acting on ids that
   disappear after a household keep.
 
-### Maintainerr hand-off (safe test mode)
+### Maintainerr hand-off
 
 Keeparr can mirror its live release candidates into dedicated Maintainerr movie
 and show collections while keeping deletion responsibility outside Keeparr. The
@@ -477,7 +477,7 @@ from closed cleanup campaigns; a live keep excludes either source immediately:
 
 1. In Maintainerr create one rule group per media-server library/type, turn
    **Use rules** off, enable **Keep in Maintainerr only**, disable *arr tagging,
-   and set its action to **Do nothing**.
+   and configure the desired action and grace period in Maintainerr.
 2. In **Settings → Connections → Maintainerr**, enter the private Maintainerr URL
    (for example `http://maintainerr:6246`), load collections, select the matching
    movie/show collections, enable the hand-off, and save.
@@ -491,16 +491,16 @@ never removed. It calls only Maintainerr's internal collection membership
 endpoints — never collection handling, media deletion, Servarr deletion, or Seerr
 deletion. The job hard-fails before writing if **Use rules** is enabled, a
 collection is inactive or wrongly typed, **Keep in Maintainerr only** is off,
-*arr tagging is on, or its action is anything other than **Do nothing**.
+or *arr tagging is on. Keeparr deliberately does not validate or execute the
+collection action: Maintainerr owns its countdown, handling, and deletion policy.
 To move to another Maintainerr instance, disable the hand-off and run the job
 once so Keeparr removes its old memberships; URL changes are blocked while any
 Keeparr-owned remote memberships remain.
 
 Maintainerr 3.27 has no inbound API authentication. Keep its port on a private
 Docker/LAN network or protect it with an authenticating reverse proxy; do not
-expose it directly to the internet. This initial integration is deliberately a
-non-destructive test mode. Enabling a real deletion action requires a future,
-separately reviewed production-safety phase.
+expose it directly to the internet. Start with **Do nothing** to verify membership
+sync before enabling a destructive action in Maintainerr.
 
 ```bash
 # Trigger the library scan from a cron/script:
