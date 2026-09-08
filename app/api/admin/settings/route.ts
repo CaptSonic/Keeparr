@@ -157,6 +157,7 @@ interface PutBody {
     url?: string;
     movieCollectionId?: number | null;
     showCollectionId?: number | null;
+    watchAgeDays?: number;
     enabled?: boolean;
   };
   /** How many backup files to keep (oldest pruned first). */
@@ -258,6 +259,9 @@ export async function PUT(req: Request) {
           body.maintainerr.showCollectionId,
           current.showCollectionId
         ),
+        watchAgeDays: typeof body.maintainerr.watchAgeDays === 'number'
+          ? body.maintainerr.watchAgeDays
+          : current.watchAgeDays,
         enabled: typeof body.maintainerr.enabled === 'boolean'
           ? body.maintainerr.enabled
           : current.enabled,
@@ -279,6 +283,16 @@ export async function PUT(req: Request) {
       ) {
         return NextResponse.json(
           { error: 'maintainerr_duplicate_collection' },
+          { status: 400 }
+        );
+      }
+      if (
+        !Number.isInteger(nextMaintainerr.watchAgeDays) ||
+        nextMaintainerr.watchAgeDays < 1 ||
+        nextMaintainerr.watchAgeDays > 3650
+      ) {
+        return NextResponse.json(
+          { error: 'maintainerr_invalid_watch_age' },
           { status: 400 }
         );
       }

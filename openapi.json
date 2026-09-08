@@ -774,7 +774,7 @@
       "put": {
         "tags": ["admin"],
         "summary": "Update settings (only provided fields change)",
-        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "description": "Any of: plexServer, plexBaseUrl, tautulli, seerr, sonarrInstances, radarrInstances, maintainerr, jobSchedules, storageMappings, managedSectionIds, appTitle, appUrl, apiKey, backupRetention, automationBridgeEnabled" } } } },
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "description": "Any of: plexServer, plexBaseUrl, tautulli, seerr, sonarrInstances, radarrInstances, maintainerr (`url`, `movieCollectionId`, `showCollectionId`, `watchAgeDays` 1–3650, `enabled`), jobSchedules, storageMappings, managedSectionIds, appTitle, appUrl, apiKey, backupRetention, automationBridgeEnabled" } } } },
         "responses": { "200": { "description": "`{ok:true}`" } }
       }
     },

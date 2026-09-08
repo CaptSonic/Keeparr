@@ -6,12 +6,16 @@ import {
   closeCleanupCampaign,
   createCleanupCampaign,
   reviewCleanupCampaignItem,
+  setJobState,
+  upsertWatchBatch,
   upsertMediaBatch,
 } from './queries';
 import {
+  getWatchSourceFingerprint,
   getMaintainerrManagedItems,
   setMaintainerrConfig,
   setMaintainerrManagedItems,
+  writeSetting,
 } from './settings';
 import {
   syncMaintainerr,
@@ -145,8 +149,13 @@ beforeEach(() => {
     url: 'http://maintainerr:6246',
     movieCollectionId: 10,
     showCollectionId: 20,
+    watchAgeDays: 180,
     enabled: true,
   });
+  writeSetting('tautulli_url', 'http://tautulli:8181');
+  writeSetting('tautulli_api_key', 'watch-key');
+  setJobState('watch', { lastStatus: 'ok', lastRun: BASE });
+  writeSetting('watch_source_fingerprint', getWatchSourceFingerprint()!);
 });
 
 afterEach(() => {
@@ -192,6 +201,55 @@ describe('Maintainerr safe hand-off', () => {
     expect(result).toMatchObject({ result: 2 });
     expect(result.message).toContain('2 requester release(s)');
     expect(result.message).toContain('0 closed-campaign release(s)');
+  });
+
+  it('includes never-watched and stale titles but excludes recently watched titles', async () => {
+    requesterReleasedMedia();
+    upsertWatchBatch([
+      {
+        plexUserId: 'viewer-a',
+        ratingKey: 'requester-movie',
+        plays: 1,
+        lastWatched: BASE - 200 * 86400,
+      },
+      {
+        plexUserId: 'viewer-b',
+        ratingKey: 'requester-show',
+        plays: 1,
+        lastWatched: BASE - 30 * 86400,
+      },
+    ]);
+    const { members } = mockMaintainerr();
+
+    const result = await syncMaintainerr();
+
+    expect([...members.get(10)!]).toEqual(['requester-movie']);
+    expect([...members.get(20)!]).toEqual([]);
+    expect(result.message).toContain('1 watched within 180 day(s)');
+  });
+
+  it('uses the newest watch across all users', async () => {
+    requesterReleasedMedia();
+    upsertWatchBatch([
+      {
+        plexUserId: 'old-viewer',
+        ratingKey: 'requester-movie',
+        plays: 1,
+        lastWatched: BASE - 300 * 86400,
+      },
+      {
+        plexUserId: 'recent-viewer',
+        ratingKey: 'requester-movie',
+        plays: 1,
+        lastWatched: BASE - 10 * 86400,
+      },
+    ]);
+    const { members } = mockMaintainerr();
+
+    await syncMaintainerr();
+
+    expect([...members.get(10)!]).toEqual([]);
+    expect([...members.get(20)!]).toEqual(['requester-show']);
   });
 
   it('applies the live keep veto to direct requester releases', async () => {
@@ -242,6 +300,7 @@ describe('Maintainerr safe hand-off', () => {
       url: 'http://maintainerr:6246',
       movieCollectionId: 10,
       showCollectionId: 20,
+      watchAgeDays: 180,
       enabled: false,
     });
 
@@ -265,6 +324,22 @@ describe('Maintainerr safe hand-off', () => {
     await syncMaintainerr();
     expect([...remote.members.get(10)!]).toEqual(['movie-1']);
     expect(remote.writes.some((write) => write.path.endsWith('/remove'))).toBe(false);
+  });
+
+  it('withdraws Keeparr-owned memberships when watch data is not ready', async () => {
+    requesterReleasedMedia();
+    const remote = mockMaintainerr();
+    await syncMaintainerr();
+    expect([...remote.members.get(10)!]).toEqual(['requester-movie']);
+    expect([...remote.members.get(20)!]).toEqual(['requester-show']);
+    writeSetting('watch_source_fingerprint', 'stale-source');
+
+    const result = await syncMaintainerr();
+
+    expect([...remote.members.get(10)!]).toEqual([]);
+    expect([...remote.members.get(20)!]).toEqual([]);
+    expect(result.message).toContain('watch data not ready');
+    expect(getMaintainerrManagedItems()).toEqual({ '10': [], '20': [] });
   });
 
   it('allows Maintainerr to own the configured collection action', async () => {
@@ -311,6 +386,7 @@ describe('Maintainerr safe hand-off', () => {
       url: 'http://maintainerr:6246',
       movieCollectionId: 10,
       showCollectionId: 10,
+      watchAgeDays: 180,
       enabled: true,
     });
     const { writes } = mockMaintainerr();
@@ -324,6 +400,7 @@ describe('Maintainerr safe hand-off', () => {
         url: 'http://another-maintainerr:6246',
         movieCollectionId: 10,
         showCollectionId: 20,
+        watchAgeDays: 180,
         enabled: true,
       })
     ).toThrow('Disable the Maintainerr hand-off');

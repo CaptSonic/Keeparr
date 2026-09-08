@@ -1885,6 +1885,19 @@ export function watchedRatingKeys(plexUserId: string): Set<string> {
   return new Set(rows.map((r) => r.rating_key));
 }
 
+/** Latest known watch timestamp across every media-server user, keyed by item.
+ * A missing key means nobody has ever watched the item in the trusted cache. */
+export function latestWatchedAtByItem(): Map<string, number | null> {
+  const rows = getDb()
+    .prepare(
+      `SELECT rating_key, MAX(last_watched) AS last_watched
+       FROM watch_history
+       GROUP BY rating_key`
+    )
+    .all() as { rating_key: string; last_watched: number | null }[];
+  return new Map(rows.map((row) => [row.rating_key, row.last_watched]));
+}
+
 // ---------------------------------------------------------------------------
 // Sync state
 // ---------------------------------------------------------------------------

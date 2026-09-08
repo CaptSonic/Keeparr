@@ -174,6 +174,13 @@ The chrome is a Sonarr/Radarr-style left rail (logo → Keep; Keep / Browse[expa
   Big Picture **never watched by anyone** metric. Indexed by user (`idx_watch_user`) and by
   item (`idx_watch_item`, for the by-anyone lookup). UI watch surfaces gate on
   `isWatchAvailable()` (Tautulli for Plex, native otherwise).
+- Maintainerr hand-off filters Keeparr release candidates by the newest
+  `watch_history.last_watched` across every user. `maintainerr_watch_age_days`
+  defaults to 180; missing rows mean never watched. It reuses
+  `getReclaimSignalReadiness().watch` and fails closed when the current watch
+  source has no trusted successful refresh: no additions and withdrawal of
+  Keeparr-owned memberships. Maintainerr rules remain disabled; Maintainerr owns
+  only collection visibility, grace period, handling, and deletion.
 - `seerr_requests` — `(plex_user_id, rating_key)`; cached Seerr requests (refreshed
   by the `requests` job; badges/filters read this, not live Seerr). Also warmed
   for a single user on their **first login** via `syncSeerrRequestsForUser`, so

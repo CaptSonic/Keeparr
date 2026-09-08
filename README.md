@@ -473,7 +473,9 @@ root as `openapi.json`).
 Keeparr can mirror its live release candidates into dedicated Maintainerr movie
 and show collections while keeping deletion responsibility outside Keeparr. The
 candidate set combines requester **OK to delete** marks with reviewed releases
-from closed cleanup campaigns; a live keep excludes either source immediately:
+from closed cleanup campaigns. Keeparr then requires that nobody on the media
+server has watched the title within the configured age window; never-watched
+titles are eligible. A live keep excludes either source immediately:
 
 1. In Maintainerr create one rule group per media-server library/type, turn
    **Use rules** off, disable *arr tagging, and configure the desired action and
@@ -481,7 +483,8 @@ from closed cleanup campaigns; a live keep excludes either source immediately:
    collection on Plex/Jellyfin/Emby.
 2. In **Settings → Connections → Maintainerr**, enter the private Maintainerr URL
    (for example `http://maintainerr:6246`), load collections, select the matching
-   movie/show collections, enable the hand-off, and save.
+   movie/show collections, set the minimum time since the last server-wide watch
+   (180 days by default), enable the hand-off, and save.
 3. Run **Maintainerr hand-off** under **Settings → Jobs**, or leave its default
    five-minute schedule enabled.
 
@@ -494,6 +497,10 @@ deletion. The job hard-fails before writing if **Use rules** is enabled, a
 collection is inactive or wrongly typed, or *arr tagging is on. Keeparr does not
 restrict collection visibility and deliberately does not validate or execute the
 collection action: Maintainerr owns its countdown, handling, and deletion policy.
+Watch history must have completed a successful refresh for the currently
+configured source (Tautulli for Plex, native history for Jellyfin/Emby). If that
+cache is not trustworthy, the job fails closed: it adds nothing and withdraws its
+own existing memberships so Maintainerr cannot delete based on unknown watch data.
 To move to another Maintainerr instance, disable the hand-off and run the job
 once so Keeparr removes its old memberships; URL changes are blocked while any
 Keeparr-owned remote memberships remain.

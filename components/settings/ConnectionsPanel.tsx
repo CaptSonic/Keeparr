@@ -276,6 +276,7 @@ export default function ConnectionsPanel() {
   const [maintainerrEnabled, setMaintainerrEnabled] = useState(false);
   const [maintainerrMovieCollectionId, setMaintainerrMovieCollectionId] = useState<number | null>(null);
   const [maintainerrShowCollectionId, setMaintainerrShowCollectionId] = useState<number | null>(null);
+  const [maintainerrWatchAgeDays, setMaintainerrWatchAgeDays] = useState(180);
   const [maintainerrCollections, setMaintainerrCollections] = useState<MaintainerrCollection[]>([]);
 
   const [servers, setServers] = useState<DiscoveredServer[] | null>(null);
@@ -319,6 +320,7 @@ export default function ConnectionsPanel() {
     setMaintainerrEnabled(d.maintainerr?.enabled === true);
     setMaintainerrMovieCollectionId(d.maintainerr?.movieCollectionId ?? null);
     setMaintainerrShowCollectionId(d.maintainerr?.showCollectionId ?? null);
+    setMaintainerrWatchAgeDays(d.maintainerr?.watchAgeDays ?? 180);
     setSections(d.sections ?? []);
     const mgd: string[] = d.managedSectionIds ?? [];
     setAllManaged(mgd.length === 0);
@@ -544,6 +546,7 @@ export default function ConnectionsPanel() {
             url: buildUrl(maintainerr),
             movieCollectionId: maintainerrMovieCollectionId,
             showCollectionId: maintainerrShowCollectionId,
+            watchAgeDays: maintainerrWatchAgeDays,
             enabled: maintainerrEnabled,
           },
           managedSectionIds: allManaged ? [] : [...managed],
@@ -932,6 +935,22 @@ export default function ConnectionsPanel() {
             </select>
           </label>
         </div>
+        <label className="mt-4 block max-w-xs text-sm text-slate-400">
+          {de ? 'Seit mindestens so vielen Tagen nicht angesehen' : 'Not watched for at least this many days'}
+          <input
+            className={`${inputCls} mt-1`}
+            type="number"
+            min={1}
+            max={3650}
+            value={maintainerrWatchAgeDays}
+            onChange={(e) => setMaintainerrWatchAgeDays(Number(e.target.value))}
+          />
+          <span className="mt-1 block text-xs text-slate-500">
+            {de
+              ? 'Gilt serverweit für alle Nutzer. Noch nie angesehene Titel sind ebenfalls zulässig. Ohne erfolgreichen Watch-Job wird nichts übergeben.'
+              : 'Applies server-wide across all users. Never-watched titles are also eligible. Nothing is handed off until the watch job has succeeded.'}
+          </span>
+        </label>
         <label className="mt-4 flex items-start gap-3 text-sm text-slate-300">
           <input
             type="checkbox"

@@ -339,6 +339,7 @@ export interface MaintainerrConfig {
   url: string;
   movieCollectionId: number | null;
   showCollectionId: number | null;
+  watchAgeDays: number;
   enabled: boolean;
 }
 
@@ -351,6 +352,10 @@ export function getMaintainerrConfig(): MaintainerrConfig {
     url: readSetting('maintainerr_url') ?? '',
     movieCollectionId: positiveId(readSetting('maintainerr_movie_collection_id')),
     showCollectionId: positiveId(readSetting('maintainerr_show_collection_id')),
+    watchAgeDays: (() => {
+      const days = Number(readSetting('maintainerr_watch_age_days'));
+      return Number.isInteger(days) && days >= 1 && days <= 3650 ? days : 180;
+    })(),
     enabled: readSetting('maintainerr_enabled') === 'true',
   };
 }
@@ -371,6 +376,7 @@ export function setMaintainerrConfig(config: MaintainerrConfig): void {
   writeSetting('maintainerr_url', url);
   writeSetting('maintainerr_movie_collection_id', config.movieCollectionId?.toString() ?? '');
   writeSetting('maintainerr_show_collection_id', config.showCollectionId?.toString() ?? '');
+  writeSetting('maintainerr_watch_age_days', String(config.watchAgeDays));
   writeSetting('maintainerr_enabled', config.enabled ? 'true' : 'false');
 }
 

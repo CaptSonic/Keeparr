@@ -1,4 +1,8 @@
-import { listAutomationReleases, markedForDeleteItems } from './queries';
+import {
+  latestWatchedAtByItem,
+  listAutomationReleases,
+  markedForDeleteItems,
+} from './queries';
 import {
   getMaintainerrConfig,
   getMaintainerrManagedItems,
@@ -6,6 +10,7 @@ import {
   setMaintainerrManagedItems,
 } from './settings';
 import type { JobResult } from './sync';
+import { getReclaimSignalReadiness } from './reclaim-readiness';
 
 const REQUEST_TIMEOUT_MS = 15_000;
 
@@ -209,6 +214,26 @@ function maintainerrCandidates(): {
   };
 }
 
+function watchEligibleCandidates(
+  candidates: MaintainerrCandidate[],
+  watchAgeDays: number
+): { items: MaintainerrCandidate[]; recentlyWatched: number; watchReady: boolean } {
+  if (!getReclaimSignalReadiness().watch) {
+    return { items: [], recentlyWatched: 0, watchReady: false };
+  }
+  const cutoff = Math.floor(Date.now() / 1000) - watchAgeDays * 86400;
+  const latest = latestWatchedAtByItem();
+  const items = candidates.filter((item) => {
+    const watchedAt = latest.get(item.ratingKey);
+    return watchedAt == null || watchedAt <= cutoff;
+  });
+  return {
+    items,
+    recentlyWatched: candidates.length - items.length,
+    watchReady: true,
+  };
+}
+
 /**
  * Reconcile Keeparr's live release set into two non-destructive Maintainerr
  * collections. This function NEVER calls Maintainerr's handle/delete endpoints.
@@ -237,7 +262,8 @@ export async function syncMaintainerr(): Promise<JobResult> {
     (await listMaintainerrCollections(config.url)).map((collection) => [collection.id, collection])
   );
   const candidates = maintainerrCandidates();
-  const releases = candidates.items;
+  const watch = watchEligibleCandidates(candidates.items, config.watchAgeDays);
+  const releases = watch.items;
   const targets: Target[] = [];
   const selectedById = new Map(selected.map((value) => [value.id, value.kind]));
   const targetIds = new Set([
@@ -332,7 +358,10 @@ export async function syncMaintainerr(): Promise<JobResult> {
     message:
       `Maintainerr hand-off: ${added} added, ${removed} removed, ${matched} managed; ` +
       `${candidates.requesterReleases} requester release(s), ` +
-      `${candidates.campaignReleases} closed-campaign release(s)` +
+      `${candidates.campaignReleases} closed-campaign release(s), ` +
+      (watch.watchReady
+        ? `${watch.recentlyWatched} watched within ${config.watchAgeDays} day(s)`
+        : 'watch data not ready — all Keeparr memberships withdrawn') +
       `${skipped ? `, ${skipped} outside selected libraries` : ''}.`,
   };
 }

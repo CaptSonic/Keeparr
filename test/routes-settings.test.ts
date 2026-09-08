@@ -84,6 +84,7 @@ describe('/api/admin/settings', () => {
       url: 'http://maintainerr:6246/',
       movieCollectionId: 10,
       showCollectionId: 20,
+      watchAgeDays: 365,
       enabled: true,
     };
     expect((await settingsPut(putReq({ maintainerr }))).status).toBe(200);
@@ -116,5 +117,20 @@ describe('/api/admin/settings', () => {
     expect(duplicate.status).toBe(400);
     expect((await duplicate.json()).error).toBe('maintainerr_duplicate_collection');
     expect(getMaintainerrConfig().enabled).toBe(false);
+  });
+
+  it('rejects an invalid Maintainerr watch age', async () => {
+    await loginAs('admin', true);
+    const response = await settingsPut(putReq({
+      maintainerr: {
+        url: 'http://maintainerr:6246',
+        movieCollectionId: 10,
+        showCollectionId: 20,
+        watchAgeDays: 0,
+        enabled: true,
+      },
+    }));
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toBe('maintainerr_invalid_watch_age');
   });
 });
