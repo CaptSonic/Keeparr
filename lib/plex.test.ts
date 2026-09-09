@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   extractGuids,
+  getMetadataIfPresent,
   getServerIdentity,
+  hasExistingPart,
   parseSharedUsers,
   plexConnectUrl,
   sumLeafSizes,
@@ -75,6 +77,39 @@ describe('sumPartSizes / sumLeafSizes', () => {
       { ratingKey: 'e2', title: 'E2', Media: [{ Part: [{ id: 11, file: '/x/a.mkv', size: 800 }] }] },
     ];
     expect(sumLeafSizes(leaves)).toBe(800);
+  });
+});
+
+describe('live media availability', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('requires a Plex part that is not explicitly unavailable', () => {
+    expect(hasExistingPart({
+      ratingKey: '1', title: 'gone', Media: [{ Part: [{ size: 100, exists: false }] }],
+    })).toBe(false);
+    expect(hasExistingPart({
+      ratingKey: '2', title: 'gone', Media: [{ Part: [{ size: 100, exists: 0 }] }],
+    })).toBe(false);
+    expect(hasExistingPart({
+      ratingKey: '3', title: 'live', Media: [{ Part: [{ size: 100 }] }],
+    })).toBe(true);
+  });
+
+  it('maps only a Plex 404 to missing metadata', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(fakeRes({ ok: false, status: 404 }));
+    await expect(getMetadataIfPresent('http://plex:32400', 'token', 'gone')).resolves.toBeNull();
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(fakeRes({ ok: false, status: 500 }));
+    await expect(getMetadataIfPresent('http://plex:32400', 'token', 'error'))
+      .rejects.toThrow('HTTP 500');
+  });
+
+  it('treats an empty Plex metadata container as a missing item', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(fakeRes({
+      contentType: 'application/json', body: { MediaContainer: {} },
+    }));
+    await expect(getMetadataIfPresent('http://plex:32400', 'token', 'gone'))
+      .resolves.toBeNull();
   });
 });
 

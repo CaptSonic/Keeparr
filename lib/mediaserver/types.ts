@@ -42,6 +42,8 @@ export interface MediaBackend {
   listSections(): Promise<BackendSection[]>;
   /** All items in a section. Movies include size; shows need `showSize()`. */
   listSectionItems(sectionId: string, kind: LibraryKind): Promise<BackendItem[]>;
+  /** Whether an id still resolves to at least one available media file. */
+  itemExists(ratingKey: string, kind: LibraryKind): Promise<boolean>;
   /** Newest items in a section (cheap incremental scan). */
   recentItems(sectionId: string, kind: LibraryKind, limit: number): Promise<BackendItem[]>;
   /** Total on-disk size for one series (episode sum, counting each file once). */

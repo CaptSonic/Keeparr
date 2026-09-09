@@ -169,6 +169,35 @@ export interface JfItem {
   MediaSources?: { Path?: string; Size?: number }[];
 }
 
+/** Resolve one Jellyfin/Emby item id. Only 404 means absence; connection, auth,
+ * malformed-response and server errors are propagated for fail-closed callers. */
+export async function itemExists(
+  baseUrl: string,
+  token: string,
+  ratingKey: string
+): Promise<boolean> {
+  const response = await fetch(
+    `${base(baseUrl)}/Items/${encodeURIComponent(ratingKey)}`,
+    {
+      headers: { ...authHeaders(token), Accept: 'application/json' },
+      signal: AbortSignal.timeout(15_000),
+    }
+  );
+  if (response.status === 404) return false;
+  if (!response.ok) throw new Error(`Jellyfin item lookup → HTTP ${response.status}`);
+  const contentType = (response.headers.get('content-type') ?? '').toLowerCase();
+  if (!contentType.includes('json')) {
+    throw new Error(
+      `Jellyfin item lookup returned a non-JSON response (HTTP ${response.status})`
+    );
+  }
+  const item = (await response.json()) as JfItem;
+  if (!item || typeof item !== 'object') {
+    throw new Error('Jellyfin item lookup returned invalid metadata.');
+  }
+  return String(item.Id ?? '') === ratingKey;
+}
+
 /** Case-insensitive ProviderIds lookup ("Tmdb"/"tmdb"/"TheMovieDb" vary). Exported for tests. */
 export function providerId(ids: Record<string, string> | undefined, name: string): string | null {
   if (!ids) return null;

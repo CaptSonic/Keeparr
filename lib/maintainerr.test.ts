@@ -21,6 +21,10 @@ import {
   syncMaintainerr,
   testMaintainerr,
 } from './maintainerr';
+import type { MediaBackend } from './mediaserver';
+
+let fakeBackend: MediaBackend;
+vi.mock('./mediaserver', () => ({ getBackend: () => fakeBackend }));
 
 const GB = 1024 ** 3;
 const BASE = 1_800_000_000;
@@ -145,6 +149,29 @@ beforeEach(() => {
   __setTestDbToMemory();
   vi.useFakeTimers();
   vi.setSystemTime(BASE * 1000);
+  fakeBackend = {
+    listSections: async () => [
+      { id: 'movies', title: 'Movies', kind: 'movie', paths: [] },
+      { id: 'shows', title: 'Shows', kind: 'show', paths: [] },
+    ],
+    listSectionItems: async (sectionId) => sectionId === 'movies'
+      ? [
+          { ratingKey: 'movie-1', title: 'Movie', year: 2020, thumb: null,
+            addedAt: 1, guidTmdb: '1', guidTvdb: null, guidImdb: null, sizeBytes: 20 * GB },
+          { ratingKey: 'requester-movie', title: 'Requester movie', year: 2022, thumb: null,
+            addedAt: 1, guidTmdb: '3', guidTvdb: null, guidImdb: null, sizeBytes: 10 * GB },
+        ]
+      : [
+          { ratingKey: 'show-1', title: 'Show', year: 2021, thumb: null,
+            addedAt: 1, guidTmdb: null, guidTvdb: '2', guidImdb: null, sizeBytes: 30 * GB },
+          { ratingKey: 'requester-show', title: 'Requester show', year: 2023, thumb: null,
+            addedAt: 1, guidTmdb: null, guidTvdb: '4', guidImdb: null, sizeBytes: 15 * GB },
+        ],
+    itemExists: async () => true,
+    recentItems: async () => [],
+    showSize: async () => 0,
+    getWatchData: async () => null,
+  };
   setMaintainerrConfig({
     url: 'http://maintainerr:6246',
     movieCollectionId: 10,
@@ -201,6 +228,32 @@ describe('Maintainerr safe hand-off', () => {
     expect(result).toMatchObject({ result: 2 });
     expect(result.message).toContain('2 requester release(s)');
     expect(result.message).toContain('0 closed-campaign release(s)');
+  });
+
+  it('does not add releases that disappeared since the last full library scan', async () => {
+    requesterReleasedMedia();
+    fakeBackend.itemExists = async (ratingKey) => ratingKey !== 'requester-movie';
+    const { members } = mockMaintainerr();
+
+    const result = await syncMaintainerr();
+
+    expect([...members.get(10)!]).toEqual([]);
+    expect([...members.get(20)!]).toEqual(['requester-show']);
+    expect(result.message).toContain('1 no longer on media server');
+  });
+
+  it('withdraws owned memberships when live inventory cannot be read safely', async () => {
+    requesterReleasedMedia();
+    const remote = mockMaintainerr();
+    await syncMaintainerr();
+    expect([...remote.members.get(10)!]).toEqual(['requester-movie']);
+    fakeBackend.itemExists = async () => { throw new Error('server unavailable'); };
+
+    const result = await syncMaintainerr();
+
+    expect([...remote.members.get(10)!]).toEqual([]);
+    expect([...remote.members.get(20)!]).toEqual([]);
+    expect(result.message).toContain('media-server inventory not ready');
   });
 
   it('includes never-watched and stale titles but excludes recently watched titles', async () => {

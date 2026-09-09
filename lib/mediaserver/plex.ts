@@ -1,9 +1,11 @@
 import {
   extractGuids,
   getAllLeaves,
+  getMetadataIfPresent,
   getRecentlyAdded,
   getSectionItems,
   getSections,
+  hasExistingPart,
   sumLeafSizes,
   sumPartSizes,
   type PlexMetadata,
@@ -52,6 +54,13 @@ export const plexBackend: MediaBackend = {
     const { baseUrl, token } = creds();
     const items = await getSectionItems(baseUrl, token, sectionId, kind === 'movie' ? 1 : 2);
     return items.map((m) => mapItem(m, kind === 'movie' ? sumPartSizes(m) : 0));
+  },
+  async itemExists(ratingKey, kind) {
+    const { baseUrl, token } = creds();
+    const metadata = await getMetadataIfPresent(baseUrl, token, ratingKey);
+    if (!metadata) return false;
+    if (kind === 'movie') return hasExistingPart(metadata);
+    return (await getAllLeaves(baseUrl, token, ratingKey)).some(hasExistingPart);
   },
   async recentItems(sectionId, kind, limit) {
     const { baseUrl, token } = creds();

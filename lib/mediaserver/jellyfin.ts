@@ -1,4 +1,10 @@
-import { getItems, getLibraries, getSeriesSize, getWatchHistory } from '../jellyfin';
+import {
+  getItems,
+  getLibraries,
+  getSeriesSize,
+  getWatchHistory,
+  itemExists,
+} from '../jellyfin';
 import { getServerBaseUrl, getServerToken } from '../settings';
 import type { MediaBackend } from './types';
 
@@ -18,6 +24,10 @@ export const jellyfinBackend: MediaBackend = {
   async listSectionItems(sectionId, kind) {
     const { baseUrl, token } = creds();
     return getItems(baseUrl, token, sectionId, kind);
+  },
+  async itemExists(ratingKey) {
+    const { baseUrl, token } = creds();
+    return itemExists(baseUrl, token, ratingKey);
   },
   async recentItems(sectionId, kind, limit) {
     const { baseUrl, token } = creds();

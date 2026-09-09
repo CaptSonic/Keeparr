@@ -365,7 +365,44 @@ export interface PlexMetadata {
    *  "com.plexapp.agents.thetvdb://376459?lang=en". The modern agent uses Guid[]. */
   guid?: string;
   Guid?: { id: string }[];
-  Media?: { Part?: { id?: number; file?: string; size?: number }[] }[];
+  Media?: { Part?: { id?: number; file?: string; size?: number; exists?: boolean | number }[] }[];
+}
+
+/** Whether Plex reports at least one usable file part on a metadata node. Missing
+ * `exists` means available; Plex explicitly sends false/0 for unavailable trash. */
+export function hasExistingPart(node: PlexMetadata): boolean {
+  return (node.Media ?? []).some((media) =>
+    (media.Part ?? []).some((part) => part.exists !== false && part.exists !== 0)
+  );
+}
+
+/** Resolve a single metadata id. A genuine 404 means gone; every other upstream
+ * failure is propagated so automation can fail closed instead of guessing. */
+export async function getMetadataIfPresent(
+  baseUrl: string,
+  token: string,
+  ratingKey: string
+): Promise<PlexMetadata | null> {
+  const path = `/library/metadata/${encodeURIComponent(ratingKey)}`;
+  const response = await fetch(pmsUrl(baseUrl, path, token), {
+    headers: { Accept: 'application/json' },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`PMS ${path} → HTTP ${response.status}`);
+  const contentType = (response.headers.get('content-type') ?? '').toLowerCase();
+  if (!contentType.includes('json')) {
+    throw new Error(`PMS ${path} returned a non-JSON response (HTTP ${response.status})`);
+  }
+  const body = (await response.json()) as {
+    MediaContainer?: { Metadata?: PlexMetadata[] };
+  };
+  if (!body.MediaContainer ||
+      (body.MediaContainer.Metadata !== undefined &&
+       !Array.isArray(body.MediaContainer.Metadata))) {
+    throw new Error(`PMS ${path} returned invalid metadata.`);
+  }
+  return body.MediaContainer.Metadata?.[0] ?? null;
 }
 
 /** Sum Part.size across all Media versions of one metadata node (bytes). */

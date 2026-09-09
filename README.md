@@ -488,6 +488,12 @@ titles are eligible. A live keep excludes either source immediately:
 3. Run **Maintainerr hand-off** under **Settings → Jobs**, or leave its default
    five-minute schedule enabled.
 
+Each hand-off resolves every candidate directly against the media server before
+writing Maintainerr memberships. Titles deleted since Keeparr's last full library
+scan and Plex metadata whose file parts are unavailable are excluded immediately.
+If those live checks cannot be completed safely,
+Keeparr fails closed: it adds nothing and withdraws only memberships it owns.
+
 The job validates every selected collection and reads every membership before
 writing. It removes no-longer-released Keeparr-owned memberships first, then adds
 new releases as manual members. Existing members that Keeparr did not add are

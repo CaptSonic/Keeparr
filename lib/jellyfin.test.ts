@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vites
 import { __setTestDbToMemory, __closeDb } from './db';
 import {
   getSeriesSize,
+  itemExists,
   providerId,
   sumMediaSources,
   toBackendItem,
@@ -112,5 +113,30 @@ describe('paged /Items reads (StartIndex/Limit)', () => {
       .mockResolvedValue(fakeRes({ Items: [], TotalRecordCount: 0 }));
     await expect(getSeriesSize('http://jf:8096', 'tok', 's')).resolves.toBe(0);
     expect(spy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('live item availability', () => {
+  beforeEach(() => {
+    __setTestDbToMemory();
+  });
+  afterEach(() => vi.restoreAllMocks());
+  afterAll(() => __closeDb());
+
+  it('returns false only when Jellyfin/Emby reports 404', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(fakeRes({ Id: 'abc' }));
+    await expect(itemExists('http://jf:8096', 'token', 'abc')).resolves.toBe(true);
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+      ...fakeRes({}), ok: false, status: 404,
+    });
+    await expect(itemExists('http://jf:8096', 'token', 'gone')).resolves.toBe(false);
+  });
+
+  it('propagates Jellyfin/Emby server errors', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+      ...fakeRes({}), ok: false, status: 500,
+    });
+    await expect(itemExists('http://jf:8096', 'token', 'abc')).rejects.toThrow('HTTP 500');
   });
 });

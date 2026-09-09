@@ -87,6 +87,7 @@ function backendWith(
   return {
     listSections: async () => sections,
     listSectionItems: async (id) => itemsBySection[id] ?? [],
+    itemExists: async () => true,
     recentItems: async () => [],
     showSize: async () => 0,
     getWatchData: async () => null,

@@ -11,6 +11,7 @@ import {
 } from './settings';
 import type { JobResult } from './sync';
 import { getReclaimSignalReadiness } from './reclaim-readiness';
+import { getBackend } from './mediaserver';
 
 const REQUEST_TIMEOUT_MS = 15_000;
 
@@ -234,6 +235,34 @@ function watchEligibleCandidates(
   };
 }
 
+async function liveInventoryCandidates(
+  candidates: MaintainerrCandidate[]
+): Promise<{ items: MaintainerrCandidate[]; missing: number; inventoryReady: boolean }> {
+  if (candidates.length === 0) {
+    return { items: [], missing: 0, inventoryReady: true };
+  }
+  try {
+    const backend = getBackend();
+    const items: MaintainerrCandidate[] = [];
+    for (let offset = 0; offset < candidates.length; offset += 8) {
+      const batch = candidates.slice(offset, offset + 8);
+      const availability = await Promise.all(
+        batch.map((item) => backend.itemExists(item.ratingKey, item.libraryKind))
+      );
+      for (let index = 0; index < batch.length; index++) {
+        if (availability[index]) items.push(batch[index]);
+      }
+    }
+    return {
+      items,
+      missing: candidates.length - items.length,
+      inventoryReady: true,
+    };
+  } catch {
+    return { items: [], missing: 0, inventoryReady: false };
+  }
+}
+
 /**
  * Reconcile Keeparr's live release set into two non-destructive Maintainerr
  * collections. This function NEVER calls Maintainerr's handle/delete endpoints.
@@ -262,7 +291,17 @@ export async function syncMaintainerr(): Promise<JobResult> {
     (await listMaintainerrCollections(config.url)).map((collection) => [collection.id, collection])
   );
   const candidates = maintainerrCandidates();
-  const watch = watchEligibleCandidates(candidates.items, config.watchAgeDays);
+  const selectedLibraries = new Set(
+    selected.flatMap(({ id, kind }) => {
+      const collection = collections.get(id);
+      return collection ? [`${kind}\0${collection.libraryId}`] : [];
+    })
+  );
+  const selectedCandidates = candidates.items.filter((item) =>
+    selectedLibraries.has(`${item.libraryKind}\0${item.sectionId}`)
+  );
+  const inventory = await liveInventoryCandidates(selectedCandidates);
+  const watch = watchEligibleCandidates(inventory.items, config.watchAgeDays);
   const releases = watch.items;
   const targets: Target[] = [];
   const selectedById = new Map(selected.map((value) => [value.id, value.kind]));
@@ -352,13 +391,16 @@ export async function syncMaintainerr(): Promise<JobResult> {
   }
   setMaintainerrManagedItems(nextState);
   const matched = targets.reduce((sum, target) => sum + target.desired.size, 0);
-  const skipped = releases.length - matched;
+  const skipped = candidates.items.length - selectedCandidates.length;
   return {
     result: added + removed,
     message:
       `Maintainerr hand-off: ${added} added, ${removed} removed, ${matched} managed; ` +
       `${candidates.requesterReleases} requester release(s), ` +
       `${candidates.campaignReleases} closed-campaign release(s), ` +
+      (inventory.inventoryReady
+        ? `${inventory.missing} no longer on media server, `
+        : 'media-server inventory not ready — all Keeparr memberships withdrawn, ') +
       (watch.watchReady
         ? `${watch.recentlyWatched} watched within ${config.watchAgeDays} day(s)`
         : 'watch data not ready — all Keeparr memberships withdrawn') +
