@@ -493,6 +493,8 @@ writing Maintainerr memberships. Titles deleted since Keeparr's last full librar
 scan and Plex metadata whose file parts are unavailable are excluded immediately.
 If those live checks cannot be completed safely,
 Keeparr fails closed: it adds nothing and withdraws only memberships it owns.
+Maintainerr requests allow up to 60 seconds because membership reads for large
+visible collections can take longer than ordinary connector health checks.
 
 The job validates every selected collection and reads every membership before
 writing. It removes no-longer-released Keeparr-owned memberships first, then adds

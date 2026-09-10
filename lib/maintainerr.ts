@@ -13,7 +13,10 @@ import type { JobResult } from './sync';
 import { getReclaimSignalReadiness } from './reclaim-readiness';
 import { getBackend } from './mediaserver';
 
-const REQUEST_TIMEOUT_MS = 15_000;
+// Maintainerr's membership endpoint can take noticeably longer for large visible
+// collections than its lightweight health endpoints. Keep a finite ceiling, but
+// do not abort healthy local instances at the generic connector default of 15s.
+const REQUEST_TIMEOUT_MS = 60_000;
 
 export interface MaintainerrCollection {
   id: number;
@@ -48,11 +51,24 @@ async function maintainerrRequest(
   path: string,
   init?: RequestInit
 ): Promise<unknown> {
-  const response = await fetch(`${baseUrl(base)}${path}`, {
-    ...init,
-    headers: init?.body ? { 'Content-Type': 'application/json', ...init.headers } : init?.headers,
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl(base)}${path}`, {
+      ...init,
+      headers: init?.body
+        ? { 'Content-Type': 'application/json', ...init.headers }
+        : init?.headers,
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  } catch (error) {
+    if (
+      error instanceof DOMException &&
+      (error.name === 'TimeoutError' || error.name === 'AbortError')
+    ) {
+      throw new Error(`Maintainerr ${path} timed out after 60 seconds.`);
+    }
+    throw error;
+  }
   if (!response.ok) {
     throw new Error(`Maintainerr ${path} returned HTTP ${response.status}.`);
   }

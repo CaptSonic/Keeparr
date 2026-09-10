@@ -199,6 +199,34 @@ describe('Maintainerr safe hand-off', () => {
     expect(writes).toEqual([]);
   });
 
+  it('reports the Maintainerr endpoint clearly when a request times out', async () => {
+    const timeout = new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+    const fetchMock = vi.fn().mockRejectedValue(timeout);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await testMaintainerr('http://maintainerr:6246');
+
+    expect(result).toEqual({
+      ok: false,
+      message: 'Maintainerr /api/collections/overlay-data timed out after 60 seconds.',
+    });
+    const signal = fetchMock.mock.calls[0][1]?.signal as AbortSignal;
+    expect(signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('also maps an aborted Maintainerr request to the endpoint timeout message', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockRejectedValue(new DOMException('This operation was aborted', 'AbortError'))
+    );
+
+    const result = await testMaintainerr('http://maintainerr:6246');
+
+    expect(result.message).toBe(
+      'Maintainerr /api/collections/overlay-data timed out after 60 seconds.'
+    );
+  });
+
   it('adds released movies and shows as manual collection members only', async () => {
     releasedMedia();
     const { members, writes } = mockMaintainerr();

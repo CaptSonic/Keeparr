@@ -229,6 +229,8 @@ The chrome is a Sonarr/Radarr-style left rail (logo → Keep; Keep / Browse[expa
   `keepInMaintainerrOnly` visibility and `arrAction`); removes keep-vetoed
   Keeparr-owned memberships before additions and never touches foreign manual
   members. Never add calls to `/handle` or media/Servarr/Seerr deletion here.
+  Maintainerr API calls have a 60-second ceiling because membership reads can be
+  slow for large visible collections; timeout errors must identify the endpoint.
 - `settings` — key/value; secret values encrypted.
 - `job_state` — one row per scheduled job (`recentlyAdded`/`library`/`sizes`/`watch`/
   `requests`/`arr`/`maintainerr`/`backup`): last run/status/message/duration/result. Rows stuck at
