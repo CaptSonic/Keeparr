@@ -177,9 +177,11 @@ The chrome is a Sonarr/Radarr-style left rail (logo → Keep; Keep / Browse[expa
 - Maintainerr hand-off filters Keeparr release candidates by the newest
   `watch_history.last_watched` across every user. `maintainerr_watch_age_days`
   defaults to 180; missing rows mean never watched. It reuses
-  `getReclaimSignalReadiness().watch` and fails closed when the current watch
-  source has no trusted successful refresh: no additions and withdrawal of
-  Keeparr-owned memberships. Maintainerr rules remain disabled; Maintainerr owns
+  `getReclaimSignalReadiness().watch`. Readiness is anchored by the persisted source
+  fingerprint written only after an atomic successful refresh, so a later `running`
+  or failed refresh keeps using the last trusted cache. A missing/mismatched fingerprint
+  still means no additions and withdrawal of Keeparr-owned memberships. Maintainerr
+  rules remain disabled; Maintainerr owns
   only collection visibility, grace period, handling, and deletion.
 - `seerr_requests` — `(plex_user_id, rating_key)`; cached Seerr requests (refreshed
   by the `requests` job; badges/filters read this, not live Seerr). Also warmed
@@ -223,8 +225,9 @@ The chrome is a Sonarr/Radarr-style left rail (logo → Keep; Keep / Browse[expa
   Maintainerr's internal membership using only
   `POST /api/collections/add` and `/remove`. It validates every collection/member
   before writing and verifies every candidate against the live media server
-  (`Media[].Part[].exists` for Plex),
-  fails closed when that inventory is unavailable, and requires `useRules=false`
+  (`Media[].Part[].exists` for Plex). An unavailable inventory freezes all writes
+  and ownership state (never withdraw on uncertainty, which would reset grace after
+  re-add). It requires `useRules=false`
   and `tagInArr=false` (Maintainerr owns
   `keepInMaintainerrOnly` visibility and `arrAction`); removes keep-vetoed
   Keeparr-owned memberships before additions and never touches foreign manual

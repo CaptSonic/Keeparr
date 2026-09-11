@@ -492,7 +492,9 @@ Each hand-off resolves every candidate directly against the media server before
 writing Maintainerr memberships. Titles deleted since Keeparr's last full library
 scan and Plex metadata whose file parts are unavailable are excluded immediately.
 If those live checks cannot be completed safely,
-Keeparr fails closed: it adds nothing and withdraws only memberships it owns.
+Keeparr pauses reconciliation: it neither adds nor removes anything, so a transient
+media-server error cannot reset Maintainerr's grace period. A running watch refresh
+continues to use the last successfully validated cache for the same source.
 Maintainerr requests allow up to 60 seconds because membership reads for large
 visible collections can take longer than ordinary connector health checks.
 
@@ -505,10 +507,12 @@ deletion. The job hard-fails before writing if **Use rules** is enabled, a
 collection is inactive or wrongly typed, or *arr tagging is on. Keeparr does not
 restrict collection visibility and deliberately does not validate or execute the
 collection action: Maintainerr owns its countdown, handling, and deletion policy.
-Watch history must have completed a successful refresh for the currently
-configured source (Tautulli for Plex, native history for Jellyfin/Emby). If that
-cache is not trustworthy, the job fails closed: it adds nothing and withdraws its
-own existing memberships so Maintainerr cannot delete based on unknown watch data.
+Watch history must have completed at least one successful refresh for the currently
+configured source (Tautulli for Plex, native history for Jellyfin/Emby). A later
+running or failed refresh keeps using that last trusted cache and does not change
+memberships. If the source fingerprint is missing or no longer matches, the job adds
+nothing and withdraws its own memberships so Maintainerr cannot delete based on
+unknown watch data.
 To move to another Maintainerr instance, disable the hand-off and run the job
 once so Keeparr removes its old memberships; URL changes are blocked while any
 Keeparr-owned remote memberships remain.

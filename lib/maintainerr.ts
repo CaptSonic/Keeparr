@@ -373,6 +373,18 @@ export async function syncMaintainerr(): Promise<JobResult> {
     });
   }
 
+  // An unavailable live inventory is uncertainty, not evidence that every title
+  // disappeared. Freeze both membership and ownership state so a transient media-
+  // server timeout cannot reset Maintainerr's grace periods through remove/re-add.
+  if (!inventory.inventoryReady) {
+    return {
+      result: 0,
+      message:
+        'Maintainerr hand-off paused: media-server inventory not ready; ' +
+        'existing memberships left unchanged.',
+    };
+  }
+
   let added = 0;
   let removed = 0;
   // Keep vetoes first: only remove memberships previously managed by Keeparr.
@@ -416,7 +428,7 @@ export async function syncMaintainerr(): Promise<JobResult> {
       `${candidates.campaignReleases} closed-campaign release(s), ` +
       (inventory.inventoryReady
         ? `${inventory.missing} no longer on media server, `
-        : 'media-server inventory not ready — all Keeparr memberships withdrawn, ') +
+        : 'media-server inventory not ready, ') +
       (watch.watchReady
         ? `${watch.recentlyWatched} watched within ${config.watchAgeDays} day(s)`
         : 'watch data not ready — all Keeparr memberships withdrawn') +

@@ -78,6 +78,12 @@ describe('GET /api/reclaim-queue', () => {
     expect(readyBody.signals.watch).toBe(true);
     expect(readyBody.items[0]).toMatchObject({ score: 35 });
 
+    setJobState('watch', { lastStatus: 'running' });
+    const refreshing = await GET(new Request('http://localhost/api/reclaim-queue'));
+    const refreshingBody = await refreshing.json();
+    expect(refreshingBody.signals.watch).toBe(true);
+    expect(refreshingBody.items[0]).toMatchObject({ score: 35 });
+
     writeSetting('tautulli_url', 'http://tautulli-b');
     const changed = await GET(new Request('http://localhost/api/reclaim-queue'));
     const changedBody = await changed.json();

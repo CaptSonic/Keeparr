@@ -1,4 +1,3 @@
-import { getJobState } from './queries';
 import {
   getWatchSourceFingerprint,
   isArrConfigured,
@@ -12,7 +11,6 @@ export function getReclaimSignalReadiness(): { watch: boolean; arr: boolean } {
   return {
     watch:
       isWatchAvailable() &&
-      getJobState('watch').lastStatus === 'ok' &&
       fingerprint !== null &&
       readSetting('watch_source_fingerprint') === fingerprint,
     arr: isArrConfigured(),

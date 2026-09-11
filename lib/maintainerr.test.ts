@@ -270,7 +270,7 @@ describe('Maintainerr safe hand-off', () => {
     expect(result.message).toContain('1 no longer on media server');
   });
 
-  it('withdraws owned memberships when live inventory cannot be read safely', async () => {
+  it('freezes owned memberships when live inventory cannot be read safely', async () => {
     requesterReleasedMedia();
     const remote = mockMaintainerr();
     await syncMaintainerr();
@@ -279,9 +279,13 @@ describe('Maintainerr safe hand-off', () => {
 
     const result = await syncMaintainerr();
 
-    expect([...remote.members.get(10)!]).toEqual([]);
-    expect([...remote.members.get(20)!]).toEqual([]);
-    expect(result.message).toContain('media-server inventory not ready');
+    expect([...remote.members.get(10)!]).toEqual(['requester-movie']);
+    expect([...remote.members.get(20)!]).toEqual(['requester-show']);
+    expect(result.message).toContain('existing memberships left unchanged');
+    expect(getMaintainerrManagedItems()).toEqual({
+      '10': ['requester-movie'],
+      '20': ['requester-show'],
+    });
   });
 
   it('includes never-watched and stale titles but excludes recently watched titles', async () => {
@@ -421,6 +425,21 @@ describe('Maintainerr safe hand-off', () => {
     expect([...remote.members.get(20)!]).toEqual([]);
     expect(result.message).toContain('watch data not ready');
     expect(getMaintainerrManagedItems()).toEqual({ '10': [], '20': [] });
+  });
+
+  it('keeps using the last trusted watch cache while its refresh is running', async () => {
+    requesterReleasedMedia();
+    const remote = mockMaintainerr();
+    await syncMaintainerr();
+    remote.writes.length = 0;
+    setJobState('watch', { lastStatus: 'running' });
+
+    const result = await syncMaintainerr();
+
+    expect([...remote.members.get(10)!]).toEqual(['requester-movie']);
+    expect([...remote.members.get(20)!]).toEqual(['requester-show']);
+    expect(remote.writes).toEqual([]);
+    expect(result.message).not.toContain('watch data not ready');
   });
 
   it('allows Maintainerr to own the configured collection action', async () => {
