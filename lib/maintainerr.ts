@@ -1,4 +1,5 @@
 import {
+  getMediaItem,
   latestWatchedAtByItem,
   listAutomationReleases,
   markedForDeleteItems,
@@ -185,7 +186,7 @@ async function changeMembership(
 }
 
 interface Target {
-  collection: MaintainerrCollection;
+  collection: MaintainerrCollection & { type: 'movie' | 'show' };
   current: Set<string>;
   desired: Set<string>;
   managed: Set<string>;
@@ -195,6 +196,64 @@ interface MaintainerrCandidate {
   ratingKey: string;
   sectionId: string;
   libraryKind: 'movie' | 'show';
+  title: string;
+  year: number | null;
+  source: 'requester' | 'campaign' | 'both';
+  kept: boolean;
+}
+
+export type MaintainerrPreviewStatus =
+  | 'add'
+  | 'remove'
+  | 'managed'
+  | 'manual'
+  | 'blocked_keep'
+  | 'blocked_recent'
+  | 'missing'
+  | 'outside'
+  | 'paused';
+
+export interface MaintainerrPreviewItem {
+  ratingKey: string;
+  title: string;
+  year: number | null;
+  libraryKind: 'movie' | 'show';
+  collectionId: number | null;
+  collectionTitle: string | null;
+  source: 'requester' | 'campaign' | 'both' | 'managed' | 'manual';
+  status: MaintainerrPreviewStatus;
+  reason: string;
+  lastWatched: number | null;
+}
+
+export interface MaintainerrPreviewCollection {
+  id: number;
+  title: string;
+  type: 'movie' | 'show';
+  selected: boolean;
+  current: number;
+  managed: number;
+  desired: number;
+  add: number;
+  remove: number;
+}
+
+export interface MaintainerrPreview {
+  generatedAt: number;
+  paused: boolean;
+  pauseReason: 'not_configured' | 'inventory_unavailable' | null;
+  watchReady: boolean;
+  watchAgeDays: number;
+  requesterReleases: number;
+  campaignReleases: number;
+  collections: MaintainerrPreviewCollection[];
+  items: MaintainerrPreviewItem[];
+  summary: Record<MaintainerrPreviewStatus, number>;
+}
+
+interface MaintainerrPlan {
+  preview: MaintainerrPreview;
+  targets: Target[];
 }
 
 /**
@@ -207,7 +266,7 @@ function maintainerrCandidates(): {
   requesterReleases: number;
   campaignReleases: number;
 } {
-  const requester = markedForDeleteItems().filter((item) => !item.keptByAnyone);
+  const requester = markedForDeleteItems();
   const campaign = listAutomationReleases();
   const byId = new Map<string, MaintainerrCandidate>();
   for (const item of requester) {
@@ -215,39 +274,28 @@ function maintainerrCandidates(): {
       ratingKey: item.ratingKey,
       sectionId: item.sectionId,
       libraryKind: item.libraryKind,
+      title: item.title,
+      year: item.year,
+      source: 'requester',
+      kept: item.keptByAnyone,
     });
   }
   for (const item of campaign) {
+    const previous = byId.get(item.ratingKey);
     byId.set(item.ratingKey, {
       ratingKey: item.ratingKey,
       sectionId: item.sectionId,
       libraryKind: item.libraryKind,
+      title: item.title,
+      year: item.year,
+      source: previous ? 'both' : 'campaign',
+      kept: false,
     });
   }
   return {
     items: [...byId.values()],
-    requesterReleases: requester.length,
+    requesterReleases: requester.filter((item) => !item.keptByAnyone).length,
     campaignReleases: campaign.length,
-  };
-}
-
-function watchEligibleCandidates(
-  candidates: MaintainerrCandidate[],
-  watchAgeDays: number
-): { items: MaintainerrCandidate[]; recentlyWatched: number; watchReady: boolean } {
-  if (!getReclaimSignalReadiness().watch) {
-    return { items: [], recentlyWatched: 0, watchReady: false };
-  }
-  const cutoff = Math.floor(Date.now() / 1000) - watchAgeDays * 86400;
-  const latest = latestWatchedAtByItem();
-  const items = candidates.filter((item) => {
-    const watchedAt = latest.get(item.ratingKey);
-    return watchedAt == null || watchedAt <= cutoff;
-  });
-  return {
-    items,
-    recentlyWatched: candidates.length - items.length,
-    watchReady: true,
   };
 }
 
@@ -279,16 +327,46 @@ async function liveInventoryCandidates(
   }
 }
 
-/**
- * Reconcile Keeparr's live release set into two non-destructive Maintainerr
- * collections. This function NEVER calls Maintainerr's handle/delete endpoints.
- * All targets are validated and read before the first write (fail closed).
- */
-export async function syncMaintainerr(): Promise<JobResult> {
+const previewStatuses: MaintainerrPreviewStatus[] = [
+  'add', 'remove', 'managed', 'manual', 'blocked_keep',
+  'blocked_recent', 'missing', 'outside', 'paused',
+];
+
+function mediaLabel(ratingKey: string): {
+  title: string;
+  year: number | null;
+  libraryKind: 'movie' | 'show';
+} {
+  const media = getMediaItem(ratingKey);
+  return {
+    title: media?.title ?? `Media ${ratingKey}`,
+    year: media?.year ?? null,
+    libraryKind: media?.library_kind ?? 'movie',
+  };
+}
+
+/** Build the exact reconciliation plan without mutating Maintainerr or ownership. */
+async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
   const config = getMaintainerrConfig();
   const managedState = getMaintainerrManagedItems();
   if (!config.url || (!isMaintainerrConfigured() && Object.keys(managedState).length === 0)) {
-    return { result: 0, message: 'Maintainerr hand-off is not configured.' };
+    return {
+      targets: [],
+      preview: {
+        generatedAt: Math.floor(Date.now() / 1000),
+        paused: true,
+        pauseReason: 'not_configured',
+        watchReady: getReclaimSignalReadiness().watch,
+        watchAgeDays: config.watchAgeDays,
+        requesterReleases: 0,
+        campaignReleases: 0,
+        collections: [],
+        items: [],
+        summary: Object.fromEntries(
+          previewStatuses.map((status) => [status, 0])
+        ) as Record<MaintainerrPreviewStatus, number>,
+      },
+    };
   }
   if (
     config.enabled &&
@@ -316,9 +394,17 @@ export async function syncMaintainerr(): Promise<JobResult> {
   const selectedCandidates = candidates.items.filter((item) =>
     selectedLibraries.has(`${item.libraryKind}\0${item.sectionId}`)
   );
-  const inventory = await liveInventoryCandidates(selectedCandidates);
-  const watch = watchEligibleCandidates(inventory.items, config.watchAgeDays);
-  const releases = watch.items;
+  const eligibleCandidates = selectedCandidates.filter((item) => !item.kept);
+  const inventory = await liveInventoryCandidates(eligibleCandidates);
+  const inventoryIds = new Set(inventory.items.map((item) => item.ratingKey));
+  const watchReady = getReclaimSignalReadiness().watch;
+  const latest = latestWatchedAtByItem();
+  const cutoff = Math.floor(Date.now() / 1000) - config.watchAgeDays * 86400;
+  const desiredCandidates = inventory.items.filter((item) => {
+    const watchedAt = latest.get(item.ratingKey);
+    return watchReady && (watchedAt == null || watchedAt <= cutoff);
+  });
+  const desiredIds = new Set(desiredCandidates.map((item) => item.ratingKey));
   const targets: Target[] = [];
   const selectedById = new Map(selected.map((value) => [value.id, value.kind]));
   const targetIds = new Set([
@@ -335,6 +421,9 @@ export async function syncMaintainerr(): Promise<JobResult> {
     if (collection.type !== 'movie' && collection.type !== 'show') {
       throw new Error(`Maintainerr collection “${collection.title}” has an unsupported media type.`);
     }
+    const targetCollection = collection as MaintainerrCollection & {
+      type: 'movie' | 'show';
+    };
     const selectedKind = selectedById.get(collectionId);
     if (selectedKind && collection.type !== selectedKind) {
       throw new Error(
@@ -358,7 +447,7 @@ export async function syncMaintainerr(): Promise<JobResult> {
     const current = await collectionMembers(config.url, collection.id);
     const desired = new Set(
       selectedKind
-        ? releases
+        ? desiredCandidates
             .filter((item) =>
               item.libraryKind === selectedKind && item.sectionId === collection.libraryId
             )
@@ -366,17 +455,182 @@ export async function syncMaintainerr(): Promise<JobResult> {
         : []
     );
     targets.push({
-      collection,
+      collection: targetCollection,
       current,
       desired,
       managed: new Set(managedState[String(collection.id)] ?? []),
     });
   }
 
+  const paused = !inventory.inventoryReady;
+  const pauseReason = paused ? 'inventory_unavailable' : null;
+  const items: MaintainerrPreviewItem[] = [];
+  const candidateById = new Map(candidates.items.map((item) => [item.ratingKey, item]));
+  const targetByLibrary = new Map(
+    targets
+      .filter((target) => selectedById.has(target.collection.id))
+      .map((target) => [
+        `${target.collection.type}\0${target.collection.libraryId}`,
+        target,
+      ])
+  );
+
+  for (const item of candidates.items) {
+    const selectedTarget = targetByLibrary.get(`${item.libraryKind}\0${item.sectionId}`);
+    const ownedTarget = targets.find((target) => target.managed.has(item.ratingKey));
+    const target = selectedTarget ?? ownedTarget;
+    const managed = target?.managed.has(item.ratingKey) ?? false;
+    const current = target?.current.has(item.ratingKey) ?? false;
+    const lastWatched = latest.get(item.ratingKey) ?? null;
+    let status: MaintainerrPreviewStatus;
+    let reason: string;
+    if (!selectedTarget && managed && current && !paused) {
+      status = 'remove';
+      reason = 'outside_selected_library';
+    } else if (!selectedTarget) {
+      status = 'outside';
+      reason = 'outside_selected_library';
+    } else if (paused) {
+      status = 'paused';
+      reason = 'inventory_unavailable';
+    } else if (current && !managed) {
+      status = 'manual';
+      reason = 'existing_foreign_member';
+    } else if (managed && current && !desiredIds.has(item.ratingKey)) {
+      status = 'remove';
+      reason = item.kept
+        ? 'global_keep'
+        : !watchReady
+          ? 'watch_cache_untrusted'
+          : !inventoryIds.has(item.ratingKey)
+            ? 'missing_from_media_server'
+            : 'watched_too_recently';
+    } else if (item.kept) {
+      status = 'blocked_keep';
+      reason = 'global_keep';
+    } else if (!inventoryIds.has(item.ratingKey)) {
+      status = 'missing';
+      reason = 'missing_from_media_server';
+    } else if (!watchReady) {
+      status = 'paused';
+      reason = 'watch_cache_untrusted';
+    } else if (lastWatched !== null && lastWatched > cutoff) {
+      status = 'blocked_recent';
+      reason = 'watched_too_recently';
+    } else if (current && managed) {
+      status = 'managed';
+      reason = 'already_managed';
+    } else {
+      status = 'add';
+      reason = lastWatched === null ? 'never_watched' : 'watch_age_met';
+    }
+    items.push({
+      ratingKey: item.ratingKey,
+      title: item.title,
+      year: item.year,
+      libraryKind: item.libraryKind,
+      collectionId: target?.collection.id ?? null,
+      collectionTitle: target?.collection.title ?? null,
+      source: item.source,
+      status,
+      reason,
+      lastWatched,
+    });
+  }
+
+  // Include remote members that have no current release candidate so the preview
+  // also explains foreign/manual rows and planned cleanup of old Keeparr ownership.
+  for (const target of targets) {
+    for (const ratingKey of new Set([...target.current, ...target.managed])) {
+      if (candidateById.has(ratingKey)) continue;
+      const label = mediaLabel(ratingKey);
+      const managed = target.managed.has(ratingKey);
+      const current = target.current.has(ratingKey);
+      items.push({
+        ratingKey,
+        title: label.title,
+        year: label.year,
+        libraryKind: target.collection.type,
+        collectionId: target.collection.id,
+        collectionTitle: target.collection.title,
+        source: managed ? 'managed' : 'manual',
+        status: paused
+          ? 'paused'
+          : managed && current
+            ? 'remove'
+            : 'manual',
+        reason: paused
+          ? 'inventory_unavailable'
+          : managed && current
+            ? 'release_revoked'
+            : current
+              ? 'existing_foreign_member'
+              : 'ownership_stale',
+        lastWatched: latest.get(ratingKey) ?? null,
+      });
+    }
+  }
+
+  const summary = Object.fromEntries(
+    previewStatuses.map((status) => [
+      status,
+      items.filter((item) => item.status === status).length,
+    ])
+  ) as Record<MaintainerrPreviewStatus, number>;
+  const preview: MaintainerrPreview = {
+    generatedAt: Math.floor(Date.now() / 1000),
+    paused,
+    pauseReason,
+    watchReady,
+    watchAgeDays: config.watchAgeDays,
+    requesterReleases: candidates.requesterReleases,
+    campaignReleases: candidates.campaignReleases,
+    collections: targets.map((target) => ({
+      id: target.collection.id,
+      title: target.collection.title,
+      type: target.collection.type,
+      selected: selectedById.has(target.collection.id),
+      current: target.current.size,
+      managed: target.managed.size,
+      desired: target.desired.size,
+      add: [...target.desired].filter((id) => !target.current.has(id)).length,
+      remove: paused
+        ? 0
+        : [...target.managed].filter(
+            (id) => target.current.has(id) && !target.desired.has(id)
+          ).length,
+    })),
+    items: items.sort((a, b) =>
+      previewStatuses.indexOf(a.status) - previewStatuses.indexOf(b.status) ||
+      a.title.localeCompare(b.title)
+    ),
+    summary,
+  };
+  return { preview, targets };
+}
+
+/** Read-only dry run used by the Maintainerr Control Center. */
+export async function previewMaintainerr(): Promise<MaintainerrPreview> {
+  return (await buildMaintainerrPlan()).preview;
+}
+
+/**
+ * Reconcile Keeparr's live release set into two non-destructive Maintainerr
+ * collections. This function NEVER calls Maintainerr's handle/delete endpoints.
+ * All targets are validated and read before the first write (fail closed).
+ */
+export async function syncMaintainerr(): Promise<JobResult> {
+  const config = getMaintainerrConfig();
+  const managedState = getMaintainerrManagedItems();
+  if (!config.url || (!isMaintainerrConfigured() && Object.keys(managedState).length === 0)) {
+    return { result: 0, message: 'Maintainerr hand-off is not configured.' };
+  }
+  const { preview, targets } = await buildMaintainerrPlan();
+
   // An unavailable live inventory is uncertainty, not evidence that every title
   // disappeared. Freeze both membership and ownership state so a transient media-
   // server timeout cannot reset Maintainerr's grace periods through remove/re-add.
-  if (!inventory.inventoryReady) {
+  if (preview.paused) {
     return {
       result: 0,
       message:
@@ -411,27 +665,33 @@ export async function syncMaintainerr(): Promise<JobResult> {
   }
 
   const nextState: Record<string, string[]> = {};
+  const selectedIds = new Set(
+    preview.collections.filter((collection) => collection.selected).map((collection) => collection.id)
+  );
   for (const target of targets) {
     const owned = [...target.managed].filter((id) => target.desired.has(id)).sort();
-    if (owned.length > 0 || selectedById.has(target.collection.id)) {
+    if (owned.length > 0 || selectedIds.has(target.collection.id)) {
       nextState[String(target.collection.id)] = owned;
     }
   }
   setMaintainerrManagedItems(nextState);
   const matched = targets.reduce((sum, target) => sum + target.desired.size, 0);
-  const skipped = candidates.items.length - selectedCandidates.length;
+  const missing = preview.items.filter(
+    (item) => item.reason === 'missing_from_media_server'
+  ).length;
+  const recentlyWatched = preview.items.filter(
+    (item) => item.reason === 'watched_too_recently'
+  ).length;
   return {
     result: added + removed,
     message:
       `Maintainerr hand-off: ${added} added, ${removed} removed, ${matched} managed; ` +
-      `${candidates.requesterReleases} requester release(s), ` +
-      `${candidates.campaignReleases} closed-campaign release(s), ` +
-      (inventory.inventoryReady
-        ? `${inventory.missing} no longer on media server, `
-        : 'media-server inventory not ready, ') +
-      (watch.watchReady
-        ? `${watch.recentlyWatched} watched within ${config.watchAgeDays} day(s)`
+      `${preview.requesterReleases} requester release(s), ` +
+      `${preview.campaignReleases} closed-campaign release(s), ` +
+      `${missing} no longer on media server, ` +
+      (preview.watchReady
+        ? `${recentlyWatched} watched within ${config.watchAgeDays} day(s)`
         : 'watch data not ready — all Keeparr memberships withdrawn') +
-      `${skipped ? `, ${skipped} outside selected libraries` : ''}.`,
+      `${preview.summary.outside ? `, ${preview.summary.outside} outside selected libraries` : ''}.`,
   };
 }

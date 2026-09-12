@@ -18,6 +18,7 @@ import {
   writeSetting,
 } from './settings';
 import {
+  previewMaintainerr,
   syncMaintainerr,
   testMaintainerr,
 } from './maintainerr';
@@ -192,6 +193,20 @@ afterEach(() => {
 afterAll(() => __closeDb());
 
 describe('Maintainerr safe hand-off', () => {
+  it('returns a paused empty preview when the hand-off is not configured', async () => {
+    setMaintainerrConfig({
+      url: '', movieCollectionId: null, showCollectionId: null,
+      watchAgeDays: 180, enabled: false,
+    });
+
+    const preview = await previewMaintainerr();
+
+    expect(preview).toMatchObject({
+      paused: true, pauseReason: 'not_configured', collections: [], items: [],
+    });
+    expect(preview.summary.add).toBe(0);
+  });
+
   it('discovers collections without writing anything', async () => {
     const { writes } = mockMaintainerr();
     const result = await testMaintainerr('http://maintainerr:6246');
@@ -243,6 +258,139 @@ describe('Maintainerr safe hand-off', () => {
       '10': ['movie-1'],
       '20': ['show-1'],
     });
+  });
+
+  it('previews the exact add plan without writing membership or ownership', async () => {
+    requesterReleasedMedia();
+    const remote = mockMaintainerr();
+
+    const preview = await previewMaintainerr();
+
+    expect(preview.paused).toBe(false);
+    expect(preview.summary.add).toBe(2);
+    expect(preview.collections).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 10, selected: true, add: 1, remove: 0 }),
+      expect.objectContaining({ id: 20, selected: true, add: 1, remove: 0 }),
+    ]));
+    expect(preview.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        ratingKey: 'requester-movie', status: 'add', reason: 'never_watched',
+      }),
+    ]));
+    expect(remote.writes).toEqual([]);
+    expect(getMaintainerrManagedItems()).toEqual({});
+  });
+
+  it('explains keep, recent watch, missing and foreign manual members', async () => {
+    requesterReleasedMedia();
+    addKeep('protector', 'requester-movie');
+    upsertWatchBatch([{
+      plexUserId: 'viewer', ratingKey: 'requester-show', plays: 1,
+      lastWatched: BASE - 10 * 86400,
+    }]);
+    const remote = mockMaintainerr({ movieMembers: ['foreign'] });
+    fakeBackend.itemExists = async (ratingKey) => ratingKey !== 'requester-show';
+
+    const preview = await previewMaintainerr();
+
+    expect(preview.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ ratingKey: 'requester-movie', status: 'blocked_keep' }),
+      expect.objectContaining({ ratingKey: 'requester-show', status: 'missing' }),
+      expect.objectContaining({ ratingKey: 'foreign', status: 'manual' }),
+    ]));
+    expect(remote.writes).toEqual([]);
+  });
+
+  it('keeps foreign manual members unchanged when watch data is not ready', async () => {
+    requesterReleasedMedia();
+    const remote = mockMaintainerr({ movieMembers: ['requester-movie'] });
+    writeSetting('watch_source_fingerprint', 'different-source');
+
+    const preview = await previewMaintainerr();
+
+    expect(preview.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        ratingKey: 'requester-movie', status: 'manual', reason: 'existing_foreign_member',
+      }),
+    ]));
+    expect(remote.writes).toEqual([]);
+  });
+
+  it('keeps a missing foreign manual member marked as untouched', async () => {
+    requesterReleasedMedia();
+    const remote = mockMaintainerr({ movieMembers: ['requester-movie'] });
+    fakeBackend.itemExists = async (ratingKey) => ratingKey !== 'requester-movie';
+
+    const preview = await previewMaintainerr();
+
+    expect(preview.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        ratingKey: 'requester-movie', status: 'manual', reason: 'existing_foreign_member',
+      }),
+    ]));
+    expect(preview.collections.find((row) => row.id === 10)?.remove).toBe(0);
+    expect(remote.writes).toEqual([]);
+  });
+
+  it('previews an inventory failure as paused without planning removals', async () => {
+    requesterReleasedMedia();
+    const remote = mockMaintainerr({ movieMembers: ['requester-movie'] });
+    setMaintainerrManagedItems({ '10': ['requester-movie'] });
+    fakeBackend.itemExists = async () => { throw new Error('offline'); };
+
+    const preview = await previewMaintainerr();
+
+    expect(preview).toMatchObject({ paused: true, pauseReason: 'inventory_unavailable' });
+    expect(preview.collections.find((row) => row.id === 10)?.remove).toBe(0);
+    expect(preview.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ ratingKey: 'requester-movie', status: 'paused' }),
+    ]));
+    expect(remote.writes).toEqual([]);
+    expect(getMaintainerrManagedItems()).toEqual({ '10': ['requester-movie'] });
+  });
+
+  it('previews a managed recent title as removal with its reason', async () => {
+    requesterReleasedMedia();
+    const remote = mockMaintainerr({ movieMembers: ['requester-movie'] });
+    setMaintainerrManagedItems({ '10': ['requester-movie'] });
+    upsertWatchBatch([{
+      plexUserId: 'viewer', ratingKey: 'requester-movie', plays: 1,
+      lastWatched: BASE - 10 * 86400,
+    }]);
+
+    const preview = await previewMaintainerr();
+
+    expect(preview.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        ratingKey: 'requester-movie', status: 'remove', reason: 'watched_too_recently',
+      }),
+    ]));
+    expect(preview.collections.find((row) => row.id === 10)?.remove).toBe(1);
+    expect(remote.writes).toEqual([]);
+  });
+
+  it('previews removal from a collection that is no longer selected', async () => {
+    requesterReleasedMedia();
+    const remote = mockMaintainerr();
+    await syncMaintainerr();
+    remote.writes.length = 0;
+    setMaintainerrConfig({
+      url: 'http://maintainerr:6246', movieCollectionId: null,
+      showCollectionId: 20, watchAgeDays: 180, enabled: true,
+    });
+
+    const preview = await previewMaintainerr();
+
+    expect(preview.collections.find((row) => row.id === 10)).toMatchObject({
+      selected: false, remove: 1,
+    });
+    expect(preview.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        ratingKey: 'requester-movie', collectionId: 10,
+        status: 'remove', reason: 'outside_selected_library',
+      }),
+    ]));
+    expect(remote.writes).toEqual([]);
   });
 
   it('adds direct requester OK-to-delete marks without requiring a campaign', async () => {

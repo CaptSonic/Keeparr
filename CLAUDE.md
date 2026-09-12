@@ -119,7 +119,7 @@ app/
   campaigns/         AppShell → CleanupCampaigns (snapshot/review/grace/report workflow)
   api-docs/          interactive API reference (Scalar over /api/openapi.json;
                      session-gated server component + client dynamic import)
-  settings/<tab>/    admin Settings sub-tabs: general, users, connections, libraries,
+  settings/<tab>/    admin Settings sub-tabs: general, users, connections, maintainerr,
                      jobs, logs, about (+ /settings → general). admin/* → redirects.
   api/...            route handlers (see below)
 components/          AppShell (rail + top bar + user menu), MediaCard (grid), MediaRow
@@ -130,7 +130,7 @@ components/          AppShell (rail + top bar + user menu), MediaCard (grid), Me
                      breakdown.tsx (shared keep/reclaim visual language: StackedBar,
                        Donut, LegendRow + the TONE palette — used by KeepView's totals
                        column and the StatsView dashboard);
-                     settings/ (SettingsLayout + General/Users/Connections/JobsCache/Logs/About panels;
+                     settings/ (SettingsLayout + General/Users/Connections/MaintainerrControlCenter/JobsCache/Logs/About panels;
                        managed libraries + storage + Sonarr/Radarr instances + MatchHealthCard live
                        inside the Connections panel)
 ```
@@ -232,6 +232,9 @@ The chrome is a Sonarr/Radarr-style left rail (logo → Keep; Keep / Browse[expa
   `keepInMaintainerrOnly` visibility and `arrAction`); removes keep-vetoed
   Keeparr-owned memberships before additions and never touches foreign manual
   members. Never add calls to `/handle` or media/Servarr/Seerr deletion here.
+  `previewMaintainerr()` builds the same plan without calling add/remove or mutating
+  ownership; `/settings/maintainerr` renders it through the admin-only no-store
+  `GET /api/admin/maintainerr-preview` endpoint.
   Maintainerr API calls have a 60-second ceiling because membership reads can be
   slow for large visible collections; timeout errors must identify the endpoint.
 - `settings` — key/value; secret values encrypted.
@@ -408,6 +411,8 @@ when it has no tvdb/tmdb **and** no imdb.
   via `getBackend().listSections()`),
   `GET /api/admin/storage-check?path=`, `GET /api/admin/jobs` (status + recent runs)
   + `POST /api/admin/jobs {job}` (trigger one/`all`) — both also accept `X-Api-Key`,
+  `GET /api/admin/maintainerr-preview` (admin session only; exact read-only hand-off
+  plan with collection counters and per-title status/reason; `no-store`),
   `GET /api/admin/logs?level=&q=&limit=` (keyword search over message+source;
   limit ≤ 1000 for the .txt export) + `DELETE /api/admin/logs`,
   `GET /api/admin/cache` + `POST /api/admin/cache {target:images|requests|watch|arr}`

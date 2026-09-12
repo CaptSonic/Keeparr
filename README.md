@@ -488,6 +488,13 @@ titles are eligible. A live keep excludes either source immediately:
 3. Run **Maintainerr hand-off** under **Settings → Jobs**, or leave its default
    five-minute schedule enabled.
 
+The admin-only **Settings → Maintainerr** Control Center shows a read-only dry run
+of that exact hand-off plan: collection totals, planned additions/removals, unchanged
+Keeparr-owned and foreign manual members, and per-title reasons such as global Keep,
+recent watch, missing media, or an unavailable live check. Refreshing the dry run
+never writes membership or ownership state; the explicit **Run hand-off now** button
+uses the normal single-flight job runner and reloads the plan afterwards.
+
 Each hand-off resolves every candidate directly against the media server before
 writing Maintainerr memberships. Titles deleted since Keeparr's last full library
 scan and Plex metadata whose file parts are unavailable are excluded immediately.

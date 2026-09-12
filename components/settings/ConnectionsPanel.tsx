@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { formatBytes, formatNumber } from '@/lib/i18n';
 import { useLocale } from '../LocaleProvider';
@@ -969,6 +970,9 @@ export default function ConnectionsPanel() {
             </span>
           </span>
         </label>
+        <Link href="/settings/maintainerr" className={`${btnGhost} mt-4 inline-block`}>
+          {de ? 'Maintainerr-Kontrollzentrum öffnen' : 'Open Maintainerr Control Center'}
+        </Link>
       </Card>
 
       {(sonarr.length > 0 || radarr.length > 0) && <MatchHealthCard />}

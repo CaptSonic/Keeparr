@@ -798,6 +798,19 @@
         "responses": { "200": { "description": "`{started:true}` (fire-and-forget)" } }
       }
     },
+    "/api/admin/maintainerr-preview": {
+      "get": {
+        "tags": ["admin"],
+        "summary": "Read-only Maintainerr reconciliation dry run",
+        "description": "Returns the exact current add/remove/unchanged plan with per-title reason codes. Reads Maintainerr and the media server but never writes memberships or Keeparr ownership state.",
+        "security": [{ "cookieAuth": [] }],
+        "responses": {
+          "200": { "description": "Maintainerr preview with collection counters, item decisions, and pause state" },
+          "401": { "description": "Authentication required" },
+          "403": { "description": "Admin required" }
+        }
+      }
+    },
     "/api/admin/backups": {
       "get": {
         "tags": ["admin"],
