@@ -140,6 +140,19 @@ describe('syncLibrary tombstone guards', () => {
     expect(res.message).toContain('1 section(s) returned no items');
   });
 
+  it('tombstones a movie that Plex retains as unavailable trash metadata', async () => {
+    upsertMediaBatch([media('trashed')], 1000);
+    fakeBackend = backendWith([section('1')], {
+      '1': [backendItem('trashed', { available: false, sizeBytes: 0 })],
+    });
+
+    const res = await syncLibrary();
+
+    expect(getMediaItem('trashed')?.removed).toBe(1);
+    expect(res.message).toContain('removed 1');
+    expect(res.message).not.toContain('returned no items');
+  });
+
   it('unmanaged sections still tombstone out (intentional behavior)', async () => {
     upsertMediaBatch([media('1'), media('9', { sectionId: '9' })], 1000);
     setManagedSectionIds(['1']);
@@ -264,6 +277,19 @@ describe('syncRecentlyAdded', () => {
     const res = await syncRecentlyAdded();
     expect(res.result).toBe(1);
     expect(getMediaItem('sh-new')).not.toBeNull();
+  });
+
+  it('does not resurrect unavailable Plex trash metadata', async () => {
+    setPlexSections([{ id: '1', title: 'Movies', type: 'movie', paths: [] }]);
+    fakeBackend = {
+      ...backendWith([], {}),
+      recentItems: async () => [backendItem('trashed', { available: false })],
+    };
+
+    const res = await syncRecentlyAdded();
+
+    expect(res.result).toBe(0);
+    expect(getMediaItem('trashed')).toBeNull();
   });
 });
 

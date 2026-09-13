@@ -528,6 +528,9 @@ Three additional safeguards protect Maintainerr's grace periods and large plans:
 Each hand-off resolves every candidate directly against the media server before
 writing Maintainerr memberships. Titles deleted since Keeparr's last full library
 scan and Plex metadata whose file parts are unavailable are excluded immediately.
+The next full library scan tombstones Plex trash entries even while Plex retains
+their metadata; the following hand-off then retires stale local ownership without
+re-adding the handled title.
 If those live checks cannot be completed safely,
 Keeparr pauses reconciliation: it neither adds nor removes anything, so a transient
 media-server error cannot reset Maintainerr's grace period. A running watch refresh

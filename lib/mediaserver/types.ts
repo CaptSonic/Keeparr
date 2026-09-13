@@ -27,6 +27,9 @@ export interface BackendItem {
   guidTvdb: string | null;
   guidImdb: string | null;
   sizeBytes: number;
+  /** False only when the backend explicitly reports metadata without a usable
+   * media file (for example a movie retained in the Plex trash). */
+  available?: boolean;
 }
 
 /** One watch-history row (movies by item id; episodes rolled up to their series). */

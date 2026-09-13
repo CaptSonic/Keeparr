@@ -21,7 +21,7 @@ function creds(): { baseUrl: string; token: string } {
   return { baseUrl, token };
 }
 
-function mapItem(m: PlexMetadata, sizeBytes: number): BackendItem {
+function mapItem(m: PlexMetadata, sizeBytes: number, available = true): BackendItem {
   const { tmdb, tvdb, imdb } = extractGuids(m);
   return {
     ratingKey: String(m.ratingKey),
@@ -33,7 +33,17 @@ function mapItem(m: PlexMetadata, sizeBytes: number): BackendItem {
     guidTvdb: tvdb,
     guidImdb: imdb,
     sizeBytes,
+    available,
   };
+}
+
+/**
+ * Plex keeps trashed movies in section listings while their metadata remains in
+ * the library. Show headers normally have no inline parts, so absence of parts
+ * there is not evidence that a series is unavailable.
+ */
+export function isAvailableSectionItem(item: PlexMetadata, kind: LibraryKind): boolean {
+  return kind !== 'movie' || hasExistingPart(item);
 }
 
 /** Plex backend: thin adapter over lib/plex.ts so Plex behavior is unchanged. */
@@ -53,7 +63,11 @@ export const plexBackend: MediaBackend = {
   async listSectionItems(sectionId, kind) {
     const { baseUrl, token } = creds();
     const items = await getSectionItems(baseUrl, token, sectionId, kind === 'movie' ? 1 : 2);
-    return items.map((m) => mapItem(m, kind === 'movie' ? sumPartSizes(m) : 0));
+    return items.map((m) => mapItem(
+      m,
+      kind === 'movie' ? sumPartSizes(m) : 0,
+      isAvailableSectionItem(m, kind)
+    ));
   },
   async itemExists(ratingKey, kind) {
     const { baseUrl, token } = creds();
@@ -65,7 +79,11 @@ export const plexBackend: MediaBackend = {
   async recentItems(sectionId, kind, limit) {
     const { baseUrl, token } = creds();
     const items = await getRecentlyAdded(baseUrl, token, sectionId, kind === 'movie' ? 1 : 2, limit);
-    return items.map((m) => mapItem(m, kind === 'movie' ? sumPartSizes(m) : 0));
+    return items.map((m) => mapItem(
+      m,
+      kind === 'movie' ? sumPartSizes(m) : 0,
+      isAvailableSectionItem(m, kind)
+    ));
   },
   async showSize(ratingKey) {
     const { baseUrl, token } = creds();

@@ -92,13 +92,14 @@ export async function syncLibrary(): Promise<JobResult> {
       emptySections.push(section.id);
       continue;
     }
+    const availableItems = items.filter((item) => item.available !== false);
 
     if (section.kind === 'movie') {
-      const batch = items.map((m) => toInput(m, section.id, 'movie'));
+      const batch = availableItems.map((m) => toInput(m, section.id, 'movie'));
       itemsSynced += upsertMediaBatch(batch, syncStart);
     } else {
       const batch: UpsertMediaInput[] = [];
-      for (const show of items) {
+      for (const show of availableItems) {
         let size = knownSizes.get(show.ratingKey);
         if (size == null) {
           // New show — compute its size now so it never shows as 0 GB.
@@ -145,7 +146,7 @@ export async function syncRecentlyAdded(): Promise<JobResult> {
       continue; // skip a failing section
     }
     const batch: UpsertMediaInput[] = [];
-    for (const node of items) {
+    for (const node of items.filter((item) => item.available !== false)) {
       let size = node.sizeBytes;
       if (kind === 'show') {
         size = knownSizes.get(node.ratingKey) ?? 0;

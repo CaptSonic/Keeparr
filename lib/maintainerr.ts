@@ -1027,7 +1027,7 @@ export async function syncMaintainerr(): Promise<JobResult> {
   return {
     result: added + removed,
     message:
-      `Maintainerr hand-off: ${added} added, ${removed} removed, ${matched} managed; ` +
+      `Maintainerr hand-off: ${added} added, ${removed} removed, ${matched} desired; ` +
       `${preview.requesterReleases} requester release(s), ` +
       `${preview.campaignReleases} closed-campaign release(s), ` +
       `${preview.summary.tracking} automatic title(s) under observation, ` +

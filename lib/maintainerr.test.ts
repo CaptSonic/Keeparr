@@ -10,6 +10,7 @@ import {
   recentMaintainerrHistory,
   maintainerrRuleTracking,
   replaceSeerrRequests,
+  tombstoneStale,
   upsertWatchBatch,
   upsertMediaBatch,
 } from './queries';
@@ -604,6 +605,26 @@ describe('Maintainerr safe hand-off', () => {
     ]));
     expect(preview.collections.find((row) => row.id === 10)?.remove).toBe(0);
     expect(remote.writes).toEqual([]);
+  });
+
+  it('clears stale ownership after a full scan confirms a handled movie is gone', async () => {
+    requesterReleasedMedia();
+    setMaintainerrManagedItems({ '10': ['requester-movie'] });
+    tombstoneStale(BASE + 1);
+    const remote = mockMaintainerr();
+
+    const preview = await previewMaintainerr();
+    expect(preview.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        ratingKey: 'requester-movie', status: 'manual', reason: 'ownership_stale',
+      }),
+    ]));
+
+    const result = await syncMaintainerr();
+
+    expect(result.result).toBe(0);
+    expect(remote.writes).toEqual([]);
+    expect(getMaintainerrManagedItems()).toEqual({ '10': [], '20': [] });
   });
 
   it('previews an inventory failure as paused without planning removals', async () => {
