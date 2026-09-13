@@ -126,7 +126,7 @@ describe('migrate: arr_unmatched gained columns', () => {
   });
 });
 
-describe('Maintainerr history schema', () => {
+describe('Maintainerr safety schemas', () => {
   it('is additive and idempotent on an existing database', () => {
     d = legacyKeepsDb();
     applySchema(d);
@@ -139,5 +139,13 @@ describe('Maintainerr history schema', () => {
     expect(indexes.map((row) => row.name)).toEqual(expect.arrayContaining([
       'idx_maintainerr_history_time', 'idx_maintainerr_history_item',
     ]));
+    const tracking = d.prepare(
+      `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'maintainerr_rule_tracking'`
+    ).get() as { name: string } | undefined;
+    expect(tracking?.name).toBe('maintainerr_rule_tracking');
+    const trackingIndexes = d.prepare(`PRAGMA index_list(maintainerr_rule_tracking)`).all() as { name: string }[];
+    expect(trackingIndexes.map((row) => row.name)).toContain(
+      'idx_maintainerr_rule_tracking_due'
+    );
   });
 });

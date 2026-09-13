@@ -183,6 +183,17 @@ The chrome is a Sonarr/Radarr-style left rail (logo → Keep; Keep / Browse[expa
   still means no additions and withdrawal of Keeparr-owned memberships. Maintainerr
   rules remain disabled; Maintainerr owns
   only collection visibility, grace period, handling, and deletion.
+- Automatic Maintainerr candidates are separate from Smart Reclaim scoring:
+  `requester_unwatched_180d` matches when at least one cached Seerr requester has
+  no watch newer than 180 days; `global_unwatched_540d` matches when no user has a
+  watch newer than 540 days. Both include never-watched. The hard global Keep veto
+  is enforced in SQL. `maintainerr_rule_tracking` persists an independent
+  `first_eligible_at` per `(rating_key, rule)`; only a real, trusted Maintainerr run
+  reconciles it, never preview. A rule must remain true for
+  `maintainerr_observation_days` (default 30, 1–365) before hand-off. Lost trust,
+  Keep, or a watch that breaks the rule resets its clock. Restrict clocks to
+  selected target libraries. Explicit requester/campaign releases are not delayed
+  by this observation period.
 - `seerr_requests` — `(plex_user_id, rating_key)`; cached Seerr requests (refreshed
   by the `requests` job; badges/filters read this, not live Seerr). Also warmed
   for a single user on their **first login** via `syncSeerrRequestsForUser`, so
@@ -221,8 +232,8 @@ The chrome is a Sonarr/Radarr-style left rail (logo → Keep; Keep / Browse[expa
   title appearing in multiple campaigns to its newest closed campaign record.
 - `lib/maintainerr.ts` is the optional non-destructive hand-off client. Settings
   select one Maintainerr movie/show collection and the `maintainerr` job reconciles
-  unprotected requester `user_deletes` plus `listAutomationReleases()` into
-  Maintainerr's internal membership using only
+  unprotected requester `user_deletes`, `listAutomationReleases()`, and matured
+  persisted automatic watch-rule matches into Maintainerr's internal membership using only
   `POST /api/collections/add` and `/remove`. It validates every collection/member
   before writing and verifies every candidate against the live media server
   (`Media[].Part[].exists` for Plex). An unavailable inventory freezes all writes
@@ -253,6 +264,10 @@ The chrome is a Sonarr/Radarr-style left rail (logo → Keep; Keep / Browse[expa
 - `job_runs` — append-only run history (last ~100) for the admin activity log.
 - `maintainerr_history` — persistent Maintainerr action/safety audit snapshots; no
   media FK so history survives deletion. Indexed by time and `(rating_key, ts)`.
+- `maintainerr_rule_tracking` — persistent automatic-rule observation clocks,
+  keyed by `(rating_key, rule)` with a media FK/cascade. A title/rule disappears as
+  soon as the trusted condition stops matching; it must then complete a fresh
+  observation period before Maintainerr hand-off.
 - `logs` — app-event log (`ts,level,source,message`, pruned to ~1000) for Settings → Logs.
 - `sync_state` — legacy single row (id=1); superseded by `job_state`, no longer read.
 
@@ -462,6 +477,7 @@ the legacy single `sync_interval_minutes`, which is no longer read),
 measurement), `managed_section_ids` (json; which libraries Keeparr tracks, empty =
 all), `open_signin` (`'true'`/`'false'`), `api_key`* (automation), `app_title`,
 `automation_bridge_enabled` (`'true'` only after explicit admin opt-in; defaults off),
+`maintainerr_observation_days` (automatic rule delay, default 30, 1–365),
 `maintainerr_safety_state` (internal JSON one-time mass-plan hash + per-collection/id
 re-add approvals; cleared on Maintainerr config changes and dev reset),
 `app_url` (Plex sign-in forwardUrl; overrides the `APP_URL` env var),

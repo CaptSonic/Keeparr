@@ -8,6 +8,8 @@ import {
   reviewCleanupCampaignItem,
   setJobState,
   recentMaintainerrHistory,
+  maintainerrRuleTracking,
+  replaceSeerrRequests,
   upsertWatchBatch,
   upsertMediaBatch,
 } from './queries';
@@ -301,6 +303,117 @@ describe('Maintainerr safe hand-off', () => {
     ]));
     expect(remote.writes).toEqual([]);
     expect(getMaintainerrManagedItems()).toEqual({});
+  });
+
+  it('tracks automatic watch-rule matches for 30 days before handing them off', async () => {
+    upsertMediaBatch([{
+      ratingKey: 'automatic', sectionId: 'movies', libraryKind: 'movie',
+      title: 'Automatic', year: 2024, thumb: null, sizeBytes: 5 * GB, addedAt: 1,
+      guidTmdb: '99', guidTvdb: null,
+    }]);
+    replaceSeerrRequests('requester', ['automatic']);
+    const remote = mockMaintainerr();
+
+    const preview = await previewMaintainerr();
+    expect(preview).toMatchObject({ observationDays: 30 });
+    expect(preview.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        ratingKey: 'automatic', source: 'automatic', status: 'tracking',
+        reason: 'observing_automatic_rules', dueAt: BASE + 30 * 86400,
+      }),
+    ]));
+    expect(maintainerrRuleTracking()).toEqual([]);
+    expect(remote.writes).toEqual([]);
+
+    await syncMaintainerr();
+    expect(maintainerrRuleTracking()).toHaveLength(2);
+    expect([...remote.members.get(10)!]).toEqual([]);
+    vi.setSystemTime((BASE + 30 * 86400 - 1) * 1000);
+    await syncMaintainerr();
+    expect([...remote.members.get(10)!]).toEqual([]);
+
+    vi.setSystemTime((BASE + 30 * 86400) * 1000);
+    const result = await syncMaintainerr();
+    expect(result.result).toBe(1);
+    expect([...remote.members.get(10)!]).toEqual(['automatic']);
+    expect(recentMaintainerrHistory()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventType: 'membership_added', ratingKey: 'automatic',
+        reason: 'automatic_rules_met',
+      }),
+    ]));
+  });
+
+  it('resets automatic tracking when a Keep or recent requester watch breaks the rules', async () => {
+    upsertMediaBatch([{
+      ratingKey: 'automatic', sectionId: 'movies', libraryKind: 'movie',
+      title: 'Automatic', year: 2024, thumb: null, sizeBytes: 5 * GB, addedAt: 1,
+      guidTmdb: '99', guidTvdb: null,
+    }]);
+    replaceSeerrRequests('requester', ['automatic']);
+    mockMaintainerr();
+    await syncMaintainerr();
+    expect(maintainerrRuleTracking()).toHaveLength(2);
+
+    addKeep('protector', 'automatic');
+    await syncMaintainerr();
+    expect(maintainerrRuleTracking()).toEqual([]);
+
+    // A fresh database scenario without Keep: a recent requester watch breaks
+    // both requester-specific and server-wide inactivity.
+    __setTestDbToMemory();
+    upsertMediaBatch([{
+      ratingKey: 'automatic', sectionId: 'movies', libraryKind: 'movie',
+      title: 'Automatic', year: 2024, thumb: null, sizeBytes: 5 * GB, addedAt: 1,
+      guidTmdb: '99', guidTvdb: null,
+    }]);
+    replaceSeerrRequests('requester', ['automatic']);
+    setMaintainerrConfig({
+      url: 'http://maintainerr:6246', movieCollectionId: 10,
+      showCollectionId: 20, watchAgeDays: 180, observationDays: 30, enabled: true,
+    });
+    writeSetting('tautulli_url', 'http://tautulli:8181');
+    writeSetting('tautulli_api_key', 'watch-key');
+    writeSetting('watch_source_fingerprint', getWatchSourceFingerprint()!);
+    mockMaintainerr();
+    await syncMaintainerr();
+    expect(maintainerrRuleTracking()).toHaveLength(2);
+    upsertWatchBatch([{
+      plexUserId: 'requester', ratingKey: 'automatic', plays: 1,
+      lastWatched: BASE,
+    }]);
+    await syncMaintainerr();
+    expect(maintainerrRuleTracking()).toEqual([]);
+  });
+
+  it('does not advance automatic tracking while watch data is untrusted', async () => {
+    upsertMediaBatch([{
+      ratingKey: 'automatic', sectionId: 'movies', libraryKind: 'movie',
+      title: 'Automatic', year: 2024, thumb: null, sizeBytes: 5 * GB, addedAt: 1,
+      guidTmdb: '99', guidTvdb: null,
+    }]);
+    replaceSeerrRequests('requester', ['automatic']);
+    mockMaintainerr();
+    writeSetting('watch_source_fingerprint', 'different-source');
+
+    await syncMaintainerr();
+
+    expect(maintainerrRuleTracking()).toEqual([]);
+  });
+
+  it('does not start automatic tracking outside the selected target libraries', async () => {
+    upsertMediaBatch([{
+      ratingKey: 'outside-auto', sectionId: 'other-movies', libraryKind: 'movie',
+      title: 'Outside automatic', year: 2024, thumb: null, sizeBytes: 5 * GB,
+      addedAt: 1, guidTmdb: '100', guidTvdb: null,
+    }]);
+    replaceSeerrRequests('requester', ['outside-auto']);
+    mockMaintainerr();
+
+    const preview = await previewMaintainerr();
+    expect(preview.items.some((item) => item.ratingKey === 'outside-auto')).toBe(false);
+    await syncMaintainerr();
+    expect(maintainerrRuleTracking()).toEqual([]);
   });
 
   it('blocks a mass-change plan until that exact plan is approved once', async () => {

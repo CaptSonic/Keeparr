@@ -340,6 +340,7 @@ export interface MaintainerrConfig {
   movieCollectionId: number | null;
   showCollectionId: number | null;
   watchAgeDays: number;
+  observationDays: number;
   enabled: boolean;
 }
 
@@ -356,13 +357,20 @@ export function getMaintainerrConfig(): MaintainerrConfig {
       const days = Number(readSetting('maintainerr_watch_age_days'));
       return Number.isInteger(days) && days >= 1 && days <= 3650 ? days : 180;
     })(),
+    observationDays: (() => {
+      const days = Number(readSetting('maintainerr_observation_days'));
+      return Number.isInteger(days) && days >= 1 && days <= 365 ? days : 30;
+    })(),
     enabled: readSetting('maintainerr_enabled') === 'true',
   };
 }
 
-export function setMaintainerrConfig(config: MaintainerrConfig): void {
+export function setMaintainerrConfig(
+  config: Omit<MaintainerrConfig, 'observationDays'> & { observationDays?: number }
+): void {
   const url = config.url.trim().replace(/\/$/, '');
   const previous = getMaintainerrConfig();
+  const observationDays = config.observationDays ?? previous.observationDays;
   const previousUrl = previous.url;
   // Collection ids are local to one Maintainerr instance. Refuse to forget
   // remote memberships: disable + run the job once to remove them before moving.
@@ -378,12 +386,14 @@ export function setMaintainerrConfig(config: MaintainerrConfig): void {
   writeSetting('maintainerr_movie_collection_id', config.movieCollectionId?.toString() ?? '');
   writeSetting('maintainerr_show_collection_id', config.showCollectionId?.toString() ?? '');
   writeSetting('maintainerr_watch_age_days', String(config.watchAgeDays));
+  writeSetting('maintainerr_observation_days', String(observationDays));
   writeSetting('maintainerr_enabled', config.enabled ? 'true' : 'false');
   if (
     previous.url !== url ||
     previous.movieCollectionId !== config.movieCollectionId ||
     previous.showCollectionId !== config.showCollectionId ||
     previous.watchAgeDays !== config.watchAgeDays ||
+    previous.observationDays !== observationDays ||
     previous.enabled !== config.enabled
   ) {
     deleteSetting('maintainerr_safety_state');

@@ -97,6 +97,19 @@ manually in Plex / Jellyfin / Emby / Sonarr / Radarr.
   off until a watch refresh succeeds. Filter to all, medium (45+), or strong (70+)
   candidates. **Protect / Keep** removes a title immediately; Keeparr still performs
   no deletion or external mutation.
+- **Automatic Maintainerr watch rules** — in addition to explicit requester
+  **OK to delete** marks and closed-campaign releases, Keeparr can stage an
+  unprotected title for Maintainerr when either (a) at least one known Seerr
+  requester has not watched it for 180 days (including never), or (b) nobody has
+  watched it for 540 days (including never). These are not Smart Reclaim score
+  points. Keeparr persistently observes each matching rule first (30 days by
+  default, configurable from 1–365) and only then adds the title to Maintainerr,
+  so Maintainerr's own short delete-after period does not start at first detection.
+  Each rule has an independent clock; a Keep or a watch that breaks a rule resets
+  that clock. Any household Keep always vetoes tracking/hand-off and withdraws a
+  Keeparr-owned membership. Untrusted watch data never starts or advances the
+  observation period. Explicit releases keep their existing immediate hand-off
+  path (subject to the configured server-wide watch-age gate).
 - **Cleanup Campaigns** — admins turn the current Smart Reclaim result into a
   household plan with a reclaim target, review deadline, grace period, and minimum
   score. Creation freezes every matching candidate's title, size, score, reasons,
@@ -470,12 +483,13 @@ root as `openapi.json`).
 
 ### Maintainerr hand-off
 
-Keeparr can mirror its live release candidates into dedicated Maintainerr movie
-and show collections while keeping deletion responsibility outside Keeparr. The
-candidate set combines requester **OK to delete** marks with reviewed releases
-from closed cleanup campaigns. Keeparr then requires that nobody on the media
-server has watched the title within the configured age window; never-watched
-titles are eligible. A live keep excludes either source immediately:
+Keeparr can mirror eligible titles into dedicated Maintainerr movie and show
+collections while keeping deletion responsibility outside Keeparr. Immediate
+candidates combine requester **OK to delete** marks with reviewed releases from
+closed cleanup campaigns and remain subject to the configured server-wide watch
+age. Automatic candidates use the 180-day requester and 540-day household rules
+described above, then complete Keeparr's persistent observation period before
+Maintainerr sees them. A live Keep excludes every source immediately:
 
 1. In Maintainerr create one rule group per media-server library/type, turn
    **Use rules** off, disable *arr tagging, and configure the desired action and
@@ -484,16 +498,18 @@ titles are eligible. A live keep excludes either source immediately:
 2. In **Settings → Connections → Maintainerr**, enter the private Maintainerr URL
    (for example `http://maintainerr:6246`), load collections, select the matching
    movie/show collections, set the minimum time since the last server-wide watch
-   (180 days by default), enable the hand-off, and save.
+   for explicit releases (180 days by default), set the automatic-rule observation
+   period (30 days by default), enable the hand-off, and save.
 3. Run **Maintainerr hand-off** under **Settings → Jobs**, or leave its default
    five-minute schedule enabled.
 
 The admin-only **Settings → Maintainerr** Control Center shows a read-only dry run
 of that exact hand-off plan: collection totals, planned additions/removals, unchanged
-Keeparr-owned and foreign manual members, and per-title reasons such as global Keep,
-recent watch, missing media, or an unavailable live check. Refreshing the dry run
-never writes membership or ownership state; the explicit **Run hand-off now** button
-uses the normal single-flight job runner and reloads the plan afterwards.
+Keeparr-owned and foreign manual members, automatic rules still under observation
+(including their due date), and per-title reasons such as global Keep, recent watch,
+missing media, or an unavailable live check. Refreshing the dry run never writes
+membership, ownership, or observation state; the explicit **Run hand-off now**
+button uses the normal single-flight job runner and reloads the plan afterwards.
 
 Three additional safeguards protect Maintainerr's grace periods and large plans:
 

@@ -85,6 +85,7 @@ describe('/api/admin/settings', () => {
       movieCollectionId: 10,
       showCollectionId: 20,
       watchAgeDays: 365,
+      observationDays: 45,
       enabled: true,
     };
     expect((await settingsPut(putReq({ maintainerr }))).status).toBe(200);
@@ -132,5 +133,17 @@ describe('/api/admin/settings', () => {
     }));
     expect(response.status).toBe(400);
     expect((await response.json()).error).toBe('maintainerr_invalid_watch_age');
+  });
+
+  it('rejects an invalid Maintainerr observation period', async () => {
+    await loginAs('admin', true);
+    const response = await settingsPut(putReq({
+      maintainerr: {
+        url: 'http://maintainerr:6246', movieCollectionId: 10,
+        showCollectionId: 20, observationDays: 0, enabled: true,
+      },
+    }));
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toBe('maintainerr_invalid_observation_days');
   });
 });

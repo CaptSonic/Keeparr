@@ -2186,6 +2186,109 @@ export function recentMaintainerrHistory(
   }));
 }
 
+export type MaintainerrAutomaticRule =
+  | 'requester_unwatched_180d'
+  | 'global_unwatched_540d';
+
+export interface MaintainerrRuleMatch extends MediaItem {
+  rule: MaintainerrAutomaticRule;
+}
+
+export interface MaintainerrRuleTracking {
+  ratingKey: string;
+  rule: MaintainerrAutomaticRule;
+  firstEligibleAt: number;
+  lastConfirmedAt: number;
+}
+
+/**
+ * Current automatic Maintainerr rule matches. The global Keep veto is part of
+ * the query, not a caller convention. Call only while the watch cache is trusted:
+ * an empty trusted cache means never watched, while an untrusted cache is unknown.
+ */
+export function maintainerrAutomaticRuleMatches(at = now()): MaintainerrRuleMatch[] {
+  return getDb().prepare(
+    `SELECT m.*, 'requester_unwatched_180d' AS rule
+       FROM media_items m
+      WHERE m.removed = 0
+        AND NOT EXISTS (SELECT 1 FROM keeps k WHERE k.rating_key = m.rating_key)
+        AND EXISTS (
+          SELECT 1 FROM seerr_requests sr
+           WHERE sr.rating_key = m.rating_key
+             AND NOT EXISTS (
+               SELECT 1 FROM watch_history w
+                WHERE w.rating_key = sr.rating_key
+                  AND w.plex_user_id = sr.plex_user_id
+                  AND w.last_watched > @requesterCutoff
+             )
+        )
+      UNION ALL
+     SELECT m.*, 'global_unwatched_540d' AS rule
+       FROM media_items m
+      WHERE m.removed = 0
+        AND NOT EXISTS (SELECT 1 FROM keeps k WHERE k.rating_key = m.rating_key)
+        AND NOT EXISTS (
+          SELECT 1 FROM watch_history w
+           WHERE w.rating_key = m.rating_key
+             AND w.last_watched > @globalCutoff
+        )`
+  ).all({
+    requesterCutoff: at - 180 * 86400,
+    globalCutoff: at - 540 * 86400,
+  }) as MaintainerrRuleMatch[];
+}
+
+/** Read the persisted observation clocks without changing them (preview-safe). */
+export function maintainerrRuleTracking(): MaintainerrRuleTracking[] {
+  const rows = getDb().prepare(
+    `SELECT rating_key, rule, first_eligible_at, last_confirmed_at
+       FROM maintainerr_rule_tracking
+      ORDER BY rating_key, rule`
+  ).all() as Array<{
+    rating_key: string;
+    rule: MaintainerrAutomaticRule;
+    first_eligible_at: number;
+    last_confirmed_at: number;
+  }>;
+  return rows.map((row) => ({
+    ratingKey: row.rating_key,
+    rule: row.rule,
+    firstEligibleAt: row.first_eligible_at,
+    lastConfirmedAt: row.last_confirmed_at,
+  }));
+}
+
+/**
+ * Reconcile trusted, live rule matches atomically. Existing first-seen times are
+ * preserved; conditions no longer true are removed so a later match starts over.
+ */
+export function reconcileMaintainerrRuleTracking(
+  matches: Array<{ ratingKey: string; rule: MaintainerrAutomaticRule }>,
+  at = now()
+): MaintainerrRuleTracking[] {
+  const db = getDb();
+  const unique = new Map(matches.map((match) => [`${match.ratingKey}\0${match.rule}`, match]));
+  const previous = new Map(
+    maintainerrRuleTracking().map((row) => [`${row.ratingKey}\0${row.rule}`, row])
+  );
+  db.transaction(() => {
+    db.prepare('DELETE FROM maintainerr_rule_tracking').run();
+    const insert = db.prepare(
+      `INSERT INTO maintainerr_rule_tracking
+       (rating_key, rule, first_eligible_at, last_confirmed_at)
+       VALUES (@ratingKey, @rule, @firstEligibleAt, @at)`
+    );
+    for (const [key, match] of unique) {
+      insert.run({
+        ...match,
+        firstEligibleAt: previous.get(key)?.firstEligibleAt ?? at,
+        at,
+      });
+    }
+  })();
+  return maintainerrRuleTracking();
+}
+
 /** Clear cached Seerr requests for everyone (rebuilt by the requests job). */
 export function clearSeerrRequests(): number {
   return getDb().prepare('DELETE FROM seerr_requests').run().changes;
@@ -2212,6 +2315,7 @@ export function resetAllData(): void {
   const db = getDb();
   db.transaction(() => {
     for (const t of [
+      'maintainerr_rule_tracking',
       'cleanup_campaign_reviews',
       'cleanup_campaign_items',
       'cleanup_campaigns',

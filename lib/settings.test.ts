@@ -100,6 +100,7 @@ describe('Maintainerr one-time safety approvals', () => {
     setMaintainerrConfig({
       url: 'http://maintainerr:6246', movieCollectionId: 10,
       showCollectionId: 20, watchAgeDays: 180, enabled: true,
+      observationDays: 30,
     });
     expect(getMaintainerrApprovedPlanHash()).toBeNull();
     expect(isMaintainerrReaddApproved(10, 'a')).toBe(false);

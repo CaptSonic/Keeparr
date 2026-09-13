@@ -206,6 +206,19 @@ export function applySchema(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_maintainerr_history_item
       ON maintainerr_history(rating_key, ts DESC);
 
+    -- Automatic Maintainerr rules must remain true for a Keeparr-owned
+    -- observation period before membership is handed off. Each rule has its own
+    -- clock so one condition can reset without erasing the other.
+    CREATE TABLE IF NOT EXISTS maintainerr_rule_tracking (
+      rating_key        TEXT NOT NULL REFERENCES media_items(rating_key) ON DELETE CASCADE,
+      rule              TEXT NOT NULL,
+      first_eligible_at INTEGER NOT NULL,
+      last_confirmed_at INTEGER NOT NULL,
+      PRIMARY KEY (rating_key, rule)
+    );
+    CREATE INDEX IF NOT EXISTS idx_maintainerr_rule_tracking_due
+      ON maintainerr_rule_tracking(first_eligible_at, rating_key);
+
     -- Admin-created, household-reviewed cleanup plans. Candidate metadata is a
     -- snapshot: later library scans or score changes never rewrite history.
     CREATE TABLE IF NOT EXISTS cleanup_campaigns (

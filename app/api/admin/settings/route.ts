@@ -158,6 +158,7 @@ interface PutBody {
     movieCollectionId?: number | null;
     showCollectionId?: number | null;
     watchAgeDays?: number;
+    observationDays?: number;
     enabled?: boolean;
   };
   /** How many backup files to keep (oldest pruned first). */
@@ -262,6 +263,9 @@ export async function PUT(req: Request) {
         watchAgeDays: typeof body.maintainerr.watchAgeDays === 'number'
           ? body.maintainerr.watchAgeDays
           : current.watchAgeDays,
+        observationDays: typeof body.maintainerr.observationDays === 'number'
+          ? body.maintainerr.observationDays
+          : current.observationDays,
         enabled: typeof body.maintainerr.enabled === 'boolean'
           ? body.maintainerr.enabled
           : current.enabled,
@@ -293,6 +297,16 @@ export async function PUT(req: Request) {
       ) {
         return NextResponse.json(
           { error: 'maintainerr_invalid_watch_age' },
+          { status: 400 }
+        );
+      }
+      if (
+        !Number.isInteger(nextMaintainerr.observationDays) ||
+        nextMaintainerr.observationDays < 1 ||
+        nextMaintainerr.observationDays > 365
+      ) {
+        return NextResponse.json(
+          { error: 'maintainerr_invalid_observation_days' },
           { status: 400 }
         );
       }

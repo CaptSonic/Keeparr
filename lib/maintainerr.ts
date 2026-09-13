@@ -4,9 +4,13 @@ import {
   isKept,
   latestWatchedAtByItem,
   listAutomationReleases,
+  maintainerrAutomaticRuleMatches,
+  maintainerrRuleTracking,
   markedForDeleteItems,
   recentMaintainerrHistory,
+  reconcileMaintainerrRuleTracking,
   recordMaintainerrHistory,
+  type MaintainerrAutomaticRule,
 } from './queries';
 import {
   approveMaintainerrPlan,
@@ -218,8 +222,13 @@ interface MaintainerrCandidate {
   libraryKind: 'movie' | 'show';
   title: string;
   year: number | null;
-  source: 'requester' | 'campaign' | 'both';
+  source: 'requester' | 'campaign' | 'both' | 'automatic' | 'mixed';
   kept: boolean;
+  explicitRelease: boolean;
+  automaticRules: MaintainerrAutomaticRule[];
+  firstEligibleAt: number | null;
+  dueAt: number | null;
+  automaticDueAt: Partial<Record<MaintainerrAutomaticRule, number>>;
 }
 
 export type MaintainerrPreviewStatus =
@@ -229,6 +238,7 @@ export type MaintainerrPreviewStatus =
   | 'manual'
   | 'blocked_keep'
   | 'blocked_recent'
+  | 'tracking'
   | 'missing'
   | 'outside'
   | 'readd_blocked'
@@ -241,10 +251,11 @@ export interface MaintainerrPreviewItem {
   libraryKind: 'movie' | 'show';
   collectionId: number | null;
   collectionTitle: string | null;
-  source: 'requester' | 'campaign' | 'both' | 'managed' | 'manual';
+  source: 'requester' | 'campaign' | 'both' | 'automatic' | 'mixed' | 'managed' | 'manual';
   status: MaintainerrPreviewStatus;
   reason: string;
   lastWatched: number | null;
+  dueAt: number | null;
 }
 
 export interface MaintainerrPreviewCollection {
@@ -265,6 +276,7 @@ export interface MaintainerrPreview {
   pauseReason: 'not_configured' | 'inventory_unavailable' | null;
   watchReady: boolean;
   watchAgeDays: number;
+  observationDays: number;
   requesterReleases: number;
   campaignReleases: number;
   planHash: string;
@@ -280,14 +292,19 @@ export interface MaintainerrPreview {
 interface MaintainerrPlan {
   preview: MaintainerrPreview;
   targets: Target[];
+  automaticMatches: Array<{ ratingKey: string; rule: MaintainerrAutomaticRule }>;
 }
 
 /**
- * Maintainerr receives both explicit requester sign-offs ("OK to delete") and
- * reviewed releases from closed cleanup campaigns. The global keep veto stays
- * live for both sources; duplicate titles collapse to one media-server id.
+ * Maintainerr receives explicit requester sign-offs, reviewed closed-campaign
+ * releases, and matured automatic watch-rule matches. The global Keep veto stays
+ * live for every source; duplicate titles collapse to one media-server id.
  */
-function maintainerrCandidates(): {
+function maintainerrCandidates(
+  automaticMatches: ReturnType<typeof maintainerrAutomaticRuleMatches>,
+  observationDays: number,
+  at: number
+): {
   items: MaintainerrCandidate[];
   requesterReleases: number;
   campaignReleases: number;
@@ -304,6 +321,11 @@ function maintainerrCandidates(): {
       year: item.year,
       source: 'requester',
       kept: item.keptByAnyone,
+      explicitRelease: true,
+      automaticRules: [],
+      firstEligibleAt: null,
+      dueAt: null,
+      automaticDueAt: {},
     });
   }
   for (const item of campaign) {
@@ -316,6 +338,47 @@ function maintainerrCandidates(): {
       year: item.year,
       source: previous ? 'both' : 'campaign',
       kept: false,
+      explicitRelease: true,
+      automaticRules: previous?.automaticRules ?? [],
+      firstEligibleAt: previous?.firstEligibleAt ?? null,
+      dueAt: previous?.dueAt ?? null,
+      automaticDueAt: previous?.automaticDueAt ?? {},
+    });
+  }
+  const persisted = new Map(
+    maintainerrRuleTracking().map((row) => [`${row.ratingKey}\0${row.rule}`, row])
+  );
+  for (const item of automaticMatches) {
+    const previous = byId.get(item.rating_key);
+    const tracking = persisted.get(`${item.rating_key}\0${item.rule}`);
+    const firstEligibleAt = tracking?.firstEligibleAt ?? at;
+    const dueAt = firstEligibleAt + observationDays * 86400;
+    const automaticRules = [...new Set([
+      ...(previous?.automaticRules ?? []), item.rule,
+    ])];
+    const earliestFirst = previous?.firstEligibleAt == null
+      ? firstEligibleAt
+      : Math.min(previous.firstEligibleAt, firstEligibleAt);
+    const earliestDue = previous?.dueAt == null ? dueAt : Math.min(previous.dueAt, dueAt);
+    const automaticDueAt = {
+      ...(previous?.automaticDueAt ?? {}),
+      [item.rule]: dueAt,
+    };
+    byId.set(item.rating_key, {
+      ratingKey: item.rating_key,
+      sectionId: item.section_id,
+      libraryKind: item.library_kind,
+      title: item.title,
+      year: item.year,
+      source: previous
+        ? previous.explicitRelease ? 'mixed' : 'automatic'
+        : 'automatic',
+      kept: previous?.kept ?? false,
+      explicitRelease: previous?.explicitRelease ?? false,
+      automaticRules,
+      firstEligibleAt: earliestFirst,
+      dueAt: earliestDue,
+      automaticDueAt,
     });
   }
   return {
@@ -355,7 +418,7 @@ async function liveInventoryCandidates(
 
 const previewStatuses: MaintainerrPreviewStatus[] = [
   'add', 'remove', 'managed', 'manual', 'blocked_keep',
-  'blocked_recent', 'missing', 'outside', 'readd_blocked', 'paused',
+  'blocked_recent', 'tracking', 'missing', 'outside', 'readd_blocked', 'paused',
 ];
 
 function planHash(targets: Target[], maintainerrUrl = ''): string {
@@ -409,15 +472,18 @@ function mediaLabel(ratingKey: string): {
 async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
   const config = getMaintainerrConfig();
   const managedState = getMaintainerrManagedItems();
+  const generatedAt = Math.floor(Date.now() / 1000);
   if (!config.url || (!isMaintainerrConfigured() && Object.keys(managedState).length === 0)) {
     return {
       targets: [],
+      automaticMatches: [],
       preview: {
-        generatedAt: Math.floor(Date.now() / 1000),
+        generatedAt,
         paused: true,
         pauseReason: 'not_configured',
         watchReady: getReclaimSignalReadiness().watch,
         watchAgeDays: config.watchAgeDays,
+        observationDays: config.observationDays,
         requesterReleases: 0,
         campaignReleases: 0,
         planHash: planHash([], config.url),
@@ -449,12 +515,26 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
   const collections = new Map(
     (await listMaintainerrCollections(config.url)).map((collection) => [collection.id, collection])
   );
-  const candidates = maintainerrCandidates();
   const selectedLibraries = new Set(
     selected.flatMap(({ id, kind }) => {
       const collection = collections.get(id);
       return collection ? [`${kind}\0${collection.libraryId}`] : [];
     })
+  );
+  const watchReady = getReclaimSignalReadiness().watch;
+  const automaticRuleMatches = watchReady
+    ? maintainerrAutomaticRuleMatches(generatedAt).filter((item) =>
+        selectedLibraries.has(`${item.library_kind}\0${item.section_id}`)
+      )
+    : [];
+  const automaticMatches = automaticRuleMatches.map((item) => ({
+    ratingKey: item.rating_key,
+    rule: item.rule,
+  }));
+  const candidates = maintainerrCandidates(
+    automaticRuleMatches,
+    config.observationDays,
+    generatedAt
   );
   const selectedCandidates = candidates.items.filter((item) =>
     selectedLibraries.has(`${item.libraryKind}\0${item.sectionId}`)
@@ -462,12 +542,14 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
   const eligibleCandidates = selectedCandidates.filter((item) => !item.kept);
   const inventory = await liveInventoryCandidates(eligibleCandidates);
   const inventoryIds = new Set(inventory.items.map((item) => item.ratingKey));
-  const watchReady = getReclaimSignalReadiness().watch;
   const latest = latestWatchedAtByItem();
-  const cutoff = Math.floor(Date.now() / 1000) - config.watchAgeDays * 86400;
+  const cutoff = generatedAt - config.watchAgeDays * 86400;
   const desiredCandidates = inventory.items.filter((item) => {
     const watchedAt = latest.get(item.ratingKey);
-    return watchReady && (watchedAt == null || watchedAt <= cutoff);
+    const explicitEligible = item.explicitRelease &&
+      (watchedAt == null || watchedAt <= cutoff);
+    const automaticEligible = item.dueAt !== null && item.dueAt <= generatedAt;
+    return watchReady && (explicitEligible || automaticEligible);
   });
   const desiredIds = new Set(desiredCandidates.map((item) => item.ratingKey));
   const targets: Target[] = [];
@@ -569,6 +651,17 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
     const managed = target?.managed.has(item.ratingKey) ?? false;
     const current = target?.current.has(item.ratingKey) ?? false;
     const lastWatched = latest.get(item.ratingKey) ?? null;
+    const explicitEligible = item.explicitRelease &&
+      (lastWatched === null || lastWatched <= cutoff);
+    const automaticEligible = item.dueAt !== null && item.dueAt <= generatedAt;
+    const maturedRules = item.automaticRules.filter((rule) =>
+      (item.automaticDueAt[rule] ?? Number.POSITIVE_INFINITY) <= generatedAt
+    );
+    const automaticReason = maturedRules.length > 1
+      ? 'automatic_rules_met'
+      : maturedRules[0] === 'requester_unwatched_180d'
+        ? 'requester_unwatched_180d'
+        : 'global_unwatched_540d';
     let status: MaintainerrPreviewStatus;
     let reason: string;
     if (!selectedTarget && managed && current && !paused) {
@@ -601,7 +694,14 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
     } else if (!watchReady) {
       status = 'paused';
       reason = 'watch_cache_untrusted';
-    } else if (lastWatched !== null && lastWatched > cutoff) {
+    } else if (!explicitEligible && !automaticEligible && item.automaticRules.length > 0) {
+      status = 'tracking';
+      reason = item.automaticRules.length > 1
+        ? 'observing_automatic_rules'
+        : item.automaticRules[0] === 'requester_unwatched_180d'
+          ? 'observing_requester_unwatched_180d'
+          : 'observing_global_unwatched_540d';
+    } else if (!explicitEligible && !automaticEligible) {
       status = 'blocked_recent';
       reason = 'watched_too_recently';
     } else if (current && managed) {
@@ -615,9 +715,11 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
       status = 'add';
       reason = target?.approvedReadds.has(item.ratingKey)
         ? 'readd_approved'
-        : lastWatched === null
-          ? 'never_watched'
-          : 'watch_age_met';
+        : automaticEligible
+          ? automaticReason
+          : lastWatched === null
+            ? 'never_watched'
+            : 'watch_age_met';
     }
     items.push({
       ratingKey: item.ratingKey,
@@ -630,6 +732,7 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
       status,
       reason,
       lastWatched,
+      dueAt: item.dueAt,
     });
   }
 
@@ -665,6 +768,7 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
               ? 'existing_foreign_member'
               : 'ownership_stale',
         lastWatched: latest.get(ratingKey) ?? null,
+        dueAt: null,
       });
     }
   }
@@ -679,11 +783,12 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
   const massBlocked = !paused && isMassChange(targets);
   const massApproved = massBlocked && getMaintainerrApprovedPlanHash() === hash;
   const preview: MaintainerrPreview = {
-    generatedAt: Math.floor(Date.now() / 1000),
+    generatedAt,
     paused,
     pauseReason,
     watchReady,
     watchAgeDays: config.watchAgeDays,
+    observationDays: config.observationDays,
     requesterReleases: candidates.requesterReleases,
     campaignReleases: candidates.campaignReleases,
     planHash: hash,
@@ -713,7 +818,7 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
     ),
     summary,
   };
-  return { preview, targets };
+  return { preview, targets, automaticMatches };
 }
 
 /** Read-only dry run used by the Maintainerr Control Center. */
@@ -765,7 +870,7 @@ export async function syncMaintainerr(): Promise<JobResult> {
   if (!config.url || (!isMaintainerrConfigured() && Object.keys(managedState).length === 0)) {
     return { result: 0, message: 'Maintainerr hand-off is not configured.' };
   }
-  const { preview, targets } = await buildMaintainerrPlan();
+  const { preview, targets, automaticMatches } = await buildMaintainerrPlan();
 
   // An unavailable live inventory is uncertainty, not evidence that every title
   // disappeared. Freeze both membership and ownership state so a transient media-
@@ -781,6 +886,25 @@ export async function syncMaintainerr(): Promise<JobResult> {
         'Maintainerr hand-off paused: media-server inventory not ready; ' +
         'existing memberships left unchanged.',
     };
+  }
+
+  // Preview is strictly read-only. Only a real run with trusted watch data and
+  // successful live inventory checks advances or resets automatic-rule clocks.
+  // Missing media is excluded so stale inventory cannot mature into a hand-off.
+  if (preview.watchReady) {
+    const available = new Set(
+      preview.items
+        .filter((item) => item.reason !== 'missing_from_media_server')
+        .map((item) => item.ratingKey)
+    );
+    reconcileMaintainerrRuleTracking(
+      automaticMatches.filter((match) => available.has(match.ratingKey)),
+      preview.generatedAt
+    );
+  } else {
+    // Unknown watch state cannot prove uninterrupted eligibility. Reset the
+    // automatic clocks so recovery starts a fresh observation period.
+    reconcileMaintainerrRuleTracking([], preview.generatedAt);
   }
 
   // A one-time approval is valid only while its exact operation set is current.
@@ -906,6 +1030,7 @@ export async function syncMaintainerr(): Promise<JobResult> {
       `Maintainerr hand-off: ${added} added, ${removed} removed, ${matched} managed; ` +
       `${preview.requesterReleases} requester release(s), ` +
       `${preview.campaignReleases} closed-campaign release(s), ` +
+      `${preview.summary.tracking} automatic title(s) under observation, ` +
       `${missing} no longer on media server, ` +
       (preview.watchReady
         ? `${recentlyWatched} watched within ${config.watchAgeDays} day(s)`

@@ -278,6 +278,7 @@ export default function ConnectionsPanel() {
   const [maintainerrMovieCollectionId, setMaintainerrMovieCollectionId] = useState<number | null>(null);
   const [maintainerrShowCollectionId, setMaintainerrShowCollectionId] = useState<number | null>(null);
   const [maintainerrWatchAgeDays, setMaintainerrWatchAgeDays] = useState(180);
+  const [maintainerrObservationDays, setMaintainerrObservationDays] = useState(30);
   const [maintainerrCollections, setMaintainerrCollections] = useState<MaintainerrCollection[]>([]);
 
   const [servers, setServers] = useState<DiscoveredServer[] | null>(null);
@@ -322,6 +323,7 @@ export default function ConnectionsPanel() {
     setMaintainerrMovieCollectionId(d.maintainerr?.movieCollectionId ?? null);
     setMaintainerrShowCollectionId(d.maintainerr?.showCollectionId ?? null);
     setMaintainerrWatchAgeDays(d.maintainerr?.watchAgeDays ?? 180);
+    setMaintainerrObservationDays(d.maintainerr?.observationDays ?? 30);
     setSections(d.sections ?? []);
     const mgd: string[] = d.managedSectionIds ?? [];
     setAllManaged(mgd.length === 0);
@@ -548,6 +550,7 @@ export default function ConnectionsPanel() {
             movieCollectionId: maintainerrMovieCollectionId,
             showCollectionId: maintainerrShowCollectionId,
             watchAgeDays: maintainerrWatchAgeDays,
+            observationDays: maintainerrObservationDays,
             enabled: maintainerrEnabled,
           },
           managedSectionIds: allManaged ? [] : [...managed],
@@ -937,7 +940,7 @@ export default function ConnectionsPanel() {
           </label>
         </div>
         <label className="mt-4 block max-w-xs text-sm text-slate-400">
-          {de ? 'Seit mindestens so vielen Tagen nicht angesehen' : 'Not watched for at least this many days'}
+          {de ? 'Watch-Alter für explizite Freigaben (Tage)' : 'Watch age for explicit releases (days)'}
           <input
             className={`${inputCls} mt-1`}
             type="number"
@@ -948,8 +951,24 @@ export default function ConnectionsPanel() {
           />
           <span className="mt-1 block text-xs text-slate-500">
             {de
-              ? 'Gilt serverweit für alle Nutzer. Noch nie angesehene Titel sind ebenfalls zulässig. Ohne erfolgreichen Watch-Job wird nichts übergeben.'
-              : 'Applies server-wide across all users. Never-watched titles are also eligible. Nothing is handed off until the watch job has succeeded.'}
+              ? 'Gilt für „OK to delete“ und geschlossene Kampagnen serverweit über alle Nutzer. Noch nie angesehene Titel sind ebenfalls zulässig.'
+              : 'Applies to “OK to delete” and closed campaigns server-wide across all users. Never-watched titles are also eligible.'}
+          </span>
+        </label>
+        <label className="mt-4 block max-w-xs text-sm text-slate-400">
+          {de ? 'Beobachtungsfrist für automatische Regeln (Tage)' : 'Observation period for automatic rules (days)'}
+          <input
+            className={`${inputCls} mt-1`}
+            type="number"
+            min={1}
+            max={365}
+            value={maintainerrObservationDays}
+            onChange={(e) => setMaintainerrObservationDays(Number(e.target.value))}
+          />
+          <span className="mt-1 block text-xs text-slate-500">
+            {de
+              ? 'Für automatische Treffer gelten fest 6 Monate ohne Wiedergabe durch mindestens einen Anfragenden bzw. 18 Monate ohne Wiedergabe durch irgendjemanden. Keeparr übergibt erst, wenn eine Regel zusätzlich diese Frist durchgehend erfüllt bleibt.'
+              : 'Automatic matches use fixed rules: at least one requester has not watched for 6 months, or nobody has watched for 18 months. Keeparr hands off only after a rule also remains true for this entire period.'}
           </span>
         </label>
         <label className="mt-4 flex items-start gap-3 text-sm text-slate-300">

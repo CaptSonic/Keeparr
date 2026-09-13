@@ -60,6 +60,9 @@ import {
   recentJobRuns,
   recordMaintainerrHistory,
   recentMaintainerrHistory,
+  maintainerrAutomaticRuleMatches,
+  maintainerrRuleTracking,
+  reconcileMaintainerrRuleTracking,
   logEvent,
   recentLogs,
   clearLogs,
@@ -764,6 +767,80 @@ describe('Smart Reclaim Queue', () => {
       rating_key: 'two', score: 50, watch_points: 0,
       status_points: 0, mismatch_points: 0,
     });
+  });
+});
+
+describe('automatic Maintainerr rule tracking', () => {
+  const BASE = 1_800_000_000;
+
+  it('matches requester inactivity and global inactivity independently', () => {
+    upsertMediaBatch([media('both'), media('requester-only'), media('recent')]);
+    replaceSeerrRequests('requester-a', ['both', 'requester-only', 'recent']);
+    replaceSeerrRequests('requester-b', ['requester-only']);
+    upsertWatchBatch([
+      { plexUserId: 'requester-a', ratingKey: 'requester-only', plays: 1,
+        lastWatched: BASE - 10 * 86400 },
+      { plexUserId: 'requester-a', ratingKey: 'recent', plays: 1,
+        lastWatched: BASE - 10 * 86400 },
+      { plexUserId: 'viewer', ratingKey: 'requester-only', plays: 1,
+        lastWatched: BASE - 5 * 86400 },
+      { plexUserId: 'viewer', ratingKey: 'recent', plays: 1,
+        lastWatched: BASE - 5 * 86400 },
+    ]);
+
+    const matches = maintainerrAutomaticRuleMatches(BASE).map((row) =>
+      `${row.rating_key}:${row.rule}`
+    );
+    expect(matches).toHaveLength(3);
+    expect(matches).toEqual(expect.arrayContaining([
+      'requester-only:requester_unwatched_180d',
+      'both:requester_unwatched_180d',
+      'both:global_unwatched_540d',
+    ]));
+  });
+
+  it('treats exact boundaries as eligible and enforces the global Keep veto', () => {
+    upsertMediaBatch([
+      media('requester-boundary'), media('global-boundary'), media('kept'),
+    ]);
+    replaceSeerrRequests('requester', ['requester-boundary', 'kept']);
+    upsertWatchBatch([
+      { plexUserId: 'requester', ratingKey: 'requester-boundary', plays: 1,
+        lastWatched: BASE - 180 * 86400 },
+      { plexUserId: 'viewer', ratingKey: 'global-boundary', plays: 1,
+        lastWatched: BASE - 540 * 86400 },
+    ]);
+    addKeep('protector', 'kept');
+
+    expect(maintainerrAutomaticRuleMatches(BASE).map((row) =>
+      `${row.rating_key}:${row.rule}`
+    )).toEqual(expect.arrayContaining([
+      'requester-boundary:requester_unwatched_180d',
+      'global-boundary:global_unwatched_540d',
+    ]));
+    expect(maintainerrAutomaticRuleMatches(BASE).some((row) =>
+      row.rating_key === 'kept'
+    )).toBe(false);
+  });
+
+  it('preserves active clocks and restarts a rule after it stops matching', () => {
+    upsertMediaBatch([media('one')]);
+    reconcileMaintainerrRuleTracking([
+      { ratingKey: 'one', rule: 'global_unwatched_540d' },
+    ], BASE);
+    reconcileMaintainerrRuleTracking([
+      { ratingKey: 'one', rule: 'global_unwatched_540d' },
+    ], BASE + 100);
+    expect(maintainerrRuleTracking()[0]).toMatchObject({
+      firstEligibleAt: BASE, lastConfirmedAt: BASE + 100,
+    });
+
+    reconcileMaintainerrRuleTracking([], BASE + 200);
+    expect(maintainerrRuleTracking()).toEqual([]);
+    reconcileMaintainerrRuleTracking([
+      { ratingKey: 'one', rule: 'global_unwatched_540d' },
+    ], BASE + 300);
+    expect(maintainerrRuleTracking()[0].firstEligibleAt).toBe(BASE + 300);
   });
 });
 
