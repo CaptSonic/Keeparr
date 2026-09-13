@@ -1,12 +1,19 @@
 import { beforeEach, afterAll, describe, expect, it } from 'vitest';
 import { __setTestDbToMemory, __closeDb } from './db';
 import {
+  approveMaintainerrPlan,
+  approveMaintainerrReadd,
+  consumeMaintainerrPlanApproval,
+  consumeMaintainerrReaddApproval,
+  getMaintainerrApprovedPlanHash,
+  isMaintainerrReaddApproved,
   getMediaServerType,
   setMediaServerType,
   getServerBaseUrl,
   getServerToken,
   getServerName,
   getOwnerId,
+  setMaintainerrConfig,
   isServerConfigured,
   writeSetting,
 } from './settings';
@@ -61,5 +68,40 @@ describe('media server type + backend-aware settings', () => {
     expect(isServerConfigured()).toBe(true);
     expect(getServerToken()).toBe('tok-plex');
     expect(getOwnerId()).toBe('111');
+  });
+});
+
+describe('Maintainerr one-time safety approvals', () => {
+  it('consumes only the exact approved plan hash once', () => {
+    approveMaintainerrPlan('plan-a');
+    expect(getMaintainerrApprovedPlanHash()).toBe('plan-a');
+    expect(consumeMaintainerrPlanApproval('plan-b')).toBe(false);
+    expect(getMaintainerrApprovedPlanHash()).toBe('plan-a');
+    expect(consumeMaintainerrPlanApproval('plan-a')).toBe(true);
+    expect(consumeMaintainerrPlanApproval('plan-a')).toBe(false);
+    expect(getMaintainerrApprovedPlanHash()).toBeNull();
+  });
+
+  it('keeps re-add approvals scoped and consumes them independently', () => {
+    approveMaintainerrReadd(10, 'a');
+    approveMaintainerrReadd(10, 'b');
+    approveMaintainerrReadd(20, 'a');
+    expect(isMaintainerrReaddApproved(10, 'a')).toBe(true);
+    expect(isMaintainerrReaddApproved(20, 'a')).toBe(true);
+    expect(consumeMaintainerrReaddApproval(10, 'a')).toBe(true);
+    expect(isMaintainerrReaddApproved(10, 'a')).toBe(false);
+    expect(isMaintainerrReaddApproved(10, 'b')).toBe(true);
+    expect(isMaintainerrReaddApproved(20, 'a')).toBe(true);
+  });
+
+  it('clears all pending approvals when Maintainerr configuration changes', () => {
+    approveMaintainerrPlan('plan-a');
+    approveMaintainerrReadd(10, 'a');
+    setMaintainerrConfig({
+      url: 'http://maintainerr:6246', movieCollectionId: 10,
+      showCollectionId: 20, watchAgeDays: 180, enabled: true,
+    });
+    expect(getMaintainerrApprovedPlanHash()).toBeNull();
+    expect(isMaintainerrReaddApproved(10, 'a')).toBe(false);
   });
 });

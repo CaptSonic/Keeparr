@@ -8,6 +8,7 @@ import type {
   CleanupCampaignSummary,
   JobRun,
   JobState,
+  MaintainerrHistoryEvent,
   LibraryKind,
   LogRow,
   MediaItem,
@@ -36,6 +37,10 @@ export function setSetting(key: string, value: string): void {
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`
     )
     .run(key, value);
+}
+
+export function deleteSetting(key: string): void {
+  getDb().prepare('DELETE FROM settings WHERE key = ?').run(key);
 }
 
 export function getAllSettings(): Record<string, string> {
@@ -2089,6 +2094,98 @@ export function clearLogs(): void {
   getDb().prepare('DELETE FROM logs').run();
 }
 
+export interface MaintainerrHistoryInput {
+  eventType: string;
+  ratingKey?: string | null;
+  title?: string | null;
+  year?: number | null;
+  libraryKind?: LibraryKind | null;
+  collectionId?: number | null;
+  collectionTitle?: string | null;
+  action: string;
+  reason: string;
+  planHash?: string | null;
+}
+
+/** Store one Maintainerr audit snapshot. When dedupeSeconds is set, an identical
+ * event (type/item/collection/reason/hash) is recorded at most once per window. */
+export function recordMaintainerrHistory(
+  event: MaintainerrHistoryInput,
+  dedupeSeconds = 0
+): boolean {
+  const db = getDb();
+  const row = {
+    ts: now(),
+    eventType: event.eventType,
+    ratingKey: event.ratingKey ?? null,
+    title: event.title ?? null,
+    year: event.year ?? null,
+    libraryKind: event.libraryKind ?? null,
+    collectionId: event.collectionId ?? null,
+    collectionTitle: event.collectionTitle ?? null,
+    action: event.action,
+    reason: event.reason,
+    planHash: event.planHash ?? null,
+  };
+  if (dedupeSeconds > 0) {
+    const duplicate = db.prepare(
+      `SELECT 1 FROM maintainerr_history
+       WHERE event_type = @eventType
+         AND rating_key IS @ratingKey
+         AND collection_id IS @collectionId
+         AND reason = @reason
+         AND plan_hash IS @planHash
+         AND ts >= @cutoff
+       LIMIT 1`
+    ).get({ ...row, cutoff: row.ts - dedupeSeconds });
+    if (duplicate) return false;
+  }
+  db.prepare(
+    `INSERT INTO maintainerr_history
+       (ts, event_type, rating_key, title, year, library_kind, collection_id,
+        collection_title, action, reason, plan_hash)
+     VALUES
+       (@ts, @eventType, @ratingKey, @title, @year, @libraryKind, @collectionId,
+        @collectionTitle, @action, @reason, @planHash)`
+  ).run(row);
+  db.prepare(
+    `DELETE FROM maintainerr_history WHERE id NOT IN (
+       SELECT id FROM maintainerr_history ORDER BY ts DESC, id DESC LIMIT 1000
+     )`
+  ).run();
+  return true;
+}
+
+export function recentMaintainerrHistory(
+  limit = 100,
+  ratingKey?: string
+): MaintainerrHistoryEvent[] {
+  const rows = getDb().prepare(
+    `SELECT * FROM maintainerr_history
+     ${ratingKey ? 'WHERE rating_key = @ratingKey' : ''}
+     ORDER BY ts DESC, id DESC LIMIT @limit`
+  ).all({ ratingKey, limit: Math.max(1, Math.min(500, Math.floor(limit))) }) as Array<{
+    id: number; ts: number; event_type: string; rating_key: string | null;
+    title: string | null; year: number | null; library_kind: LibraryKind | null;
+    collection_id: number | null; collection_title: string | null;
+    action: string; reason: string; plan_hash: string | null;
+  }>;
+  return rows.map((row) => ({
+    id: row.id,
+    ts: row.ts,
+    eventType: row.event_type,
+    ratingKey: row.rating_key,
+    title: row.title,
+    year: row.year,
+    libraryKind: row.library_kind,
+    collectionId: row.collection_id,
+    collectionTitle: row.collection_title,
+    action: row.action,
+    reason: row.reason,
+    planHash: row.plan_hash,
+  }));
+}
+
 /** Clear cached Seerr requests for everyone (rebuilt by the requests job). */
 export function clearSeerrRequests(): number {
   return getDb().prepare('DELETE FROM seerr_requests').run().changes;
@@ -2126,10 +2223,12 @@ export function resetAllData(): void {
       'arr_items',
       'arr_unmatched',
       'job_runs',
+      'maintainerr_history',
       'media_items',
     ]) {
       db.prepare(`DELETE FROM ${t}`).run();
     }
+    db.prepare("DELETE FROM settings WHERE key = 'maintainerr_safety_state'").run();
   })();
 }
 

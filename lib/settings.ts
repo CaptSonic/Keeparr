@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { getSetting, setSetting } from './queries';
+import { deleteSetting, getSetting, setSetting } from './queries';
 import { decryptSecret, encryptSecret } from './crypto';
 import {
   DEFAULT_BACKUP_RETENTION,
@@ -362,7 +362,8 @@ export function getMaintainerrConfig(): MaintainerrConfig {
 
 export function setMaintainerrConfig(config: MaintainerrConfig): void {
   const url = config.url.trim().replace(/\/$/, '');
-  const previousUrl = readSetting('maintainerr_url') ?? '';
+  const previous = getMaintainerrConfig();
+  const previousUrl = previous.url;
   // Collection ids are local to one Maintainerr instance. Refuse to forget
   // remote memberships: disable + run the job once to remove them before moving.
   if (
@@ -378,6 +379,15 @@ export function setMaintainerrConfig(config: MaintainerrConfig): void {
   writeSetting('maintainerr_show_collection_id', config.showCollectionId?.toString() ?? '');
   writeSetting('maintainerr_watch_age_days', String(config.watchAgeDays));
   writeSetting('maintainerr_enabled', config.enabled ? 'true' : 'false');
+  if (
+    previous.url !== url ||
+    previous.movieCollectionId !== config.movieCollectionId ||
+    previous.showCollectionId !== config.showCollectionId ||
+    previous.watchAgeDays !== config.watchAgeDays ||
+    previous.enabled !== config.enabled
+  ) {
+    deleteSetting('maintainerr_safety_state');
+  }
 }
 
 export const isMaintainerrConfigured = () => {
@@ -405,6 +415,97 @@ export function getMaintainerrManagedItems(): Record<string, string[]> {
 
 export function setMaintainerrManagedItems(items: Record<string, string[]>): void {
   writeSetting('maintainerr_managed_items', JSON.stringify(items));
+}
+
+interface MaintainerrSafetyState {
+  approvedPlanHash: string | null;
+  approvedReadds: Record<string, string[]>;
+}
+
+function getMaintainerrSafetyState(): MaintainerrSafetyState {
+  const raw = readSetting('maintainerr_safety_state');
+  if (!raw) return { approvedPlanHash: null, approvedReadds: {} };
+  try {
+    const value = JSON.parse(raw) as Record<string, unknown>;
+    const approvedReadds = value.approvedReadds && typeof value.approvedReadds === 'object'
+      ? Object.fromEntries(
+          Object.entries(value.approvedReadds as Record<string, unknown>)
+            .filter(([, ids]) => Array.isArray(ids))
+            .map(([id, ids]) => [id, [...new Set((ids as unknown[]).map(String))]])
+        )
+      : {};
+    return {
+      approvedPlanHash: typeof value.approvedPlanHash === 'string'
+        ? value.approvedPlanHash
+        : null,
+      approvedReadds,
+    };
+  } catch {
+    return { approvedPlanHash: null, approvedReadds: {} };
+  }
+}
+
+function setMaintainerrSafetyState(state: MaintainerrSafetyState): void {
+  if (!state.approvedPlanHash && Object.keys(state.approvedReadds).length === 0) {
+    deleteSetting('maintainerr_safety_state');
+    return;
+  }
+  writeSetting('maintainerr_safety_state', JSON.stringify(state));
+}
+
+export function getMaintainerrApprovedPlanHash(): string | null {
+  return getMaintainerrSafetyState().approvedPlanHash;
+}
+
+export function clearMaintainerrPlanApproval(): void {
+  const state = getMaintainerrSafetyState();
+  setMaintainerrSafetyState({ ...state, approvedPlanHash: null });
+}
+
+export function approveMaintainerrPlan(hash: string): void {
+  const state = getMaintainerrSafetyState();
+  setMaintainerrSafetyState({ ...state, approvedPlanHash: hash });
+}
+
+export function consumeMaintainerrPlanApproval(hash: string): boolean {
+  const state = getMaintainerrSafetyState();
+  if (state.approvedPlanHash !== hash) return false;
+  setMaintainerrSafetyState({ ...state, approvedPlanHash: null });
+  return true;
+}
+
+export function isMaintainerrReaddApproved(collectionId: number, ratingKey: string): boolean {
+  return getMaintainerrSafetyState().approvedReadds[String(collectionId)]?.includes(ratingKey) ?? false;
+}
+
+export function getMaintainerrApprovedReadds(): Record<string, string[]> {
+  return getMaintainerrSafetyState().approvedReadds;
+}
+
+export function approveMaintainerrReadd(collectionId: number, ratingKey: string): void {
+  const state = getMaintainerrSafetyState();
+  const key = String(collectionId);
+  const ids = new Set(state.approvedReadds[key] ?? []);
+  ids.add(ratingKey);
+  setMaintainerrSafetyState({
+    ...state,
+    approvedReadds: { ...state.approvedReadds, [key]: [...ids].sort() },
+  });
+}
+
+export function consumeMaintainerrReaddApproval(
+  collectionId: number,
+  ratingKey: string
+): boolean {
+  const state = getMaintainerrSafetyState();
+  const key = String(collectionId);
+  const ids = new Set(state.approvedReadds[key] ?? []);
+  if (!ids.delete(ratingKey)) return false;
+  const approvedReadds = { ...state.approvedReadds };
+  if (ids.size > 0) approvedReadds[key] = [...ids].sort();
+  else delete approvedReadds[key];
+  setMaintainerrSafetyState({ ...state, approvedReadds });
+  return true;
 }
 
 // --- Backups ---

@@ -809,6 +809,20 @@
           "401": { "description": "Authentication required" },
           "403": { "description": "Admin required" }
         }
+      },
+      "post": {
+        "tags": ["admin"],
+        "summary": "Approve one current Maintainerr safety block",
+        "description": "Admin-session-only. `{action:'approve-mass'}` recomputes and approves exactly the current mass-change plan once; no client hash is trusted. `{action:'approve-readd', collectionId, ratingKey}` recomputes and approves one currently blocked re-add once. Returns a refreshed no-store preview and does not itself write Maintainerr membership.",
+        "security": [{ "cookieAuth": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": { "action": { "type": "string", "enum": ["approve-mass", "approve-readd"] }, "collectionId": { "type": "integer" }, "ratingKey": { "type": "string" } }, "required": ["action"] } } } },
+        "responses": {
+          "200": { "description": "Refreshed preview with one-time approval reflected" },
+          "400": { "description": "Invalid action or re-add identity" },
+          "409": { "description": "Approval is stale because the server-recomputed plan no longer has that safety block" },
+          "401": { "description": "Authentication required" },
+          "403": { "description": "Admin required" }
+        }
       }
     },
     "/api/admin/backups": {

@@ -125,3 +125,19 @@ describe('migrate: arr_unmatched gained columns', () => {
     expect(row).toEqual({ instance_id: '', size_bytes: 0 });
   });
 });
+
+describe('Maintainerr history schema', () => {
+  it('is additive and idempotent on an existing database', () => {
+    d = legacyKeepsDb();
+    applySchema(d);
+    applySchema(d);
+    const table = d.prepare(
+      `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'maintainerr_history'`
+    ).get() as { name: string } | undefined;
+    expect(table?.name).toBe('maintainerr_history');
+    const indexes = d.prepare(`PRAGMA index_list(maintainerr_history)`).all() as { name: string }[];
+    expect(indexes.map((row) => row.name)).toEqual(expect.arrayContaining([
+      'idx_maintainerr_history_time', 'idx_maintainerr_history_item',
+    ]));
+  });
+});

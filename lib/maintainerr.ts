@@ -1,16 +1,29 @@
+import { createHash } from 'node:crypto';
 import {
   getMediaItem,
+  isKept,
   latestWatchedAtByItem,
   listAutomationReleases,
   markedForDeleteItems,
+  recentMaintainerrHistory,
+  recordMaintainerrHistory,
 } from './queries';
 import {
+  approveMaintainerrPlan,
+  approveMaintainerrReadd,
+  clearMaintainerrPlanApproval,
+  consumeMaintainerrPlanApproval,
+  consumeMaintainerrReaddApproval,
   getMaintainerrConfig,
+  getMaintainerrApprovedPlanHash,
+  getMaintainerrApprovedReadds,
   getMaintainerrManagedItems,
+  isMaintainerrReaddApproved,
   isMaintainerrConfigured,
   setMaintainerrManagedItems,
 } from './settings';
 import type { JobResult } from './sync';
+import type { MaintainerrHistoryEvent } from './types';
 import { getReclaimSignalReadiness } from './reclaim-readiness';
 import { getBackend } from './mediaserver';
 
@@ -18,6 +31,10 @@ import { getBackend } from './mediaserver';
 // collections than its lightweight health endpoints. Keep a finite ceiling, but
 // do not abort healthy local instances at the generic connector default of 15s.
 const REQUEST_TIMEOUT_MS = 60_000;
+const HISTORY_DEDUPE_SECONDS = 6 * 3600;
+const MASS_CHANGE_MIN = 10;
+const MASS_CHANGE_RATIO = 0.25;
+const MASS_CHANGE_HARD_LIMIT = 50;
 
 export interface MaintainerrCollection {
   id: number;
@@ -190,6 +207,9 @@ interface Target {
   current: Set<string>;
   desired: Set<string>;
   managed: Set<string>;
+  add: Set<string>;
+  remove: Set<string>;
+  approvedReadds: Set<string>;
 }
 
 interface MaintainerrCandidate {
@@ -211,6 +231,7 @@ export type MaintainerrPreviewStatus =
   | 'blocked_recent'
   | 'missing'
   | 'outside'
+  | 'readd_blocked'
   | 'paused';
 
 export interface MaintainerrPreviewItem {
@@ -246,6 +267,11 @@ export interface MaintainerrPreview {
   watchAgeDays: number;
   requesterReleases: number;
   campaignReleases: number;
+  planHash: string;
+  totalChanges: number;
+  massBlocked: boolean;
+  massApproved: boolean;
+  history: MaintainerrHistoryEvent[];
   collections: MaintainerrPreviewCollection[];
   items: MaintainerrPreviewItem[];
   summary: Record<MaintainerrPreviewStatus, number>;
@@ -329,8 +355,42 @@ async function liveInventoryCandidates(
 
 const previewStatuses: MaintainerrPreviewStatus[] = [
   'add', 'remove', 'managed', 'manual', 'blocked_keep',
-  'blocked_recent', 'missing', 'outside', 'paused',
+  'blocked_recent', 'missing', 'outside', 'readd_blocked', 'paused',
 ];
+
+function planHash(targets: Target[], maintainerrUrl = ''): string {
+  const operations = targets
+    .flatMap((target) => [
+      ...[...target.add].map((ratingKey) => ({
+        action: 'add', collectionId: target.collection.id,
+        collectionType: target.collection.type,
+        libraryId: target.collection.libraryId, ratingKey,
+      })),
+      ...[...target.remove].map((ratingKey) => ({
+        action: 'remove', collectionId: target.collection.id,
+        collectionType: target.collection.type,
+        libraryId: target.collection.libraryId, ratingKey,
+      })),
+    ])
+    .sort((a, b) =>
+      a.collectionId - b.collectionId ||
+      a.action.localeCompare(b.action) ||
+      a.ratingKey.localeCompare(b.ratingKey)
+    );
+  return createHash('sha256')
+    .update(JSON.stringify({ maintainerrUrl, operations }))
+    .digest('hex');
+}
+
+function isMassChange(targets: Target[]): boolean {
+  const total = targets.reduce((sum, target) => sum + target.add.size + target.remove.size, 0);
+  if (total >= MASS_CHANGE_HARD_LIMIT) return true;
+  return targets.some((target) => {
+    const changes = target.add.size + target.remove.size;
+    const baseline = Math.max(target.current.size, target.desired.size, 1);
+    return changes >= MASS_CHANGE_MIN && changes / baseline >= MASS_CHANGE_RATIO;
+  });
+}
 
 function mediaLabel(ratingKey: string): {
   title: string;
@@ -360,6 +420,11 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
         watchAgeDays: config.watchAgeDays,
         requesterReleases: 0,
         campaignReleases: 0,
+        planHash: planHash([], config.url),
+        totalChanges: 0,
+        massBlocked: false,
+        massApproved: false,
+        history: recentMaintainerrHistory(100),
         collections: [],
         items: [],
         summary: Object.fromEntries(
@@ -459,7 +524,29 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
       current,
       desired,
       managed: new Set(managedState[String(collection.id)] ?? []),
+      add: new Set(),
+      remove: new Set(),
+      approvedReadds: new Set(),
     });
+  }
+
+  for (const target of targets) {
+    target.remove = new Set(
+      [...target.managed].filter(
+        (id) => target.current.has(id) && !target.desired.has(id)
+      )
+    );
+    for (const id of target.desired) {
+      if (target.current.has(id)) continue;
+      if (target.managed.has(id)) {
+        if (isMaintainerrReaddApproved(target.collection.id, id)) {
+          target.add.add(id);
+          target.approvedReadds.add(id);
+        }
+        continue;
+      }
+      target.add.add(id);
+    }
   }
 
   const paused = !inventory.inventoryReady;
@@ -520,9 +607,17 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
     } else if (current && managed) {
       status = 'managed';
       reason = 'already_managed';
+    } else if (managed && desiredIds.has(item.ratingKey) && !current &&
+               !target?.approvedReadds.has(item.ratingKey)) {
+      status = 'readd_blocked';
+      reason = 'unexpected_remote_removal';
     } else {
       status = 'add';
-      reason = lastWatched === null ? 'never_watched' : 'watch_age_met';
+      reason = target?.approvedReadds.has(item.ratingKey)
+        ? 'readd_approved'
+        : lastWatched === null
+          ? 'never_watched'
+          : 'watch_age_met';
     }
     items.push({
       ratingKey: item.ratingKey,
@@ -546,6 +641,7 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
       const label = mediaLabel(ratingKey);
       const managed = target.managed.has(ratingKey);
       const current = target.current.has(ratingKey);
+      const kept = isKept(ratingKey);
       items.push({
         ratingKey,
         title: label.title,
@@ -562,7 +658,9 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
         reason: paused
           ? 'inventory_unavailable'
           : managed && current
-            ? 'release_revoked'
+            ? kept
+              ? 'global_keep'
+              : 'release_revoked'
             : current
               ? 'existing_foreign_member'
               : 'ownership_stale',
@@ -577,6 +675,9 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
       items.filter((item) => item.status === status).length,
     ])
   ) as Record<MaintainerrPreviewStatus, number>;
+  const hash = planHash(targets, config.url);
+  const massBlocked = !paused && isMassChange(targets);
+  const massApproved = massBlocked && getMaintainerrApprovedPlanHash() === hash;
   const preview: MaintainerrPreview = {
     generatedAt: Math.floor(Date.now() / 1000),
     paused,
@@ -585,6 +686,14 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
     watchAgeDays: config.watchAgeDays,
     requesterReleases: candidates.requesterReleases,
     campaignReleases: candidates.campaignReleases,
+    planHash: hash,
+    totalChanges: targets.reduce(
+      (sum, target) => sum + target.add.size + target.remove.size,
+      0
+    ),
+    massBlocked,
+    massApproved,
+    history: recentMaintainerrHistory(100),
     collections: targets.map((target) => ({
       id: target.collection.id,
       title: target.collection.title,
@@ -593,12 +702,10 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
       current: target.current.size,
       managed: target.managed.size,
       desired: target.desired.size,
-      add: [...target.desired].filter((id) => !target.current.has(id)).length,
+      add: target.add.size,
       remove: paused
         ? 0
-        : [...target.managed].filter(
-            (id) => target.current.has(id) && !target.desired.has(id)
-          ).length,
+        : target.remove.size,
     })),
     items: items.sort((a, b) =>
       previewStatuses.indexOf(a.status) - previewStatuses.indexOf(b.status) ||
@@ -611,6 +718,39 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
 
 /** Read-only dry run used by the Maintainerr Control Center. */
 export async function previewMaintainerr(): Promise<MaintainerrPreview> {
+  return (await buildMaintainerrPlan()).preview;
+}
+
+/** Approve only the currently recomputed mass-change plan. */
+export async function approveCurrentMaintainerrPlan(): Promise<MaintainerrPreview> {
+  const { preview } = await buildMaintainerrPlan();
+  if (!preview.massBlocked) throw new Error('Maintainerr plan is not mass-blocked.');
+  approveMaintainerrPlan(preview.planHash);
+  recordMaintainerrHistory({
+    eventType: 'mass_approved', action: 'approve', reason: 'mass_change',
+    planHash: preview.planHash,
+  });
+  return (await buildMaintainerrPlan()).preview;
+}
+
+/** Approve one currently blocked re-add after recomputing and validating it. */
+export async function approveCurrentMaintainerrReadd(
+  collectionId: number,
+  ratingKey: string
+): Promise<MaintainerrPreview> {
+  const { preview } = await buildMaintainerrPlan();
+  const item = preview.items.find((row) =>
+    row.collectionId === collectionId && row.ratingKey === ratingKey &&
+    row.status === 'readd_blocked'
+  );
+  if (!item) throw new Error('Maintainerr re-add is not currently blocked.');
+  approveMaintainerrReadd(collectionId, ratingKey);
+  recordMaintainerrHistory({
+    eventType: 'readd_approved', ratingKey, title: item.title, year: item.year,
+    libraryKind: item.libraryKind, collectionId,
+    collectionTitle: item.collectionTitle, action: 'approve',
+    reason: 'unexpected_remote_removal', planHash: preview.planHash,
+  });
   return (await buildMaintainerrPlan()).preview;
 }
 
@@ -631,6 +771,10 @@ export async function syncMaintainerr(): Promise<JobResult> {
   // disappeared. Freeze both membership and ownership state so a transient media-
   // server timeout cannot reset Maintainerr's grace periods through remove/re-add.
   if (preview.paused) {
+    recordMaintainerrHistory({
+      eventType: 'paused', action: 'none',
+      reason: preview.pauseReason ?? 'unknown', planHash: preview.planHash,
+    }, HISTORY_DEDUPE_SECONDS);
     return {
       result: 0,
       message:
@@ -639,29 +783,103 @@ export async function syncMaintainerr(): Promise<JobResult> {
     };
   }
 
+  // A one-time approval is valid only while its exact operation set is current.
+  // Invalidate stale approvals during a safe real-job plan; uncertainty above
+  // freezes approvals along with membership and ownership state.
+  const approvedPlanHash = getMaintainerrApprovedPlanHash();
+  if (approvedPlanHash && approvedPlanHash !== preview.planHash) {
+    clearMaintainerrPlanApproval();
+  }
+  const activeReadds = new Set(
+    targets.flatMap((target) =>
+      [...target.approvedReadds].map((id) => `${target.collection.id}\0${id}`)
+    )
+  );
+  for (const [collectionId, ids] of Object.entries(getMaintainerrApprovedReadds())) {
+    for (const id of ids) {
+      if (!activeReadds.has(`${collectionId}\0${id}`)) {
+        consumeMaintainerrReaddApproval(Number(collectionId), id);
+      }
+    }
+  }
+  if (preview.massBlocked && !preview.massApproved) {
+    recordMaintainerrHistory({
+      eventType: 'mass_blocked', action: 'none', reason: 'mass_change',
+      planHash: preview.planHash,
+    }, HISTORY_DEDUPE_SECONDS);
+    return {
+      result: 0,
+      message:
+        `Maintainerr hand-off blocked: ${preview.totalChanges} planned changes ` +
+        'require approval in the Control Center.',
+    };
+  }
+
+  // Consume every one-time approval before the first remote write. A partial or
+  // failed run therefore cannot silently reuse authorization on a later plan.
+  if (preview.massBlocked && !consumeMaintainerrPlanApproval(preview.planHash)) {
+    return { result: 0, message: 'Maintainerr hand-off blocked: plan approval expired.' };
+  }
+  for (const target of targets) {
+    for (const id of target.approvedReadds) {
+      if (!consumeMaintainerrReaddApproval(target.collection.id, id)) {
+        return { result: 0, message: 'Maintainerr hand-off blocked: re-add approval expired.' };
+      }
+    }
+  }
+  for (const item of preview.items.filter((row) => row.status === 'readd_blocked')) {
+    recordMaintainerrHistory({
+      eventType: 'readd_blocked', ratingKey: item.ratingKey, title: item.title,
+      year: item.year, libraryKind: item.libraryKind,
+      collectionId: item.collectionId, collectionTitle: item.collectionTitle,
+      action: 'none', reason: item.reason, planHash: preview.planHash,
+    }, HISTORY_DEDUPE_SECONDS);
+  }
+
   let added = 0;
   let removed = 0;
   // Keep vetoes first: only remove memberships previously managed by Keeparr.
   for (const target of targets) {
-    const remove = [...target.managed].filter(
-      (id) => target.current.has(id) && !target.desired.has(id)
-    );
+    const remove = [...target.remove];
     await changeMembership(config.url, target.collection.id, remove, 'remove');
     removed += remove.length;
     for (const id of remove) target.managed.delete(id);
     setMaintainerrManagedItems(
       Object.fromEntries(targets.map((t) => [String(t.collection.id), [...t.managed].sort()]))
     );
+    for (const id of remove) {
+      const item = preview.items.find((row) =>
+        row.collectionId === target.collection.id && row.ratingKey === id
+      );
+      recordMaintainerrHistory({
+        eventType: 'membership_removed', ratingKey: id, title: item?.title,
+        year: item?.year, libraryKind: item?.libraryKind ?? target.collection.type,
+        collectionId: target.collection.id, collectionTitle: target.collection.title,
+        action: 'remove', reason: item?.reason ?? 'release_revoked',
+        planHash: preview.planHash,
+      });
+    }
   }
   // Only after every removal succeeded, add new desired memberships.
   for (const target of targets) {
-    const add = [...target.desired].filter((id) => !target.current.has(id));
+    const add = [...target.add];
     await changeMembership(config.url, target.collection.id, add, 'add');
     added += add.length;
     for (const id of add) target.managed.add(id);
     setMaintainerrManagedItems(
       Object.fromEntries(targets.map((t) => [String(t.collection.id), [...t.managed].sort()]))
     );
+    for (const id of add) {
+      const item = preview.items.find((row) =>
+        row.collectionId === target.collection.id && row.ratingKey === id
+      );
+      recordMaintainerrHistory({
+        eventType: 'membership_added', ratingKey: id, title: item?.title,
+        year: item?.year, libraryKind: item?.libraryKind ?? target.collection.type,
+        collectionId: target.collection.id, collectionTitle: target.collection.title,
+        action: 'add', reason: item?.reason ?? 'eligible', planHash: preview.planHash,
+      });
+    }
   }
 
   const nextState: Record<string, string[]> = {};

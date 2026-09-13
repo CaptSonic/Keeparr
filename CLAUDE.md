@@ -234,9 +234,16 @@ The chrome is a Sonarr/Radarr-style left rail (logo → Keep; Keep / Browse[expa
   members. Never add calls to `/handle` or media/Servarr/Seerr deletion here.
   `previewMaintainerr()` builds the same plan without calling add/remove or mutating
   ownership; `/settings/maintainerr` renders it through the admin-only no-store
-  `GET /api/admin/maintainerr-preview` endpoint.
+  `GET /api/admin/maintainerr-preview` endpoint; its POST approves only a freshly
+  server-recomputed mass plan or one currently blocked collection/id re-add.
   Maintainerr API calls have a 60-second ceiling because membership reads can be
   slow for large visible collections; timeout errors must identify the endpoint.
+- Maintainerr safety is part of that same plan: SHA-256 over sorted add/remove ids;
+  mass stop at >=10 changes and >=25% per collection or >=50 globally; exact-plan
+  approval is consumed before writes. Owned-but-remotely-missing desired ids are
+  `readd_blocked` until a per-collection/id approval is consumed. `maintainerr_history`
+  stores immutable action/block snapshots (1000 retained); identical pause/mass/re-add
+  block events are deduplicated for six hours. Never infer approval from client data.
 - `settings` — key/value; secret values encrypted.
 - `job_state` — one row per scheduled job (`recentlyAdded`/`library`/`sizes`/`watch`/
   `requests`/`arr`/`maintainerr`/`backup`): last run/status/message/duration/result. Rows stuck at
@@ -244,6 +251,8 @@ The chrome is a Sonarr/Radarr-style left rail (logo → Keep; Keep / Browse[expa
   `startScheduler()` → `resetInterruptedJobs()` — the persisted flag would
   otherwise gate that job out of the scheduler AND manual runs forever.
 - `job_runs` — append-only run history (last ~100) for the admin activity log.
+- `maintainerr_history` — persistent Maintainerr action/safety audit snapshots; no
+  media FK so history survives deletion. Indexed by time and `(rating_key, ts)`.
 - `logs` — app-event log (`ts,level,source,message`, pruned to ~1000) for Settings → Logs.
 - `sync_state` — legacy single row (id=1); superseded by `job_state`, no longer read.
 
@@ -412,7 +421,9 @@ when it has no tvdb/tmdb **and** no imdb.
   `GET /api/admin/storage-check?path=`, `GET /api/admin/jobs` (status + recent runs)
   + `POST /api/admin/jobs {job}` (trigger one/`all`) — both also accept `X-Api-Key`,
   `GET /api/admin/maintainerr-preview` (admin session only; exact read-only hand-off
-  plan with collection counters and per-title status/reason; `no-store`),
+  plan with collection counters/history and per-title status/reason; `no-store`) +
+  `POST {action:'approve-mass'|'approve-readd', collectionId?, ratingKey?}` (server
+  recomputes the block; no client-provided plan hash is trusted),
   `GET /api/admin/logs?level=&q=&limit=` (keyword search over message+source;
   limit ≤ 1000 for the .txt export) + `DELETE /api/admin/logs`,
   `GET /api/admin/cache` + `POST /api/admin/cache {target:images|requests|watch|arr}`
@@ -451,6 +462,8 @@ the legacy single `sync_interval_minutes`, which is no longer read),
 measurement), `managed_section_ids` (json; which libraries Keeparr tracks, empty =
 all), `open_signin` (`'true'`/`'false'`), `api_key`* (automation), `app_title`,
 `automation_bridge_enabled` (`'true'` only after explicit admin opt-in; defaults off),
+`maintainerr_safety_state` (internal JSON one-time mass-plan hash + per-collection/id
+re-add approvals; cleared on Maintainerr config changes and dev reset),
 `app_url` (Plex sign-in forwardUrl; overrides the `APP_URL` env var),
 `backup_retention` (how many backup files to keep; default 14),
 `dev_storage_total` (demo-only synthetic capacity, set by the seed). `*` = encrypted

@@ -7,17 +7,21 @@ import {
   createCleanupCampaign,
   reviewCleanupCampaignItem,
   setJobState,
+  recentMaintainerrHistory,
   upsertWatchBatch,
   upsertMediaBatch,
 } from './queries';
 import {
   getWatchSourceFingerprint,
+  getMaintainerrApprovedPlanHash,
   getMaintainerrManagedItems,
   setMaintainerrConfig,
   setMaintainerrManagedItems,
   writeSetting,
 } from './settings';
 import {
+  approveCurrentMaintainerrPlan,
+  approveCurrentMaintainerrReadd,
   previewMaintainerr,
   syncMaintainerr,
   testMaintainerr,
@@ -101,6 +105,24 @@ function requesterReleasedMedia(): void {
   ]);
   addDelete('requester', 'requester-movie');
   addDelete('requester', 'requester-show');
+}
+
+function bulkRequesterReleases(count: number): string[] {
+  const ids = Array.from({ length: count }, (_, index) => `bulk-${index + 1}`);
+  upsertMediaBatch(ids.map((ratingKey, index) => ({
+    ratingKey,
+    sectionId: 'movies',
+    libraryKind: 'movie' as const,
+    title: `Bulk ${index + 1}`,
+    year: 2020,
+    thumb: null,
+    sizeBytes: GB,
+    addedAt: 1,
+    guidTmdb: String(1000 + index),
+    guidTvdb: null,
+  })));
+  for (const id of ids) addDelete('requester', id);
+  return ids;
 }
 
 function mockMaintainerr(opts: {
@@ -281,6 +303,145 @@ describe('Maintainerr safe hand-off', () => {
     expect(getMaintainerrManagedItems()).toEqual({});
   });
 
+  it('blocks a mass-change plan until that exact plan is approved once', async () => {
+    const ids = bulkRequesterReleases(10);
+    const remote = mockMaintainerr();
+
+    const blocked = await previewMaintainerr();
+    expect(blocked).toMatchObject({ massBlocked: true, massApproved: false, totalChanges: 10 });
+    const blockedRun = await syncMaintainerr();
+    expect(blockedRun.message).toContain('require approval');
+    expect(remote.writes).toEqual([]);
+    expect(recentMaintainerrHistory().filter((row) => row.eventType === 'mass_blocked'))
+      .toHaveLength(1);
+
+    const approved = await approveCurrentMaintainerrPlan();
+    expect(approved).toMatchObject({ massBlocked: true, massApproved: true });
+    const result = await syncMaintainerr();
+    expect(result.result).toBe(10);
+    expect([...remote.members.get(10)!].sort()).toEqual(ids.sort());
+    expect(recentMaintainerrHistory().filter((row) => row.eventType === 'membership_added'))
+      .toHaveLength(10);
+
+    // The approval was consumed; if the same operations were needed again they
+    // would require a fresh approval rather than silently reusing the old one.
+    expect((await previewMaintainerr()).massApproved).toBe(false);
+  });
+
+  it('invalidates a mass approval when the planned operations change', async () => {
+    bulkRequesterReleases(10);
+    const remote = mockMaintainerr();
+    const approved = await approveCurrentMaintainerrPlan();
+    const oldHash = approved.planHash;
+    bulkRequesterReleases(11);
+
+    const changed = await previewMaintainerr();
+    expect(changed.planHash).not.toBe(oldHash);
+    expect(changed).toMatchObject({ massBlocked: true, massApproved: false, totalChanges: 11 });
+    const result = await syncMaintainerr();
+    expect(result.message).toContain('require approval');
+    expect(remote.writes).toEqual([]);
+    expect(getMaintainerrApprovedPlanHash()).toBeNull();
+  });
+
+  it('blocks an unexpected remote removal until its one-time re-add is approved', async () => {
+    requesterReleasedMedia();
+    const remote = mockMaintainerr();
+    await syncMaintainerr();
+    remote.writes.length = 0;
+    remote.members.get(10)!.delete('requester-movie');
+
+    const blocked = await previewMaintainerr();
+    expect(blocked.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        ratingKey: 'requester-movie', status: 'readd_blocked',
+        reason: 'unexpected_remote_removal',
+      }),
+    ]));
+    expect(blocked.collections.find((row) => row.id === 10)?.add).toBe(0);
+    const blockedRun = await syncMaintainerr();
+    expect(blockedRun.result).toBe(0);
+    expect(remote.writes).toEqual([]);
+    expect(getMaintainerrManagedItems()['10']).toEqual(['requester-movie']);
+
+    const approved = await approveCurrentMaintainerrReadd(10, 'requester-movie');
+    expect(approved.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        ratingKey: 'requester-movie', status: 'add', reason: 'readd_approved',
+      }),
+    ]));
+    const result = await syncMaintainerr();
+    expect(result.result).toBe(1);
+    expect([...remote.members.get(10)!]).toEqual(['requester-movie']);
+    expect(remote.writes).toHaveLength(1);
+    expect(recentMaintainerrHistory()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ eventType: 'readd_approved', ratingKey: 'requester-movie' }),
+      expect.objectContaining({ eventType: 'membership_added', reason: 'readd_approved' }),
+    ]));
+    remote.members.get(10)!.delete('requester-movie');
+    expect((await previewMaintainerr()).items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ ratingKey: 'requester-movie', status: 'readd_blocked' }),
+    ]));
+  });
+
+  it('deduplicates repeated re-add block history during scheduled runs', async () => {
+    requesterReleasedMedia();
+    const remote = mockMaintainerr();
+    await syncMaintainerr();
+    remote.members.get(10)!.delete('requester-movie');
+    await syncMaintainerr();
+    await syncMaintainerr();
+    expect(recentMaintainerrHistory().filter((row) =>
+      row.eventType === 'readd_blocked' && row.ratingKey === 'requester-movie'
+    )).toHaveLength(1);
+  });
+
+  it('mass-blocks a large cleanup when the hand-off is disabled', async () => {
+    const ids = Array.from({ length: 10 }, (_, index) => `owned-${index + 1}`);
+    setMaintainerrManagedItems({ '10': ids });
+    const remote = mockMaintainerr({ movieMembers: ids });
+    setMaintainerrConfig({
+      url: 'http://maintainerr:6246', movieCollectionId: 10,
+      showCollectionId: 20, watchAgeDays: 180, enabled: false,
+    });
+
+    const preview = await previewMaintainerr();
+    expect(preview).toMatchObject({ massBlocked: true, totalChanges: 10 });
+    expect(preview.collections.find((row) => row.id === 10)).toMatchObject({
+      selected: false, remove: 10,
+    });
+    expect((await syncMaintainerr()).message).toContain('require approval');
+    expect(remote.writes).toEqual([]);
+
+    await approveCurrentMaintainerrPlan();
+    expect((await syncMaintainerr()).result).toBe(10);
+    expect([...remote.members.get(10)!]).toEqual([]);
+    expect(getMaintainerrManagedItems()).toEqual({});
+  });
+
+  it('requires both re-add and mass-plan approval when both safeguards apply', async () => {
+    const ids = bulkRequesterReleases(10);
+    setMaintainerrManagedItems({ '10': [ids[0]] });
+    const remote = mockMaintainerr();
+
+    const initial = await previewMaintainerr();
+    expect(initial).toMatchObject({ massBlocked: false, totalChanges: 9 });
+    expect(initial.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ ratingKey: ids[0], status: 'readd_blocked' }),
+    ]));
+
+    const readdApproved = await approveCurrentMaintainerrReadd(10, ids[0]);
+    expect(readdApproved).toMatchObject({
+      massBlocked: true, massApproved: false, totalChanges: 10,
+    });
+    expect((await syncMaintainerr()).message).toContain('require approval');
+    expect(remote.writes).toEqual([]);
+
+    await approveCurrentMaintainerrPlan();
+    expect((await syncMaintainerr()).result).toBe(10);
+    expect([...remote.members.get(10)!].sort()).toEqual(ids.sort());
+  });
+
   it('explains keep, recent watch, missing and foreign manual members', async () => {
     requesterReleasedMedia();
     addKeep('protector', 'requester-movie');
@@ -434,6 +595,9 @@ describe('Maintainerr safe hand-off', () => {
       '10': ['requester-movie'],
       '20': ['requester-show'],
     });
+    await syncMaintainerr();
+    expect(recentMaintainerrHistory().filter((row) => row.eventType === 'paused'))
+      .toHaveLength(1);
   });
 
   it('includes never-watched and stale titles but excludes recently watched titles', async () => {
@@ -522,6 +686,12 @@ describe('Maintainerr safe hand-off', () => {
     expect([...remote.members.get(20)!]).toEqual(['show-1']);
     expect(remote.writes).toHaveLength(1);
     expect(remote.writes[0]).toMatchObject({ path: '/api/collections/remove' });
+    expect(recentMaintainerrHistory()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventType: 'membership_removed', ratingKey: 'movie-1',
+        action: 'remove', reason: 'global_keep',
+      }),
+    ]));
   });
 
   it('removes Keeparr-owned memberships when the hand-off is disabled', async () => {

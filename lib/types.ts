@@ -192,6 +192,21 @@ export interface JobRun {
   result: number | null;
 }
 
+export interface MaintainerrHistoryEvent {
+  id: number;
+  ts: number;
+  eventType: string;
+  ratingKey: string | null;
+  title: string | null;
+  year: number | null;
+  libraryKind: LibraryKind | null;
+  collectionId: number | null;
+  collectionTitle: string | null;
+  action: string;
+  reason: string;
+  planHash: string | null;
+}
+
 /** Status of one scheduled refresh job. */
 export interface JobState {
   jobId: string;

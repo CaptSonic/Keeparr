@@ -58,6 +58,8 @@ import {
   setUserEnabled,
   recordJobRun,
   recentJobRuns,
+  recordMaintainerrHistory,
+  recentMaintainerrHistory,
   logEvent,
   recentLogs,
   clearLogs,
@@ -234,6 +236,47 @@ describe('logs', () => {
     for (let i = 0; i < 5; i++) logEvent('info', 's', `m${i}`);
     expect(recentLogs({ limit: 2 })).toHaveLength(2);
     expect(recentLogs({ limit: 2 })[0].message).toBe('m4'); // newest first
+  });
+});
+
+describe('Maintainerr history', () => {
+  it('stores immutable snapshots and filters by rating key', () => {
+    expect(recordMaintainerrHistory({
+      eventType: 'membership_added', ratingKey: '1', title: 'Alpha', year: 2020,
+      libraryKind: 'movie', collectionId: 10, collectionTitle: 'Movies',
+      action: 'add', reason: 'watch_age_met', planHash: 'hash-a',
+    })).toBe(true);
+    recordMaintainerrHistory({
+      eventType: 'paused', action: 'none', reason: 'inventory_unavailable',
+      planHash: 'hash-b',
+    });
+
+    expect(recentMaintainerrHistory(10, '1')).toEqual([
+      expect.objectContaining({
+        ratingKey: '1', title: 'Alpha', year: 2020, collectionTitle: 'Movies',
+        eventType: 'membership_added', action: 'add', planHash: 'hash-a',
+      }),
+    ]);
+    expect(recentMaintainerrHistory()).toHaveLength(2);
+  });
+
+  it('deduplicates repeated block events inside the requested window', () => {
+    const event = {
+      eventType: 'mass_blocked', action: 'none', reason: 'mass_change', planHash: 'same',
+    };
+    expect(recordMaintainerrHistory(event, 6 * 3600)).toBe(true);
+    expect(recordMaintainerrHistory(event, 6 * 3600)).toBe(false);
+    expect(recentMaintainerrHistory()).toHaveLength(1);
+  });
+
+  it('clamps history reads to 500 rows', () => {
+    for (let i = 0; i < 510; i++) {
+      recordMaintainerrHistory({
+        eventType: 'membership_added', ratingKey: String(i),
+        action: 'add', reason: 'test',
+      });
+    }
+    expect(recentMaintainerrHistory(9999)).toHaveLength(500);
   });
 });
 

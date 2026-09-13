@@ -495,6 +495,20 @@ recent watch, missing media, or an unavailable live check. Refreshing the dry ru
 never writes membership or ownership state; the explicit **Run hand-off now** button
 uses the normal single-flight job runner and reloads the plan afterwards.
 
+Three additional safeguards protect Maintainerr's grace periods and large plans:
+
+- **Mass-change stop:** a plan is blocked when one collection has at least 10
+  changes affecting at least 25% of its current/desired baseline, or when the full
+  plan reaches 50 changes. The Control Center can approve exactly the current
+  SHA-256-signed operation set once. Any changed add/remove id invalidates approval.
+- **Unexpected re-add stop:** if a Keeparr-owned, still-desired member disappears
+  from Maintainerr, Keeparr keeps ownership but does not add it back automatically.
+  The title is shown as **Re-add blocked** and can be approved individually once.
+- **Persistent history:** successful adds/removes, approvals, paused runs, mass
+  blocks, and re-add blocks are stored as immutable title/collection snapshots.
+  Repeated identical pause/block events are limited to one per six hours; the most
+  recent 1000 events are retained and the Control Center shows the newest 100.
+
 Each hand-off resolves every candidate directly against the media server before
 writing Maintainerr memberships. Titles deleted since Keeparr's last full library
 scan and Plex metadata whose file parts are unavailable are excluded immediately.

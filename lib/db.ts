@@ -185,6 +185,27 @@ export function applySchema(database: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_logs_ts ON logs(ts DESC);
 
+    -- Persistent audit trail for Maintainerr decisions/actions. Snapshot fields
+    -- intentionally have no foreign keys: history survives media/collection removal.
+    CREATE TABLE IF NOT EXISTS maintainerr_history (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      ts               INTEGER NOT NULL,
+      event_type       TEXT NOT NULL,
+      rating_key       TEXT,
+      title            TEXT,
+      year             INTEGER,
+      library_kind     TEXT,
+      collection_id    INTEGER,
+      collection_title TEXT,
+      action           TEXT NOT NULL,
+      reason           TEXT NOT NULL,
+      plan_hash        TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_maintainerr_history_time
+      ON maintainerr_history(ts DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS idx_maintainerr_history_item
+      ON maintainerr_history(rating_key, ts DESC);
+
     -- Admin-created, household-reviewed cleanup plans. Candidate metadata is a
     -- snapshot: later library scans or score changes never rewrite history.
     CREATE TABLE IF NOT EXISTS cleanup_campaigns (

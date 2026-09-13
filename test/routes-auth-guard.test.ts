@@ -40,7 +40,10 @@ import { GET as adminStorageCheck } from '@/app/api/admin/storage-check/route';
 import { POST as adminUsersImport } from '@/app/api/admin/users/import/route';
 import { GET as adminPlexServers } from '@/app/api/admin/plex-servers/route';
 import { GET as adminArrHealth } from '@/app/api/admin/arr-health/route';
-import { GET as adminMaintainerrPreview } from '@/app/api/admin/maintainerr-preview/route';
+import {
+  GET as adminMaintainerrPreview,
+  POST as adminMaintainerrApproval,
+} from '@/app/api/admin/maintainerr-preview/route';
 import { GET as adminCacheGet, POST as adminCachePost } from '@/app/api/admin/cache/route';
 import { POST as adminSyncLibraries } from '@/app/api/admin/sync-libraries/route';
 import { POST as adminTestConnection } from '@/app/api/admin/test-connection/route';
@@ -89,6 +92,7 @@ const ADMIN_GUARDED: [string, Handler, string][] = [
   ['GET /api/admin/plex-servers', adminPlexServers, 'GET'],
   ['GET /api/admin/arr-health', adminArrHealth, 'GET'],
   ['GET /api/admin/maintainerr-preview', adminMaintainerrPreview, 'GET'],
+  ['POST /api/admin/maintainerr-preview', adminMaintainerrApproval, 'POST'],
   ['GET /api/admin/cache', adminCacheGet, 'GET'],
   ['POST /api/admin/cache', adminCachePost, 'POST'],
   ['POST /api/admin/sync-libraries', adminSyncLibraries, 'POST'],
