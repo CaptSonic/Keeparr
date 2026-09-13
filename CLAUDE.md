@@ -195,6 +195,9 @@ The chrome is a Sonarr/Radarr-style left rail (logo → Keep; Keep / Browse[expa
   Keep, or a watch that breaks the rule resets its clock. Restrict clocks to
   selected target libraries. Explicit requester/campaign releases are not delayed
   by this observation period.
+- Maintainerr previews omit stale ownership-only rows when the remote member is
+  already absent; they require no decision/write and a successful real run retires
+  them from `maintainerr_managed_items`.
 - `seerr_requests` — `(plex_user_id, rating_key)`; cached Seerr requests (refreshed
   by the `requests` job; badges/filters read this, not live Seerr). Also warmed
   for a single user on their **first login** via `syncSeerrRequestsForUser`, so

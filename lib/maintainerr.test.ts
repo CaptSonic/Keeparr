@@ -614,11 +614,8 @@ describe('Maintainerr safe hand-off', () => {
     const remote = mockMaintainerr();
 
     const preview = await previewMaintainerr();
-    expect(preview.items).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        ratingKey: 'requester-movie', status: 'manual', reason: 'ownership_stale',
-      }),
-    ]));
+    expect(preview.items.some((item) => item.ratingKey === 'requester-movie')).toBe(false);
+    expect(preview.summary.manual).toBe(0);
 
     const result = await syncMaintainerr();
 

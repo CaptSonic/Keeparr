@@ -737,13 +737,16 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
   }
 
   // Include remote members that have no current release candidate so the preview
-  // also explains foreign/manual rows and planned cleanup of old Keeparr ownership.
+  // explains foreign/manual rows and planned removals. Stale local ownership with
+  // no remote member needs no decision or remote write; a successful real run
+  // retires it silently below instead of cluttering the Control Center.
   for (const target of targets) {
     for (const ratingKey of new Set([...target.current, ...target.managed])) {
       if (candidateById.has(ratingKey)) continue;
       const label = mediaLabel(ratingKey);
       const managed = target.managed.has(ratingKey);
       const current = target.current.has(ratingKey);
+      if (managed && !current) continue;
       const kept = isKept(ratingKey);
       items.push({
         ratingKey,
@@ -764,9 +767,7 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
             ? kept
               ? 'global_keep'
               : 'release_revoked'
-            : current
-              ? 'existing_foreign_member'
-              : 'ownership_stale',
+            : 'existing_foreign_member',
         lastWatched: latest.get(ratingKey) ?? null,
         dueAt: null,
       });
