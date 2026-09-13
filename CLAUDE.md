@@ -143,7 +143,7 @@ The chrome is a Sonarr/Radarr-style left rail (logo → Keep; Keep / Browse[expa
 
 - `media_items` — one row per **series or movie** (no episodes). `size_bytes` is
   the summed total. Tombstoned with `removed=1` when gone from Plex or retained
-  there only as trash metadata with no available file part. The full
+  there only as trash metadata (`deletedAt` or no available file part). The full
   Library sweep aborts if the backend reports zero sections, and skips the
   removal check for scanned sections that returned zero items — an empty-but-200
   hiccup (e.g. PMS mid-restart) must not tombstone a whole library.

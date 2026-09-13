@@ -11,10 +11,15 @@ describe('Plex section inventory availability', () => {
     ratingKey: 'trashed', title: 'Trashed',
     Media: [{ Part: [{ file: '/movies/gone.mkv', size: 100, exists: false }] }],
   };
+  const deletedMetadata: PlexMetadata = {
+    ratingKey: 'deleted', title: 'Deleted', deletedAt: 1_800_000_000,
+    Media: [{ Part: [{ file: '/movies/gone-too.mkv', size: 100 }] }],
+  };
 
   it('marks Plex trash entries unavailable in movie section scans', () => {
     expect(isAvailableSectionItem(live, 'movie')).toBe(true);
     expect(isAvailableSectionItem(trashed, 'movie')).toBe(false);
+    expect(isAvailableSectionItem(deletedMetadata, 'movie')).toBe(false);
   });
 
   it('does not reject show headers merely because Plex omits inline parts', () => {

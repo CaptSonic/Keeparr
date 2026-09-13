@@ -91,8 +91,25 @@ describe('live media availability', () => {
       ratingKey: '2', title: 'gone', Media: [{ Part: [{ size: 100, exists: 0 }] }],
     })).toBe(false);
     expect(hasExistingPart({
+      ratingKey: '2b', title: 'gone', Media: [{ Part: [{ size: 100, exists: '0' }] }],
+    })).toBe(false);
+    expect(hasExistingPart({
+      ratingKey: '2c', title: 'gone', Media: [{ Part: [{ size: 100, exists: 'false' }] }],
+    })).toBe(false);
+    expect(hasExistingPart({
       ratingKey: '3', title: 'live', Media: [{ Part: [{ size: 100 }] }],
     })).toBe(true);
+  });
+
+  it('rejects Plex trash metadata even when its retained part has no exists flag', () => {
+    expect(hasExistingPart({
+      ratingKey: 'trash-number', title: 'gone', deletedAt: 1_800_000_000,
+      Media: [{ Part: [{ size: 100 }] }],
+    })).toBe(false);
+    expect(hasExistingPart({
+      ratingKey: 'trash-string', title: 'gone', deletedAt: '1800000000',
+      Media: [{ Part: [{ size: 100 }] }],
+    })).toBe(false);
   });
 
   it('maps only a Plex 404 to missing metadata', async () => {

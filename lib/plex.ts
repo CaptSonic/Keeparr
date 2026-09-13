@@ -365,14 +365,34 @@ export interface PlexMetadata {
    *  "com.plexapp.agents.thetvdb://376459?lang=en". The modern agent uses Guid[]. */
   guid?: string;
   Guid?: { id: string }[];
-  Media?: { Part?: { id?: number; file?: string; size?: number; exists?: boolean | number }[] }[];
+  /** Plex retains trash metadata and may serialize this epoch as a number or
+   * string depending on the endpoint/version. */
+  deletedAt?: number | string;
+  Media?: {
+    Part?: {
+      id?: number;
+      file?: string;
+      size?: number;
+      exists?: boolean | number | string;
+    }[];
+  }[];
 }
 
 /** Whether Plex reports at least one usable file part on a metadata node. Missing
- * `exists` means available; Plex explicitly sends false/0 for unavailable trash. */
+ * `exists` means available unless the metadata itself is marked deleted. Plex
+ * serializes unavailable flags as booleans, numbers, or strings across endpoints. */
 export function hasExistingPart(node: PlexMetadata): boolean {
+  if (node.deletedAt !== undefined && node.deletedAt !== null &&
+      node.deletedAt !== 0 && node.deletedAt !== '0' && node.deletedAt !== '') {
+    return false;
+  }
   return (node.Media ?? []).some((media) =>
-    (media.Part ?? []).some((part) => part.exists !== false && part.exists !== 0)
+    (media.Part ?? []).some((part) => {
+      const exists = typeof part.exists === 'string'
+        ? part.exists.trim().toLowerCase()
+        : part.exists;
+      return exists !== false && exists !== 0 && exists !== '0' && exists !== 'false';
+    })
   );
 }
 
