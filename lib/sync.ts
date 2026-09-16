@@ -14,6 +14,7 @@ import {
   getRadarrInstances,
   isArrConfigured,
   getWatchSourceFingerprint,
+  getOwnerId,
   writeSetting,
 } from './settings';
 import { aggregatedWatchHistory } from './tautulli';
@@ -26,6 +27,7 @@ import {
   replaceArrItems,
   replaceArrUnmatched,
   replaceSeerrRequests,
+  reconcileUnrequestedMediaOwner,
   showRatingKeys,
   tombstoneStale,
   updateItemSize,
@@ -238,7 +240,21 @@ export async function syncSeerrRequests(): Promise<JobResult> {
       // skip this user; keep going
     }
   }
-  return { result: ok, message: `Cached Seerr requests for ${ok} user(s).` };
+  // Missing-requester fallback is safe only after every known user was queried:
+  // a partial Seerr outage must never masquerade as "this title has no requester".
+  let fallback = 0;
+  const ownerId = getOwnerId();
+  const ownerIsKnown = ownerId != null && users.some((user) => user.plexUserId === ownerId);
+  if (users.length > 0 && ok === users.length && ownerIsKnown) {
+    fallback = reconcileUnrequestedMediaOwner(ownerId);
+  }
+  const fallbackNote = users.length > 0 && ok === users.length && ownerIsKnown
+    ? ` Assigned ${fallback} title(s) without a requester to the Owner/Admin.`
+    : '';
+  return {
+    result: ok,
+    message: `Cached Seerr requests for ${ok} user(s).${fallbackNote}`,
+  };
 }
 
 /**

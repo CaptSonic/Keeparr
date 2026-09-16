@@ -2375,14 +2375,46 @@ export function replaceSeerrRequests(
   ratingKeys: string[]
 ): void {
   const db = getDb();
-  const del = db.prepare('DELETE FROM seerr_requests WHERE plex_user_id = ?');
+  const del = db.prepare(
+    `DELETE FROM seerr_requests WHERE plex_user_id = ? AND source = 'seerr'`
+  );
+  const removeFallback = db.prepare(
+    `DELETE FROM seerr_requests WHERE rating_key = ? AND source = 'admin_fallback'`
+  );
   const ins = db.prepare(
-    `INSERT INTO seerr_requests (plex_user_id, rating_key) VALUES (?, ?)
-     ON CONFLICT(plex_user_id, rating_key) DO NOTHING`
+    `INSERT INTO seerr_requests (plex_user_id, rating_key, source) VALUES (?, ?, 'seerr')
+     ON CONFLICT(plex_user_id, rating_key) DO UPDATE SET source = 'seerr'`
   );
   db.transaction(() => {
     del.run(plexUserId);
-    for (const rk of ratingKeys) ins.run(plexUserId, rk);
+    for (const rk of new Set(ratingKeys)) {
+      // A real Seerr match always wins, including when it belongs to another
+      // user than the owner who temporarily held the fallback assignment.
+      removeFallback.run(rk);
+      ins.run(plexUserId, rk);
+    }
+  })();
+}
+
+/**
+ * Assign every active title without any real Seerr requester to the server
+ * Owner/Admin. Existing synthetic rows are rebuilt atomically, so removed media
+ * and titles that gained a real requester disappear from the fallback set.
+ */
+export function reconcileUnrequestedMediaOwner(ownerId: string): number {
+  const db = getDb();
+  return db.transaction(() => {
+    db.prepare(`DELETE FROM seerr_requests WHERE source = 'admin_fallback'`).run();
+    return db.prepare(
+      `INSERT INTO seerr_requests (plex_user_id, rating_key, source)
+       SELECT @ownerId, m.rating_key, 'admin_fallback'
+         FROM media_items m
+        WHERE m.removed = 0
+          AND NOT EXISTS (
+            SELECT 1 FROM seerr_requests sr
+             WHERE sr.rating_key = m.rating_key AND sr.source = 'seerr'
+          )`
+    ).run({ ownerId }).changes;
   })();
 }
 

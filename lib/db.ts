@@ -123,6 +123,8 @@ export function applySchema(database: Database.Database): void {
     CREATE TABLE IF NOT EXISTS seerr_requests (
       plex_user_id TEXT NOT NULL,
       rating_key   TEXT NOT NULL,
+      source       TEXT NOT NULL DEFAULT 'seerr'
+                   CHECK (source IN ('seerr', 'admin_fallback')),
       PRIMARY KEY (plex_user_id, rating_key)
     );
     CREATE INDEX IF NOT EXISTS idx_seerr_user ON seerr_requests(plex_user_id);
@@ -319,6 +321,25 @@ function migrate(database: Database.Database): void {
   if (mediaCols.length > 0 && !mediaCols.some((c) => c.name === 'guid_imdb')) {
     database.exec(`ALTER TABLE media_items ADD COLUMN guid_imdb TEXT`);
   }
+
+  // Requests predating the owner fallback are all real Seerr matches. The source
+  // marker lets a later real requester replace a synthetic owner assignment
+  // without conflating the two kinds of cache rows.
+  const seerrRequestCols = database
+    .prepare(`PRAGMA table_info(seerr_requests)`)
+    .all() as { name: string }[];
+  if (
+    seerrRequestCols.length > 0 &&
+    !seerrRequestCols.some((c) => c.name === 'source')
+  ) {
+    database.exec(
+      `ALTER TABLE seerr_requests ADD COLUMN source TEXT NOT NULL DEFAULT 'seerr'`
+    );
+  }
+  database.exec(
+    `CREATE INDEX IF NOT EXISTS idx_seerr_item_source
+       ON seerr_requests(rating_key, source)`
+  );
 
   // Migrate the legacy global keeps table (rating_key PK, kept_by) to per-user
   // (plex_user_id, rating_key). The new applySchema CREATE only runs on a fresh

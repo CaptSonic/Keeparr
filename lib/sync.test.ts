@@ -347,6 +347,7 @@ describe('syncSeerrRequests', () => {
     writeSetting('seerr_api_key', 'k');
     upsertUser({ plexUserId: 'u1', username: 'one', email: 'one@x.com', thumb: null, isAdmin: false });
     upsertUser({ plexUserId: 'u2', username: 'two', email: 'two@x.com', thumb: null, isAdmin: false });
+    writeSetting('plex_owner_id', 'u1');
   });
 
   it('caches each user; one failing user does not abort the rest', async () => {
@@ -358,5 +359,45 @@ describe('syncSeerrRequests', () => {
     expect(res.result).toBe(1); // only u1 cached
     expect(seerrRequestKeys('u1')).toEqual(['42']);
     expect(seerrRequestKeys('u2')).toEqual([]);
+  });
+
+  it('assigns titles without a requester to the owner after a complete refresh', async () => {
+    upsertMediaBatch([media('requested'), media('unrequested')]);
+    vi.mocked(requestedRatingKeysForUser).mockImplementation(async (_b, _k, match) =>
+      new Set(match.username === 'two' ? ['requested'] : [])
+    );
+
+    const res = await syncSeerrRequests();
+
+    expect(res.result).toBe(2);
+    expect(res.message).toContain('Assigned 1 title(s)');
+    expect(seerrRequestKeys('u1')).toEqual(['unrequested']);
+    expect(seerrRequestKeys('u2')).toEqual(['requested']);
+  });
+
+  it('does not create owner fallbacks when any user refresh fails', async () => {
+    upsertMediaBatch([media('unrequested')]);
+    vi.mocked(requestedRatingKeysForUser).mockImplementation(async (_b, _k, match) => {
+      if (match.username === 'two') throw new Error('boom');
+      return new Set();
+    });
+
+    const res = await syncSeerrRequests();
+
+    expect(res.result).toBe(1);
+    expect(res.message).not.toContain('Assigned');
+    expect(seerrRequestKeys('u1')).toEqual([]);
+  });
+
+  it('does not assign fallbacks when the configured owner is not a known user', async () => {
+    upsertMediaBatch([media('unrequested')]);
+    writeSetting('plex_owner_id', 'missing-owner');
+    vi.mocked(requestedRatingKeysForUser).mockResolvedValue(new Set());
+
+    const res = await syncSeerrRequests();
+
+    expect(res.result).toBe(2);
+    expect(res.message).not.toContain('Assigned');
+    expect(seerrRequestKeys('missing-owner')).toEqual([]);
   });
 });

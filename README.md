@@ -491,6 +491,14 @@ age. Automatic candidates use the 180-day requester and 540-day household rules
 described above, then complete Keeparr's persistent observation period before
 Maintainerr sees them. A live Keep excludes every source immediately:
 
+After a fully successful Seerr request refresh, active media without a known Seerr
+requester is assigned to the configured Keeparr Owner/Admin (for example
+`CaptSonic`). This uses the stable account id rather than the display name. A real
+Seerr requester always replaces the fallback assignment, and a partial or failed
+refresh never creates new fallback assignments. The Owner/Admin's watch history is
+therefore used for the 180-day requester rule on otherwise unassigned media; the
+global Keep veto remains unchanged.
+
 1. In Maintainerr create one rule group per media-server library/type, turn
    **Use rules** off, disable *arr tagging, and configure the desired action and
    grace period. Leave **Keep in Maintainerr only** off if users should see the

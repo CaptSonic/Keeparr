@@ -126,6 +126,31 @@ describe('migrate: arr_unmatched gained columns', () => {
   });
 });
 
+describe('migrate: Seerr requests gained source attribution', () => {
+  it('marks existing request rows as real Seerr matches and is idempotent', () => {
+    d = new Database(':memory:');
+    d.exec(`
+      CREATE TABLE seerr_requests (
+        plex_user_id TEXT NOT NULL,
+        rating_key TEXT NOT NULL,
+        PRIMARY KEY (plex_user_id, rating_key)
+      );
+      INSERT INTO seerr_requests VALUES ('u1', 'movie-1');
+    `);
+
+    applySchema(d);
+    applySchema(d);
+
+    const cols = d.prepare('PRAGMA table_info(seerr_requests)').all() as { name: string }[];
+    expect(cols.map((col) => col.name)).toContain('source');
+    expect(d.prepare(
+      'SELECT plex_user_id, rating_key, source FROM seerr_requests'
+    ).all()).toEqual([
+      { plex_user_id: 'u1', rating_key: 'movie-1', source: 'seerr' },
+    ]);
+  });
+});
+
 describe('Maintainerr safety schemas', () => {
   it('is additive and idempotent on an existing database', () => {
     d = legacyKeepsDb();

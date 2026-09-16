@@ -198,8 +198,12 @@ The chrome is a Sonarr/Radarr-style left rail (logo → Keep; Keep / Browse[expa
 - Maintainerr previews omit stale ownership-only rows when the remote member is
   already absent; they require no decision/write and a successful real run retires
   them from `maintainerr_managed_items`.
-- `seerr_requests` — `(plex_user_id, rating_key)`; cached Seerr requests (refreshed
-  by the `requests` job; badges/filters read this, not live Seerr). Also warmed
+- `seerr_requests` — `(plex_user_id, rating_key)` plus `source` (`seerr` or
+  `admin_fallback`); cached Seerr requests (refreshed by the `requests` job;
+  badges/filters read this, not live Seerr). After a fully successful all-user
+  refresh, active media without a real Seerr requester is atomically assigned to
+  the configured Owner/Admin. Real matches always replace this fallback, while a
+  partial refresh never creates fallback rows. Also warmed
   for a single user on their **first login** via `syncSeerrRequestsForUser`, so
   "Requested by me" works without waiting for the daily job.
 - `arr_items` — one row per matched media item with its Sonarr/Radarr metadata

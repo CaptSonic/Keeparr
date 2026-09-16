@@ -1,5 +1,5 @@
 import { beforeEach, afterAll, describe, expect, it } from 'vitest';
-import { __setTestDbToMemory, __closeDb } from './db';
+import { __setTestDbToMemory, __closeDb, getDb } from './db';
 import {
   addKeep,
   applySkipBatch,
@@ -67,6 +67,7 @@ import {
   recentLogs,
   clearLogs,
   replaceSeerrRequests,
+  reconcileUnrequestedMediaOwner,
   clearSeerrRequests,
   seerrRequestKeys,
   upsertWatchBatch,
@@ -347,6 +348,26 @@ describe('seerr request cache', () => {
     replaceSeerrRequests('userA', ['4']);
     expect(seerrRequestKeys('userA')).toEqual(['4']);
     expect(seerrRequestKeys('userB')).toEqual(['9']); // untouched
+  });
+
+  it('assigns active media without a real requester to the owner', () => {
+    upsertMediaBatch([media('requested'), media('unrequested'), media('removed')]);
+    replaceSeerrRequests('real-user', ['requested']);
+    getDb().prepare('UPDATE media_items SET removed = 1 WHERE rating_key = ?').run('removed');
+
+    expect(reconcileUnrequestedMediaOwner('owner')).toBe(1);
+    expect(seerrRequestKeys('owner')).toEqual(['unrequested']);
+    expect(seerrRequestKeys('real-user')).toEqual(['requested']);
+  });
+
+  it('replaces an owner fallback when a real requester appears', () => {
+    upsertMediaBatch([media('movie')]);
+    reconcileUnrequestedMediaOwner('owner');
+    expect(seerrRequestKeys('owner')).toEqual(['movie']);
+
+    replaceSeerrRequests('requester', ['movie']);
+    expect(seerrRequestKeys('owner')).toEqual([]);
+    expect(seerrRequestKeys('requester')).toEqual(['movie']);
   });
 });
 
@@ -797,6 +818,18 @@ describe('automatic Maintainerr rule tracking', () => {
       'both:requester_unwatched_180d',
       'both:global_unwatched_540d',
     ]));
+  });
+
+  it('treats the owner fallback as requester while Keep remains a hard veto', () => {
+    upsertMediaBatch([media('fallback'), media('protected')]);
+    reconcileUnrequestedMediaOwner('owner');
+    addKeep('viewer', 'protected');
+
+    const matches = maintainerrAutomaticRuleMatches(BASE).map((row) =>
+      `${row.rating_key}:${row.rule}`
+    );
+    expect(matches).toContain('fallback:requester_unwatched_180d');
+    expect(matches.some((entry) => entry.startsWith('protected:'))).toBe(false);
   });
 
   it('treats exact boundaries as eligible and enforces the global Keep veto', () => {
