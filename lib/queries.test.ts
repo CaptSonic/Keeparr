@@ -353,11 +353,42 @@ describe('seerr request cache', () => {
   it('assigns active media without a real requester to the owner', () => {
     upsertMediaBatch([media('requested'), media('unrequested'), media('removed')]);
     replaceSeerrRequests('real-user', ['requested']);
+    addSkip('owner', 'unrequested');
     getDb().prepare('UPDATE media_items SET removed = 1 WHERE rating_key = ?').run('removed');
 
     expect(reconcileUnrequestedMediaOwner('owner')).toBe(1);
     expect(seerrRequestKeys('owner')).toEqual(['unrequested']);
     expect(seerrRequestKeys('real-user')).toEqual(['requested']);
+    expect(isSkipped('owner', 'unrequested')).toBe(false);
+    expect(getFeed('owner', 10, { requestedByMe: true }).map((row) => row.rating_key))
+      .toEqual(['unrequested']);
+    expect(countFeedRemaining('owner', { requestedByMe: true })).toBe(1);
+  });
+
+  it('preserves a deliberate skip after an existing fallback was presented', () => {
+    upsertMediaBatch([media('existing'), media('new')]);
+    replaceSeerrRequests('real-user', ['new']);
+    reconcileUnrequestedMediaOwner('owner');
+    addSkip('owner', 'existing');
+
+    // Existing stays skipped on an ordinary refresh; newly becoming unrequested
+    // is reopened because it has not previously been assigned to the owner.
+    replaceSeerrRequests('real-user', []);
+    addSkip('owner', 'new');
+    reconcileUnrequestedMediaOwner('owner');
+
+    expect(isSkipped('owner', 'existing')).toBe(true);
+    expect(isSkipped('owner', 'new')).toBe(false);
+  });
+
+  it('can reopen all inherited fallbacks once for migration or owner change', () => {
+    upsertMediaBatch([media('existing')]);
+    reconcileUnrequestedMediaOwner('owner');
+    addSkip('owner', 'existing');
+
+    reconcileUnrequestedMediaOwner('owner', true);
+
+    expect(isSkipped('owner', 'existing')).toBe(false);
   });
 
   it('replaces an owner fallback when a real requester appears', () => {

@@ -499,6 +499,12 @@ refresh never creates new fallback assignments. The Owner/Admin's watch history 
 therefore used for the 180-day requester rule on otherwise unassigned media; the
 global Keep veto remains unchanged.
 
+When an Owner/Admin fallback is first introduced (or the configured Owner changes),
+Keeparr re-opens those titles in that Owner's **Keep** feed by clearing only their
+older **Don't care** decisions for the fallback set. Newly assigned fallback titles
+are likewise presented once. A subsequent deliberate **Don't care** remains in
+effect across normal request refreshes; Keeps and delete approvals are never cleared.
+
 1. In Maintainerr create one rule group per media-server library/type, turn
    **Use rules** off, disable *arr tagging, and configure the desired action and
    grace period. Leave **Keep in Maintainerr only** off if users should see the

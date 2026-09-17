@@ -203,7 +203,10 @@ The chrome is a Sonarr/Radarr-style left rail (logo → Keep; Keep / Browse[expa
   badges/filters read this, not live Seerr). After a fully successful all-user
   refresh, active media without a real Seerr requester is atomically assigned to
   the configured Owner/Admin. Real matches always replace this fallback, while a
-  partial refresh never creates fallback rows. Also warmed
+  partial refresh never creates fallback rows. The first successful fallback sync
+  per Owner clears that Owner's old `user_skips` for inherited fallback titles so
+  they enter the Keep feed; later syncs clear skips only for newly assigned titles,
+  preserving deliberate post-assignment skips. Also warmed
   for a single user on their **first login** via `syncSeerrRequestsForUser`, so
   "Requested by me" works without waiting for the daily job.
 - `arr_items` — one row per matched media item with its Sonarr/Radarr metadata

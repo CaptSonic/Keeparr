@@ -3,6 +3,8 @@ import { __setTestDbToMemory, __closeDb } from './db';
 import {
   getArrUnmatched,
   getMediaItem,
+  addSkip,
+  isSkipped,
   libraryStats,
   replaceArrItems,
   replaceArrUnmatched,
@@ -363,6 +365,7 @@ describe('syncSeerrRequests', () => {
 
   it('assigns titles without a requester to the owner after a complete refresh', async () => {
     upsertMediaBatch([media('requested'), media('unrequested')]);
+    addSkip('u1', 'unrequested');
     vi.mocked(requestedRatingKeysForUser).mockImplementation(async (_b, _k, match) =>
       new Set(match.username === 'two' ? ['requested'] : [])
     );
@@ -373,6 +376,18 @@ describe('syncSeerrRequests', () => {
     expect(res.message).toContain('Assigned 1 title(s)');
     expect(seerrRequestKeys('u1')).toEqual(['unrequested']);
     expect(seerrRequestKeys('u2')).toEqual(['requested']);
+    expect(isSkipped('u1', 'unrequested')).toBe(false);
+  });
+
+  it('reopens inherited fallbacks once but preserves later owner skips', async () => {
+    upsertMediaBatch([media('unrequested')]);
+    vi.mocked(requestedRatingKeysForUser).mockResolvedValue(new Set());
+    await syncSeerrRequests();
+    addSkip('u1', 'unrequested');
+
+    await syncSeerrRequests();
+
+    expect(isSkipped('u1', 'unrequested')).toBe(true);
   });
 
   it('does not create owner fallbacks when any user refresh fails', async () => {

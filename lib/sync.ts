@@ -15,6 +15,7 @@ import {
   isArrConfigured,
   getWatchSourceFingerprint,
   getOwnerId,
+  readSetting,
   writeSetting,
 } from './settings';
 import { aggregatedWatchHistory } from './tautulli';
@@ -246,7 +247,12 @@ export async function syncSeerrRequests(): Promise<JobResult> {
   const ownerId = getOwnerId();
   const ownerIsKnown = ownerId != null && users.some((user) => user.plexUserId === ownerId);
   if (users.length > 0 && ok === users.length && ownerIsKnown) {
-    fallback = reconcileUnrequestedMediaOwner(ownerId);
+    const markerKey = 'owner_fallback_feed_owner_id';
+    const reopenAll = readSetting(markerKey) !== ownerId;
+    fallback = reconcileUnrequestedMediaOwner(ownerId, reopenAll);
+    // Persist only after the atomic reconciliation succeeded. An owner change
+    // deliberately re-opens the new owner's inherited fallback queue once.
+    writeSetting(markerKey, ownerId);
   }
   const fallbackNote = users.length > 0 && ok === users.length && ownerIsKnown
     ? ` Assigned ${fallback} title(s) without a requester to the Owner/Admin.`

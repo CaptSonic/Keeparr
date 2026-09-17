@@ -2401,11 +2401,19 @@ export function replaceSeerrRequests(
  * Owner/Admin. Existing synthetic rows are rebuilt atomically, so removed media
  * and titles that gained a real requester disappear from the fallback set.
  */
-export function reconcileUnrequestedMediaOwner(ownerId: string): number {
+export function reconcileUnrequestedMediaOwner(
+  ownerId: string,
+  reopenAll = false
+): number {
   const db = getDb();
   return db.transaction(() => {
+    const previous = new Set(
+      (db.prepare(
+        `SELECT rating_key FROM seerr_requests WHERE source = 'admin_fallback'`
+      ).all() as { rating_key: string }[]).map((row) => row.rating_key)
+    );
     db.prepare(`DELETE FROM seerr_requests WHERE source = 'admin_fallback'`).run();
-    return db.prepare(
+    const inserted = db.prepare(
       `INSERT INTO seerr_requests (plex_user_id, rating_key, source)
        SELECT @ownerId, m.rating_key, 'admin_fallback'
          FROM media_items m
@@ -2415,6 +2423,24 @@ export function reconcileUnrequestedMediaOwner(ownerId: string): number {
              WHERE sr.rating_key = m.rating_key AND sr.source = 'seerr'
           )`
     ).run({ ownerId }).changes;
+
+    // These titles were skipped before they became the Owner's responsibility.
+    // Re-open every existing fallback once on feature migration/owner change and
+    // thereafter only newly assigned titles. A skip made after assignment remains
+    // a deliberate decision and survives ordinary daily request refreshes.
+    const fallbackRows = db.prepare(
+      `SELECT rating_key FROM seerr_requests
+        WHERE plex_user_id = ? AND source = 'admin_fallback'`
+    ).all(ownerId) as { rating_key: string }[];
+    const clearSkip = db.prepare(
+      `DELETE FROM user_skips WHERE plex_user_id = ? AND rating_key = ?`
+    );
+    for (const row of fallbackRows) {
+      if (reopenAll || !previous.has(row.rating_key)) {
+        clearSkip.run(ownerId, row.rating_key);
+      }
+    }
+    return inserted;
   })();
 }
 
