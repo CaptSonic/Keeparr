@@ -76,13 +76,32 @@ function matches(series: SonarrSeries, tvdb: Set<string>, imdb: Set<string>): bo
 
 async function resolveUniqueTarget(
   guidTvdb: string | null,
-  guidImdb: string | null
+  guidImdb: string | null,
+  preferredInstanceId?: string | null,
+  preferredSeriesId?: number | null
 ): Promise<{ inst: ArrInstance; series: SonarrSeries } | ArchiveBlockReason> {
   const instances = getSonarrInstances();
   if (instances.length === 0) return 'sonarr_not_configured';
   const tvdb = splitIds(guidTvdb);
   const imdb = splitIds(guidImdb);
   if (tvdb.size === 0 && imdb.size === 0) return 'sonarr_match_missing';
+
+  if (preferredInstanceId && preferredSeriesId != null) {
+    const preferredInstance = instances.find(
+      (instance) => instance.id === preferredInstanceId
+    );
+    if (preferredInstance) {
+      let preferredSeries: SonarrSeries;
+      try {
+        preferredSeries = await getSonarrSeries(preferredInstance, preferredSeriesId);
+      } catch {
+        return 'sonarr_unavailable';
+      }
+      if (matches(preferredSeries, tvdb, imdb)) {
+        return { inst: preferredInstance, series: preferredSeries };
+      }
+    }
+  }
 
   let lists: SonarrSeries[][];
   try {
@@ -192,7 +211,12 @@ export async function previewArchive(
     return blocked(ratingKey, target.title, 'mode_not_supported');
   }
 
-  const resolved = await resolveUniqueTarget(target.guidTvdb, target.guidImdb);
+  const resolved = await resolveUniqueTarget(
+    target.guidTvdb,
+    target.guidImdb,
+    target.instanceId,
+    target.arrId
+  );
   if (typeof resolved === 'string') return blocked(ratingKey, target.title, resolved);
 
   let series: SonarrSeries;
@@ -288,7 +312,12 @@ export async function executeArchive(runId: string, requestedBy: string) {
     return { ok: false, reason };
   }
 
-  const resolved = await resolveUniqueTarget(target.guidTvdb, target.guidImdb);
+  const resolved = await resolveUniqueTarget(
+    target.guidTvdb,
+    target.guidImdb,
+    target.instanceId,
+    target.arrId
+  );
   if (
     typeof resolved === 'string' ||
     resolved.inst.id !== run.instanceId ||

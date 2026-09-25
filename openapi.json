@@ -791,7 +791,7 @@
       "post": {
         "tags": ["admin"],
         "summary": "Create and persist a revalidated Sonarr archive preview",
-        "description": "Blocks on any keep veto, unsupported mode, missing/ambiguous Sonarr identity, active downloads, an empty file set, or an incomplete episode-file mapping. The persisted preview includes the exact episode-file-to-episode mapping; its run id is required for execution.",
+        "description": "Uses the Sonarr instance and series id from the latest Arr sync when available and revalidates that identity against TVDB/IMDb. Without a synchronized target, duplicate matches remain blocked as ambiguous. Also blocks on any keep veto, unsupported mode, active downloads, an empty file set, or an incomplete episode-file mapping. The persisted preview includes the exact episode-file-to-episode mapping; its run id is required for execution.",
         "security": [{ "cookieAuth": [] }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": { "ratingKey": { "type": "string" } }, "required": ["ratingKey"] } } } },
         "responses": {

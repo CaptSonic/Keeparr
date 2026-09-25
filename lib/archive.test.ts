@@ -4,6 +4,7 @@ import { executeArchive, previewArchive } from './archive';
 import {
   addDelete,
   addKeep,
+  replaceArrItems,
   upsertMediaBatch,
   type UpsertMediaInput,
 } from './queries';
@@ -64,6 +65,79 @@ describe('Sonarr archive workflow', () => {
       reason: 'keep_veto',
     });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('uses the synchronized Sonarr instance when the same series exists twice', async () => {
+    setSonarrInstances([
+      { id: 's1', name: 'Primary', url: 'http://primary', apiKey: 'key1' },
+      { id: 's2', name: 'Archive', url: 'http://archive', apiKey: 'key2' },
+    ]);
+    replaceArrItems([
+      {
+        ratingKey: 'show',
+        source: 'sonarr',
+        instanceId: 's2',
+        instanceName: 'Archive',
+        arrId: 22,
+        monitored: true,
+        status: 'ended',
+        quality: 'HD-1080p',
+        qualityKind: 'profile',
+        rootFolder: '/archive',
+        arrSizeBytes: 300,
+        tags: [],
+      },
+    ]);
+    const preferredSeries = {
+      id: 22,
+      title: 'Show',
+      tvdbId: 123,
+      imdbId: 'tt123',
+      seasons: [{ seasonNumber: 1, monitored: true }],
+    };
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === 'http://archive/api/v3/series/22') return json(preferredSeries);
+      if (url.includes('/episodefile?')) return json([{ id: 11, size: 300 }]);
+      if (url.includes('/episode?')) {
+        return json([{ id: 101, episodeFileId: 11, hasFile: true, monitored: true }]);
+      }
+      if (url.includes('/queue?')) return json({ records: [] });
+      return json({ unexpected: url }, 404);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    expect(await previewArchive('show', 'admin')).toMatchObject({
+      ready: true,
+      instanceId: 's2',
+      instanceName: 'Archive',
+      seriesId: 22,
+    });
+    expect(fetchMock.mock.calls.map(([url]) => url)).not.toContain(
+      'http://primary/api/v3/series'
+    );
+    expect(fetchMock.mock.calls.map(([url]) => url)).not.toContain(
+      'http://archive/api/v3/series'
+    );
+  });
+
+  it('still blocks a true ambiguity when no synchronized target exists', async () => {
+    setSonarrInstances([
+      { id: 's1', name: 'Primary', url: 'http://primary', apiKey: 'key1' },
+      { id: 's2', name: 'Archive', url: 'http://archive', apiKey: 'key2' },
+    ]);
+    const duplicate = { id: 7, title: 'Show', tvdbId: 123, imdbId: 'tt123' };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.endsWith('/api/v3/series')) return json([duplicate]);
+        return json({}, 404);
+      })
+    );
+
+    expect(await previewArchive('show', 'admin')).toMatchObject({
+      ready: false,
+      reason: 'sonarr_match_ambiguous',
+    });
   });
 
   it('previews, revalidates, updates monitoring, bulk deletes, and verifies', async () => {
