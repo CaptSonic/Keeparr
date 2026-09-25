@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
+import type { ReleaseMode } from '@/lib/types';
 import { useToast } from './Toaster';
 
 /**
@@ -15,12 +16,14 @@ export interface KeepState {
   keptByMe: boolean;
   skipped: boolean;
   markedForDelete: boolean;
+  releaseMode: ReleaseMode;
   busy: boolean;
   skipBusy: boolean;
   deleteBusy: boolean;
   toggleKeep: () => Promise<void>;
   toggleSkip: () => Promise<void>;
-  toggleDelete: () => Promise<void>;
+  toggleDelete: (mode?: ReleaseMode) => Promise<void>;
+  changeReleaseMode: (mode: ReleaseMode) => Promise<void>;
 }
 
 export function useKeepState(opts: {
@@ -28,6 +31,7 @@ export function useKeepState(opts: {
   initialKeptByMe?: boolean;
   initialSkipped?: boolean;
   initialMarkedForDelete?: boolean;
+  initialReleaseMode?: ReleaseMode;
   onKeptChange?: (ratingKey: string, kept: boolean) => void;
   onSkipChange?: (ratingKey: string, skipped: boolean) => void;
   onDeleteChange?: (ratingKey: string, markedForDelete: boolean) => void;
@@ -37,6 +41,9 @@ export function useKeepState(opts: {
   const [skipped, setSkipped] = useState(!!opts.initialSkipped);
   const [markedForDelete, setMarkedForDelete] = useState(
     !!opts.initialMarkedForDelete
+  );
+  const [releaseMode, setReleaseMode] = useState<ReleaseMode>(
+    opts.initialReleaseMode ?? 'remove_title'
   );
   const [busy, setBusy] = useState(false);
   const [skipBusy, setSkipBusy] = useState(false);
@@ -121,7 +128,34 @@ export function useKeepState(opts: {
     }
   }
 
-  async function toggleDelete() {
+  async function saveDeleteMode(mode: ReleaseMode) {
+    const res = await fetch('/api/mark-delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ratingKey, releaseMode: mode }),
+    });
+    if (!res.ok) throw new Error('failed');
+  }
+
+  async function changeReleaseMode(mode: ReleaseMode) {
+    if (inFlight.current || mode === releaseMode) return;
+    const previous = releaseMode;
+    setReleaseMode(mode);
+    if (!markedForDelete) return;
+    inFlight.current = true;
+    setDeleteBusy(true);
+    try {
+      await saveDeleteMode(mode);
+    } catch {
+      setReleaseMode(previous);
+      toast("Couldn't save the archive mode — change reverted.", 'error');
+    } finally {
+      inFlight.current = false;
+      setDeleteBusy(false);
+    }
+  }
+
+  async function toggleDelete(mode: ReleaseMode = releaseMode) {
     if (inFlight.current) return;
     inFlight.current = true;
     const prev = { keptByMe, skipped, markedForDelete };
@@ -133,12 +167,16 @@ export function useKeepState(opts: {
     }
     setDeleteBusy(true);
     try {
-      const res = await fetch('/api/mark-delete', {
-        method: next ? 'POST' : 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ratingKey }),
-      });
-      if (!res.ok) throw new Error('failed');
+      if (next) {
+        await saveDeleteMode(mode);
+      } else {
+        const res = await fetch('/api/mark-delete', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ratingKey }),
+        });
+        if (!res.ok) throw new Error('failed');
+      }
       onDeleteChange?.(ratingKey, next);
       if (next) {
         onKeptChange?.(ratingKey, false);
@@ -159,11 +197,13 @@ export function useKeepState(opts: {
     keptByMe,
     skipped,
     markedForDelete,
+    releaseMode,
     busy,
     skipBusy,
     deleteBusy,
     toggleKeep,
     toggleSkip,
     toggleDelete,
+    changeReleaseMode,
   };
 }

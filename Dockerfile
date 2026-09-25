@@ -25,7 +25,7 @@ WORKDIR /app
 
 # Image metadata + Unraid Docker UI hints (icon + WebUI button).
 LABEL org.opencontainers.image.title="Keeparr" \
-      org.opencontainers.image.description="Plex-login web app to decide what media to keep and report what's reclaimable. Tags and reports only — never deletes." \
+      org.opencontainers.image.description="Media retention app with reviewed Sonarr series archiving and optional Placeholdarr companion support." \
       org.opencontainers.image.source="https://github.com/CaptSonic/Keeparr" \
       org.opencontainers.image.licenses="MIT" \
       net.unraid.docker.icon="https://raw.githubusercontent.com/CaptSonic/Keeparr/main/public/icon.png" \

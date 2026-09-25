@@ -3,7 +3,7 @@
   "info": {
     "title": "Keeparr API",
     "version": "0.5.21",
-    "description": "Keeparr tags what to keep and reports what can be deleted — it never deletes anything itself.\n\n**Authentication**: most endpoints use the `keeparr_session` cookie (set by logging in through the web UI). Endpoints marked with `X-Api-Key` security also accept the admin API key (Settings → General) in the `X-Api-Key` header — intended for automation (`/api/stats`, `/api/admin/jobs`, and the separately enabled `/api/automation/releases`).\n\nAll ids (`ratingKey`) are the media server's item ids (Plex ratingKey or Jellyfin/Emby item id)."
+    "description": "Keeparr collects keep/release decisions. Admins can optionally archive released Sonarr series through a previewed, revalidated two-step workflow; Keeparr never deletes directly from the filesystem.\n\n**Authentication**: most endpoints use the `keeparr_session` cookie (set by logging in through the web UI). Endpoints marked with `X-Api-Key` security also accept the admin API key (Settings → General) in the `X-Api-Key` header — intended for automation (`/api/stats`, `/api/admin/jobs`, and the separately enabled `/api/automation/releases`).\n\nAll ids (`ratingKey`) are the media server's item ids (Plex ratingKey or Jellyfin/Emby item id)."
   },
   "servers": [{ "url": "/", "description": "This Keeparr instance" }],
   "tags": [
@@ -46,6 +46,7 @@
           "watched": { "type": "boolean" },
           "requestedByMe": { "type": "boolean" },
           "markedForDeleteByMe": { "type": "boolean" },
+          "releaseMode": { "type": "string", "enum": ["remove_title", "archive_existing"] },
           "markedForDeleteAny": { "type": "boolean" },
           "source": { "type": "string", "enum": ["sonarr", "radarr"] },
           "quality": { "type": "string" },
@@ -422,10 +423,12 @@
     "/api/mark-delete": {
       "post": {
         "tags": ["media"],
-        "summary": "Mark \"OK to delete\" — only on titles this user requested via Seerr",
-        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "ratingKey": { "type": "string" } }, "required": ["ratingKey"] } } } },
+        "summary": "Release a title — only on titles this user requested via Seerr",
+        "description": "`remove_title` preserves the existing hand-off behavior. `archive_existing` is available for series and queues it for explicit admin preview/execution through Sonarr.",
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "ratingKey": { "type": "string" }, "releaseMode": { "type": "string", "enum": ["remove_title", "archive_existing"], "default": "remove_title" } }, "required": ["ratingKey"] } } } },
         "responses": {
           "200": { "description": "OK" },
+          "400": { "description": "Invalid mode, or archive mode requested for a movie" },
           "403": { "description": "`{error:'not_requested'}` — not this user's request" },
           "404": { "description": "`{error:'unknown_item'}` — unknown or removed from the server" }
         }
@@ -776,6 +779,36 @@
         "summary": "Update settings (only provided fields change)",
         "requestBody": { "content": { "application/json": { "schema": { "type": "object", "description": "Any of: plexServer, plexBaseUrl, tautulli, seerr, sonarrInstances, radarrInstances, maintainerr (`url`, `movieCollectionId`, `showCollectionId`, `watchAgeDays` 1–3650 for explicit releases, `observationDays` 1–365 for automatic 180/540-day watch rules, `enabled`), jobSchedules, storageMappings, managedSectionIds, appTitle, appUrl, apiKey, backupRetention, automationBridgeEnabled" } } } },
         "responses": { "200": { "description": "`{ok:true}`" } }
+      }
+    },
+    "/api/admin/archive": {
+      "get": {
+        "tags": ["admin"],
+        "summary": "Pending Sonarr archive targets and durable audit history",
+        "security": [{ "cookieAuth": [] }],
+        "responses": { "200": { "description": "`{targets, runs}`" } }
+      },
+      "post": {
+        "tags": ["admin"],
+        "summary": "Create and persist a revalidated Sonarr archive preview",
+        "description": "Blocks on any keep veto, unsupported mode, missing/ambiguous Sonarr identity, active downloads, an empty file set, or an incomplete episode-file mapping. The persisted preview includes the exact episode-file-to-episode mapping; its run id is required for execution.",
+        "security": [{ "cookieAuth": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": { "ratingKey": { "type": "string" } }, "required": ["ratingKey"] } } } },
+        "responses": {
+          "200": { "description": "Ready preview with plan hash and run id" },
+          "409": { "description": "Preview blocked with a reason code" }
+        }
+      },
+      "put": {
+        "tags": ["admin"],
+        "summary": "Execute one persisted Sonarr archive preview",
+        "description": "Rechecks consent, unique Sonarr identity, active downloads, season set, episode-file ids, and their episode assignments. Keeparr unmonitors all episodes, deletes files via Sonarr bulk delete, then monitors only the episodes whose files were deleted. Final file and per-episode monitoring state is verified and audited.",
+        "security": [{ "cookieAuth": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": { "runId": { "type": "string", "format": "uuid" } }, "required": ["runId"] } } } },
+        "responses": {
+          "200": { "description": "Archive completed and verified" },
+          "409": { "description": "Execution blocked, stale, already used, or failed" }
+        }
       }
     },
     "/api/admin/jobs": {

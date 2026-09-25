@@ -12,6 +12,7 @@ import type {
   LibraryKind,
   LogRow,
   MediaItem,
+  ReleaseMode,
   SessionUser,
   SyncStatus,
 } from './types';
@@ -491,13 +492,20 @@ export function isRequestedByUser(
 }
 
 /** Mark a single item "OK to delete" for this user. True if newly inserted. */
-export function addDelete(plexUserId: string, ratingKey: string): boolean {
+export function addDelete(
+  plexUserId: string,
+  ratingKey: string,
+  releaseMode: ReleaseMode = 'remove_title'
+): boolean {
   const info = getDb()
     .prepare(
-      `INSERT INTO user_deletes (plex_user_id, rating_key, marked_at) VALUES (?, ?, ?)
-       ON CONFLICT(plex_user_id, rating_key) DO NOTHING`
+      `INSERT INTO user_deletes (plex_user_id, rating_key, marked_at, release_mode)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(plex_user_id, rating_key) DO UPDATE SET
+         release_mode = excluded.release_mode, marked_at = excluded.marked_at
+       WHERE user_deletes.release_mode <> excluded.release_mode`
     )
-    .run(plexUserId, ratingKey, now());
+    .run(plexUserId, ratingKey, now(), releaseMode);
   return info.changes > 0;
 }
 
@@ -516,15 +524,22 @@ export function removeDelete(plexUserId: string, ratingKey: string): boolean {
  * item, atomically. The isRequestedByUser gate belongs to the route, before
  * this runs. True if newly marked.
  */
-export function applyDelete(plexUserId: string, ratingKey: string): boolean {
+export function applyDelete(
+  plexUserId: string,
+  ratingKey: string,
+  releaseMode: ReleaseMode = 'remove_title'
+): boolean {
   const db = getDb();
   return db.transaction(() => {
     const info = db
       .prepare(
-        `INSERT INTO user_deletes (plex_user_id, rating_key, marked_at) VALUES (?, ?, ?)
-         ON CONFLICT(plex_user_id, rating_key) DO NOTHING`
+        `INSERT INTO user_deletes (plex_user_id, rating_key, marked_at, release_mode)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(plex_user_id, rating_key) DO UPDATE SET
+           release_mode = excluded.release_mode, marked_at = excluded.marked_at
+         WHERE user_deletes.release_mode <> excluded.release_mode`
       )
-      .run(plexUserId, ratingKey, now());
+      .run(plexUserId, ratingKey, now(), releaseMode);
     db.prepare('DELETE FROM keeps WHERE plex_user_id = ? AND rating_key = ?').run(
       plexUserId,
       ratingKey
@@ -535,6 +550,18 @@ export function applyDelete(plexUserId: string, ratingKey: string): boolean {
     );
     return info.changes > 0;
   })();
+}
+
+export function getReleaseMode(
+  plexUserId: string,
+  ratingKey: string
+): ReleaseMode | null {
+  const row = getDb()
+    .prepare(
+      'SELECT release_mode FROM user_deletes WHERE plex_user_id = ? AND rating_key = ?'
+    )
+    .get(plexUserId, ratingKey) as { release_mode: ReleaseMode } | undefined;
+  return row?.release_mode ?? null;
 }
 
 /** Whether this user has marked an item "OK to delete". */
@@ -838,6 +865,7 @@ export interface LibraryRow extends MediaWithKeep {
   watched: number; // this user has watched it (any plays)
   requested_by_me: number; // this user requested it on Seerr (gates OK-to-delete)
   marked_for_delete_by_me: number; // this user marked it "OK to delete"
+  release_mode_by_me: ReleaseMode | null;
   marked_for_delete_any: number; // anyone marked it "OK to delete" (no identity)
   arr_source: string | null;
   arr_instance_name: string | null;
@@ -983,6 +1011,7 @@ export function queryLibrary(q: LibraryQuery): LibraryRow[] {
               (wh.rating_key IS NOT NULL) AS watched,
               (sr.rating_key IS NOT NULL) AS requested_by_me,
               (ud.rating_key IS NOT NULL) AS marked_for_delete_by_me,
+              ud.release_mode AS release_mode_by_me,
               ${deletedAnyExists} AS marked_for_delete_any,
               a.source AS arr_source, a.instance_name AS arr_instance_name,
               a.monitored AS arr_monitored, a.status AS arr_status,
@@ -1018,6 +1047,7 @@ export interface SearchRow extends MediaItem {
   watched: number;
   requested_by_me: number;
   marked_for_delete_by_me: number;
+  release_mode_by_me: ReleaseMode | null;
   marked_for_delete_any: number;
   score: number;
 }
@@ -1076,6 +1106,7 @@ export function searchMedia(params: {
               (wh.rating_key IS NOT NULL) AS watched,
               (sr.rating_key IS NOT NULL) AS requested_by_me,
               (ud.rating_key IS NOT NULL) AS marked_for_delete_by_me,
+              ud.release_mode AS release_mode_by_me,
               EXISTS (SELECT 1 FROM user_deletes d WHERE d.rating_key = m.rating_key) AS marked_for_delete_any,
               ${score} AS score
        FROM media_items m
@@ -2706,6 +2737,199 @@ export function mediaMissingExternalIds(): {
     )
     .all() as { title: string; kind: string }[];
   return { shows: count('show', 'guid_tvdb'), movies: count('movie', 'guid_tmdb'), sample };
+}
+
+// ---------------------------------------------------------------------------
+// Sonarr archive execution targets + durable audit runs
+// ---------------------------------------------------------------------------
+
+export interface ArchiveTarget {
+  ratingKey: string;
+  title: string;
+  year: number | null;
+  libraryKind: LibraryKind;
+  guidTvdb: string | null;
+  guidImdb: string | null;
+  keptByAnyone: boolean;
+  effectiveMode: ReleaseMode;
+  requestedModes: ReleaseMode[];
+  instanceId: string | null;
+  instanceName: string | null;
+  arrId: number | null;
+}
+
+/** Less destructive consent wins. remove_title is a hand-off signal only and
+ * therefore blocks Keeparr from deleting files when users chose different modes. */
+export function getArchiveTarget(ratingKey: string): ArchiveTarget | null {
+  const row = getDb()
+    .prepare(
+      `SELECT m.rating_key, m.title, m.year, m.library_kind, m.guid_tvdb, m.guid_imdb,
+              EXISTS (SELECT 1 FROM keeps k WHERE k.rating_key = m.rating_key) AS kept,
+              a.instance_id, a.instance_name, a.arr_id,
+              GROUP_CONCAT(DISTINCT ud.release_mode) AS modes
+         FROM media_items m
+         JOIN user_deletes ud ON ud.rating_key = m.rating_key
+         LEFT JOIN arr_items a ON a.rating_key = m.rating_key AND a.source = 'sonarr'
+        WHERE m.rating_key = ? AND m.removed = 0
+        GROUP BY m.rating_key`
+    )
+    .get(ratingKey) as
+    | {
+        rating_key: string;
+        title: string;
+        year: number | null;
+        library_kind: LibraryKind;
+        guid_tvdb: string | null;
+        guid_imdb: string | null;
+        kept: number;
+        instance_id: string | null;
+        instance_name: string | null;
+        arr_id: number | null;
+        modes: string;
+      }
+    | undefined;
+  if (!row) return null;
+  const requestedModes = row.modes.split(',').filter(Boolean) as ReleaseMode[];
+  const effectiveMode: ReleaseMode = requestedModes.includes('remove_title')
+    ? 'remove_title'
+    : requestedModes.includes('archive_existing')
+      ? 'archive_existing'
+      : 'archive_completed';
+  return {
+    ratingKey: row.rating_key,
+    title: row.title,
+    year: row.year,
+    libraryKind: row.library_kind,
+    guidTvdb: row.guid_tvdb,
+    guidImdb: row.guid_imdb,
+    keptByAnyone: !!row.kept,
+    effectiveMode,
+    requestedModes,
+    instanceId: row.instance_id,
+    instanceName: row.instance_name,
+    arrId: row.arr_id,
+  };
+}
+
+export function listArchiveTargets(): ArchiveTarget[] {
+  const keys = getDb()
+    .prepare(
+      `SELECT rating_key, MAX(marked_at) AS latest
+         FROM user_deletes
+        WHERE release_mode IN ('archive_existing', 'archive_completed')
+        GROUP BY rating_key
+        ORDER BY latest DESC`
+    )
+    .all() as { rating_key: string }[];
+  return keys
+    .map((row) => getArchiveTarget(row.rating_key))
+    .filter((value): value is ArchiveTarget => value !== null);
+}
+
+export interface ArchiveRunRow {
+  id: string;
+  ratingKey: string;
+  requestedBy: string;
+  releaseMode: ReleaseMode;
+  status: string;
+  instanceId: string | null;
+  arrId: number | null;
+  planHash: string | null;
+  preview: unknown;
+  result: unknown | null;
+  createdAt: number;
+  executedAt: number | null;
+}
+
+interface ArchiveRunDbRow {
+  id: string;
+  rating_key: string;
+  requested_by: string;
+  release_mode: ReleaseMode;
+  status: string;
+  instance_id: string | null;
+  arr_id: number | null;
+  plan_hash: string | null;
+  preview_json: string;
+  result_json: string | null;
+  created_at: number;
+  executed_at: number | null;
+}
+
+function mapArchiveRun(row: ArchiveRunDbRow): ArchiveRunRow {
+  return {
+    id: row.id,
+    ratingKey: row.rating_key,
+    requestedBy: row.requested_by,
+    releaseMode: row.release_mode,
+    status: row.status,
+    instanceId: row.instance_id,
+    arrId: row.arr_id,
+    planHash: row.plan_hash,
+    preview: JSON.parse(row.preview_json),
+    result: row.result_json ? JSON.parse(row.result_json) : null,
+    createdAt: row.created_at,
+    executedAt: row.executed_at,
+  };
+}
+
+export function createArchiveRun(input: {
+  id: string;
+  ratingKey: string;
+  requestedBy: string;
+  releaseMode: ReleaseMode;
+  status: string;
+  instanceId: string | null;
+  arrId: number | null;
+  planHash: string | null;
+  preview: unknown;
+}): ArchiveRunRow {
+  getDb()
+    .prepare(
+      `INSERT INTO archive_runs
+         (id, rating_key, requested_by, release_mode, status, instance_id, arr_id,
+          plan_hash, preview_json, created_at)
+       VALUES (@id, @ratingKey, @requestedBy, @releaseMode, @status, @instanceId,
+          @arrId, @planHash, @previewJson, @createdAt)`
+    )
+    .run({
+      ...input,
+      previewJson: JSON.stringify(input.preview),
+      createdAt: now(),
+    });
+  return getArchiveRun(input.id)!;
+}
+
+export function getArchiveRun(id: string): ArchiveRunRow | null {
+  const row = getDb().prepare('SELECT * FROM archive_runs WHERE id = ?').get(id) as
+    | ArchiveRunDbRow
+    | undefined;
+  return row ? mapArchiveRun(row) : null;
+}
+
+/** Atomically make a preview single-use before any Sonarr write begins. */
+export function claimArchiveRun(id: string): boolean {
+  return (
+    getDb()
+      .prepare(`UPDATE archive_runs SET status = 'executing' WHERE id = ? AND status = 'previewed'`)
+      .run(id).changes > 0
+  );
+}
+
+export function finishArchiveRun(id: string, status: string, result: unknown): void {
+  getDb()
+    .prepare(
+      `UPDATE archive_runs SET status = ?, result_json = ?, executed_at = ? WHERE id = ?`
+    )
+    .run(status, JSON.stringify(result), now(), id);
+}
+
+export function recentArchiveRuns(limit = 50): ArchiveRunRow[] {
+  return (
+    getDb()
+      .prepare('SELECT * FROM archive_runs ORDER BY created_at DESC, id DESC LIMIT ?')
+      .all(limit) as ArchiveRunDbRow[]
+  ).map(mapArchiveRun);
 }
 
 /** Count of arr-matched titles (rows in arr_items). */

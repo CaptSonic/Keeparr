@@ -41,6 +41,7 @@ const TABS = [
   { href: '/settings/users', en: 'Users', de: 'Benutzer' },
   { href: '/settings/connections', en: 'Connections', de: 'Verbindungen' },
   { href: '/settings/maintainerr', en: 'Maintainerr', de: 'Maintainerr' },
+  { href: '/settings/archive', en: 'Archive', de: 'Archivierung' },
   { href: '/settings/jobs', en: 'Jobs & Cache', de: 'Jobs & Cache' },
   { href: '/settings/logs', en: 'Logs', de: 'Protokolle' },
   { href: '/settings/about', en: 'About', de: 'Info' },

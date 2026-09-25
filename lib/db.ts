@@ -60,11 +60,32 @@ export function applySchema(database: Database.Database): void {
       plex_user_id TEXT NOT NULL,
       rating_key   TEXT NOT NULL REFERENCES media_items(rating_key) ON DELETE CASCADE,
       marked_at    INTEGER NOT NULL,
+      release_mode TEXT NOT NULL DEFAULT 'remove_title'
+                   CHECK (release_mode IN ('remove_title', 'archive_existing', 'archive_completed')),
       PRIMARY KEY (plex_user_id, rating_key)
     );
     CREATE INDEX IF NOT EXISTS idx_deletes_user ON user_deletes(plex_user_id);
     -- By-item lookup for the "OK to delete by anyone" view + attribution join.
     CREATE INDEX IF NOT EXISTS idx_deletes_item ON user_deletes(rating_key);
+
+    -- Two-step Sonarr archive executions. Preview snapshots and results are kept
+    -- as JSON so every destructive attempt remains auditable after media removal.
+    CREATE TABLE IF NOT EXISTS archive_runs (
+      id            TEXT PRIMARY KEY,
+      rating_key    TEXT NOT NULL,
+      requested_by  TEXT NOT NULL,
+      release_mode  TEXT NOT NULL,
+      status        TEXT NOT NULL,
+      instance_id   TEXT,
+      arr_id        INTEGER,
+      plan_hash     TEXT,
+      preview_json  TEXT NOT NULL,
+      result_json   TEXT,
+      created_at    INTEGER NOT NULL,
+      executed_at   INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_archive_runs_time ON archive_runs(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_archive_runs_item ON archive_runs(rating_key, created_at DESC);
 
     CREATE TABLE IF NOT EXISTS users (
       plex_user_id TEXT PRIMARY KEY,           -- numeric Plex account id
@@ -340,6 +361,18 @@ function migrate(database: Database.Database): void {
     `CREATE INDEX IF NOT EXISTS idx_seerr_item_source
        ON seerr_requests(rating_key, source)`
   );
+
+  // Existing release decisions predate selectable modes and retain their old,
+  // conservative meaning: hand-off/remove-title only, never archive files.
+  const deleteCols = database
+    .prepare(`PRAGMA table_info(user_deletes)`)
+    .all() as { name: string }[];
+  if (deleteCols.length > 0 && !deleteCols.some((c) => c.name === 'release_mode')) {
+    database.exec(
+      `ALTER TABLE user_deletes ADD COLUMN release_mode TEXT NOT NULL DEFAULT 'remove_title'
+       CHECK (release_mode IN ('remove_title', 'archive_existing', 'archive_completed'))`
+    );
+  }
 
   // Migrate the legacy global keeps table (rating_key PK, kept_by) to per-user
   // (plex_user_id, rating_key). The new applySchema CREATE only runs on a fresh

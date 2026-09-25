@@ -18,6 +18,7 @@ import { __setTestDbToMemory, __closeDb } from '@/lib/db';
 import {
   addKeep,
   addSkip,
+  getReleaseMode,
   isKeptByUser,
   isMarkedForDelete,
   isSkipped,
@@ -98,6 +99,27 @@ describe('mark-delete route ("OK to delete")', () => {
     expect(isMarkedForDelete('userA', '1')).toBe(true);
     expect(isKeptByUser('userA', '1')).toBe(false); // keep cleared
     expect(isSkipped('userA', '1')).toBe(false); // don't-care cleared
+  });
+
+  it('stores archive_existing for a requested series and rejects it for movies', async () => {
+    upsertMediaBatch([
+      media('show', { libraryKind: 'show' }),
+      media('movie'),
+    ]);
+    await loginAs('userA');
+    replaceSeerrRequests('userA', ['show', 'movie']);
+
+    const ok = await markPost(
+      jsonReq({ ratingKey: 'show', releaseMode: 'archive_existing' })
+    );
+    expect(ok.status).toBe(200);
+    expect(getReleaseMode('userA', 'show')).toBe('archive_existing');
+
+    const bad = await markPost(
+      jsonReq({ ratingKey: 'movie', releaseMode: 'archive_existing' })
+    );
+    expect(bad.status).toBe(400);
+    expect(getReleaseMode('userA', 'movie')).toBeNull();
   });
 
   it('does not affect another user\'s keep (item stays protected)', async () => {

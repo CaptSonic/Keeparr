@@ -45,16 +45,19 @@ export default function MediaCard({
     keptByMe,
     skipped,
     markedForDelete,
+    releaseMode,
     skipBusy,
     deleteBusy,
     toggleKeep,
     toggleSkip,
     toggleDelete,
+    changeReleaseMode,
   } = useKeepState({
     ratingKey: item.ratingKey,
     initialKeptByMe: item.keptByMe,
     initialSkipped: item.skipped,
     initialMarkedForDelete: item.markedForDeleteByMe,
+    initialReleaseMode: item.releaseMode,
     onKeptChange,
     onSkipChange,
     onDeleteChange,
@@ -204,6 +207,32 @@ export default function MediaCard({
           >
             {skipped ? `↺ ${m.media.careAgain}` : m.media.dontCare}
           </button>
+        )}
+        {(item.requestedByMe || markedForDelete) && item.libraryKind === 'show' && (
+          <select
+            value={releaseMode}
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={stopActionKey}
+            onChange={(e) =>
+              void changeReleaseMode(
+                e.target.value as 'remove_title' | 'archive_existing'
+              )
+            }
+            disabled={deleteBusy}
+            aria-label={
+              locale === 'de' ? 'Freigabemodus' : 'Release mode'
+            }
+            className="mt-1.5 w-full rounded border border-slate-700 bg-slate-900 px-2 py-1 text-[11px] text-slate-300 disabled:opacity-60"
+          >
+            <option value="remove_title">
+              {locale === 'de' ? 'Titel freigeben' : 'Release title'}
+            </option>
+            <option value="archive_existing">
+              {locale === 'de'
+                ? 'Vorhandene Staffeln archivieren'
+                : 'Archive existing seasons'}
+            </option>
+          </select>
         )}
         {/* "OK to delete" — on titles you requested on Seerr (you're the original
             requester signing off). Also shown once marked, so you can always undo. */}

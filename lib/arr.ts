@@ -1,9 +1,9 @@
 /**
  * Sonarr / Radarr API client (v3; base /api/v3, auth header X-Api-Key). The two
- * apps share a near-identical shape, so one module serves both. Read-only today:
- * test a connection and pull per-title quality / tags / status to surface in the
- * Quality view. The pure `normalize*` functions are split from the HTTP calls so
- * they can be unit-tested without a network.
+ * apps share a near-identical shape, so one module serves both. Normal syncs are
+ * read-only; the explicitly admin-approved archive workflow additionally updates
+ * Sonarr monitoring and bulk-deletes episode files through Sonarr itself. The pure
+ * `normalize*` functions are split from HTTP calls for network-free unit tests.
  */
 import { fetchJson } from './http';
 import type { ArrInstance } from './settings';
@@ -31,7 +31,7 @@ export interface ArrRecord {
 }
 
 // --- Raw payload shapes (only the fields we read) ---
-interface SonarrSeries {
+export interface SonarrSeries {
   id: number;
   title: string;
   tvdbId?: number;
@@ -42,6 +42,8 @@ interface SonarrSeries {
   rootFolderPath?: string;
   statistics?: { sizeOnDisk?: number };
   tags?: number[];
+  monitorNewItems?: string;
+  seasons?: { seasonNumber: number; monitored?: boolean }[];
 }
 interface RadarrMovie {
   id: number;
@@ -176,4 +178,119 @@ export async function fetchRadarr(inst: ArrInstance): Promise<ArrRecord[]> {
   return movies
     .map((m) => normalizeRadarr(m, inst, tags))
     .filter((r): r is ArrRecord => r !== null);
+}
+
+export interface SonarrEpisodeFile {
+  id: number;
+  seriesId?: number;
+  seasonNumber?: number;
+  relativePath?: string;
+  path?: string;
+  size?: number;
+}
+
+export interface SonarrEpisode {
+  id: number;
+  seriesId?: number;
+  seasonNumber?: number;
+  episodeNumber?: number;
+  monitored?: boolean;
+  hasFile?: boolean;
+  episodeFileId?: number;
+}
+
+export interface SonarrQueueRecord {
+  id?: number;
+  seriesId?: number;
+  title?: string;
+  status?: string;
+  trackedDownloadStatus?: string;
+}
+
+async function arrWrite<T>(
+  inst: ArrInstance,
+  path: string,
+  method: 'PUT' | 'DELETE',
+  body: unknown
+): Promise<T | null> {
+  const url = inst.url.replace(/\/$/, '') + '/api/v3' + path;
+  const response = await fetch(url, {
+    method,
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      'X-Api-Key': inst.apiKey,
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) {
+    throw new Error(`${inst.name || inst.url} ${path} → HTTP ${response.status}`);
+  }
+  if (response.status === 204) return null;
+  const text = await response.text();
+  return text ? (JSON.parse(text) as T) : null;
+}
+
+export async function listSonarrSeries(inst: ArrInstance): Promise<SonarrSeries[]> {
+  return arrGet<SonarrSeries[]>(inst, '/series');
+}
+
+export async function getSonarrSeries(
+  inst: ArrInstance,
+  seriesId: number
+): Promise<SonarrSeries> {
+  return arrGet<SonarrSeries>(inst, `/series/${seriesId}`);
+}
+
+export async function getSonarrEpisodeFiles(
+  inst: ArrInstance,
+  seriesId: number
+): Promise<SonarrEpisodeFile[]> {
+  return arrGet<SonarrEpisodeFile[]>(inst, `/episodefile?seriesId=${seriesId}`);
+}
+
+export async function getSonarrEpisodes(
+  inst: ArrInstance,
+  seriesId: number
+): Promise<SonarrEpisode[]> {
+  return arrGet<SonarrEpisode[]>(inst, `/episode?seriesId=${seriesId}`);
+}
+
+export async function getSonarrQueue(
+  inst: ArrInstance,
+  seriesId: number
+): Promise<SonarrQueueRecord[]> {
+  const value = await arrGet<
+    SonarrQueueRecord[] | { records?: SonarrQueueRecord[] }
+  >(
+    inst,
+    `/queue?seriesIds=${seriesId}&page=1&pageSize=1000&includeUnknownSeriesItems=true`
+  );
+  const records = Array.isArray(value) ? value : value.records ?? [];
+  return records.filter((row) => row.seriesId === seriesId);
+}
+
+export async function updateSonarrSeries(
+  inst: ArrInstance,
+  series: SonarrSeries
+): Promise<SonarrSeries> {
+  return (await arrWrite<SonarrSeries>(inst, `/series/${series.id}`, 'PUT', series))!;
+}
+
+export async function deleteSonarrEpisodeFiles(
+  inst: ArrInstance,
+  episodeFileIds: number[]
+): Promise<void> {
+  if (episodeFileIds.length === 0) return;
+  await arrWrite(inst, '/episodefile/bulk', 'DELETE', { episodeFileIds });
+}
+
+export async function setSonarrEpisodesMonitored(
+  inst: ArrInstance,
+  episodeIds: number[],
+  monitored: boolean
+): Promise<void> {
+  if (episodeIds.length === 0) return;
+  await arrWrite(inst, '/episode/monitor', 'PUT', { episodeIds, monitored });
 }

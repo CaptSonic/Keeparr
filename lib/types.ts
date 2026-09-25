@@ -3,6 +3,7 @@
 import type { Locale } from './i18n';
 
 export type LibraryKind = 'movie' | 'show';
+export type ReleaseMode = 'remove_title' | 'archive_existing' | 'archive_completed';
 
 /** A row from media_items as stored. */
 export interface MediaItem {
@@ -43,6 +44,8 @@ export interface MediaCardData {
   requestedByMe?: boolean;
   /** True when the current user marked this "OK to delete". */
   markedForDeleteByMe?: boolean;
+  /** Requested action when released. Existing rows default to remove_title. */
+  releaseMode?: ReleaseMode;
   /** True when anyone marked it "OK to delete" — carries NO identity (Browse
    *  never reveals who, except via markedForDeleteByMe). */
   markedForDeleteAny?: boolean;

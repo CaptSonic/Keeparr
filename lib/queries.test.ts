@@ -7,7 +7,9 @@ import {
   applySkip,
   applyDelete,
   getActiveMediaItem,
+  getArchiveTarget,
   getMediaItem,
+  getReleaseMode,
   addSkip,
   removeSkip,
   isSkipped,
@@ -1443,6 +1445,25 @@ describe('OK to delete (user_deletes)', () => {
     expect(isRequestedByUser('userB', '1')).toBe(false);
   });
 
+  it('stores release modes and lets the less destructive remove_title mode win', () => {
+    upsertMediaBatch([
+      media('series', {
+        libraryKind: 'show',
+        guidTvdb: '123',
+        guidImdb: 'tt123',
+      }),
+    ]);
+    addDelete('one', 'series', 'remove_title');
+    addDelete('two', 'series', 'archive_existing');
+
+    expect(getReleaseMode('one', 'series')).toBe('remove_title');
+    expect(getReleaseMode('two', 'series')).toBe('archive_existing');
+    expect(getArchiveTarget('series')).toMatchObject({
+      effectiveMode: 'remove_title',
+      requestedModes: expect.arrayContaining(['remove_title', 'archive_existing']),
+    });
+  });
+
   it('getFeed excludes the user\'s own delete-marked items only', () => {
     addDelete('userA', '2');
     const a = getFeed('userA', 10).map((r) => r.rating_key).sort();
@@ -1460,6 +1481,7 @@ describe('OK to delete (user_deletes)', () => {
     const byKey = new Map(all.map((r) => [r.rating_key, r]));
     expect(byKey.get('1')!.requested_by_me).toBe(1);
     expect(byKey.get('1')!.marked_for_delete_by_me).toBe(1);
+    expect(byKey.get('1')!.release_mode_by_me).toBe('remove_title');
     expect(byKey.get('1')!.marked_for_delete_any).toBe(1);
     expect(byKey.get('2')!.requested_by_me).toBe(0);
     expect(byKey.get('2')!.marked_for_delete_by_me).toBe(0);

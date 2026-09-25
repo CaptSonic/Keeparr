@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireUser } from '@/lib/auth';
 import { errorResponse } from '@/lib/route-helpers';
+import type { ReleaseMode } from '@/lib/types';
 import {
   applyDelete,
   getActiveMediaItem,
@@ -18,17 +19,27 @@ export const runtime = 'nodejs';
 export async function POST(req: Request) {
   try {
     const user = await requireUser();
-    const { ratingKey } = (await req.json()) as { ratingKey?: string };
+    const { ratingKey, releaseMode = 'remove_title' } = (await req.json()) as {
+      ratingKey?: string;
+      releaseMode?: ReleaseMode;
+    };
     if (!ratingKey || !getActiveMediaItem(ratingKey)) {
       return NextResponse.json({ error: 'unknown_item' }, { status: 404 });
+    }
+    if (!['remove_title', 'archive_existing'].includes(releaseMode)) {
+      return NextResponse.json({ error: 'invalid_release_mode' }, { status: 400 });
+    }
+    const item = getActiveMediaItem(ratingKey)!;
+    if (releaseMode === 'archive_existing' && item.library_kind !== 'show') {
+      return NextResponse.json({ error: 'archive_requires_series' }, { status: 400 });
     }
     // Gate: you can only release something you requested on Seerr.
     if (!isRequestedByUser(user.plexUserId, ratingKey)) {
       return NextResponse.json({ error: 'not_requested' }, { status: 403 });
     }
     // Exclusive with keep and "don't care" (cleared atomically).
-    const changed = applyDelete(user.plexUserId, ratingKey);
-    return NextResponse.json({ markedForDelete: true, changed });
+    const changed = applyDelete(user.plexUserId, ratingKey, releaseMode);
+    return NextResponse.json({ markedForDelete: true, releaseMode, changed });
   } catch (e) {
     return errorResponse(e);
   }
