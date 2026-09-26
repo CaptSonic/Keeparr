@@ -306,6 +306,96 @@ describe('Maintainerr safe hand-off', () => {
     expect(getMaintainerrManagedItems()).toEqual({});
   });
 
+  it('excludes Sonarr archive releases from every Maintainerr candidate source', async () => {
+    requesterReleasedMedia();
+    addDelete('requester', 'requester-show', 'archive_existing');
+    const remote = mockMaintainerr();
+
+    const preview = await previewMaintainerr();
+
+    expect(preview.requesterReleases).toBe(1);
+    expect(preview.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ ratingKey: 'requester-movie', status: 'add' }),
+    ]));
+    expect(preview.items.some((item) => item.ratingKey === 'requester-show')).toBe(false);
+    expect(preview.collections.find((row) => row.id === 20)).toMatchObject({
+      desired: 0, add: 0,
+    });
+    expect(remote.writes).toEqual([]);
+  });
+
+  it('withdraws a Keeparr-owned show after it switches to Sonarr archiving', async () => {
+    requesterReleasedMedia();
+    const remote = mockMaintainerr();
+    await syncMaintainerr();
+    remote.writes.length = 0;
+    addDelete('requester', 'requester-show', 'archive_existing');
+
+    const preview = await previewMaintainerr();
+
+    expect(preview.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        ratingKey: 'requester-show', status: 'remove', reason: 'sonarr_archive_workflow',
+      }),
+    ]));
+    expect((await syncMaintainerr()).result).toBe(1);
+    expect([...remote.members.get(10)!]).toEqual(['requester-movie']);
+    expect([...remote.members.get(20)!]).toEqual([]);
+    expect(remote.writes).toEqual([
+      expect.objectContaining({ path: '/api/collections/remove' }),
+    ]);
+    expect(getMaintainerrManagedItems()).toEqual({
+      '10': ['requester-movie'],
+      '20': [],
+    });
+    expect(recentMaintainerrHistory()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        eventType: 'membership_removed', ratingKey: 'requester-show',
+        reason: 'sonarr_archive_workflow',
+      }),
+    ]));
+  });
+
+  it('removes an archived show that was already a manual collection member', async () => {
+    requesterReleasedMedia();
+    addDelete('requester', 'requester-show', 'archive_existing');
+    addKeep('protector', 'requester-movie');
+    const remote = mockMaintainerr({ showMembers: ['requester-show'] });
+
+    const preview = await previewMaintainerr();
+
+    expect(preview.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        ratingKey: 'requester-show', source: 'manual',
+        status: 'remove', reason: 'sonarr_archive_workflow',
+      }),
+    ]));
+    expect(preview.collections.find((row) => row.id === 20)).toMatchObject({ remove: 1 });
+    expect((await syncMaintainerr()).result).toBe(1);
+    expect([...remote.members.get(20)!]).toEqual([]);
+    expect(remote.writes).toEqual([
+      expect.objectContaining({ path: '/api/collections/remove' }),
+    ]);
+  });
+
+  it('keeps the full-title Maintainerr workflow when remove_title wins a conflict', async () => {
+    requesterReleasedMedia();
+    addDelete('requester', 'requester-show', 'archive_existing');
+    addDelete('other-requester', 'requester-show', 'remove_title');
+    const remote = mockMaintainerr();
+
+    const preview = await previewMaintainerr();
+
+    expect(preview.requesterReleases).toBe(2);
+    expect(preview.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ ratingKey: 'requester-show', status: 'add' }),
+    ]));
+    expect(preview.collections.find((row) => row.id === 20)).toMatchObject({
+      desired: 1, add: 1,
+    });
+    expect(remote.writes).toEqual([]);
+  });
+
   it('tracks automatic watch-rule matches for 30 days before handing them off', async () => {
     upsertMediaBatch([{
       ratingKey: 'automatic', sectionId: 'movies', libraryKind: 'movie',

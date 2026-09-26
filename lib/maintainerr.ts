@@ -4,6 +4,7 @@ import {
   isKept,
   latestWatchedAtByItem,
   listAutomationReleases,
+  maintainerrArchiveExclusions,
   maintainerrAutomaticRuleMatches,
   maintainerrRuleTracking,
   markedForDeleteItems,
@@ -302,6 +303,7 @@ interface MaintainerrPlan {
  */
 function maintainerrCandidates(
   automaticMatches: ReturnType<typeof maintainerrAutomaticRuleMatches>,
+  archiveExclusions: Set<string>,
   observationDays: number,
   at: number
 ): {
@@ -309,8 +311,12 @@ function maintainerrCandidates(
   requesterReleases: number;
   campaignReleases: number;
 } {
-  const requester = markedForDeleteItems();
-  const campaign = listAutomationReleases();
+  const requester = markedForDeleteItems().filter(
+    (item) => !archiveExclusions.has(item.ratingKey)
+  );
+  const campaign = listAutomationReleases().filter(
+    (item) => !archiveExclusions.has(item.ratingKey)
+  );
   const byId = new Map<string, MaintainerrCandidate>();
   for (const item of requester) {
     byId.set(item.ratingKey, {
@@ -522,9 +528,11 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
     })
   );
   const watchReady = getReclaimSignalReadiness().watch;
+  const archiveExclusions = maintainerrArchiveExclusions();
   const automaticRuleMatches = watchReady
     ? maintainerrAutomaticRuleMatches(generatedAt).filter((item) =>
-        selectedLibraries.has(`${item.library_kind}\0${item.section_id}`)
+        selectedLibraries.has(`${item.library_kind}\0${item.section_id}`) &&
+        !archiveExclusions.has(item.rating_key)
       )
     : [];
   const automaticMatches = automaticRuleMatches.map((item) => ({
@@ -533,6 +541,7 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
   }));
   const candidates = maintainerrCandidates(
     automaticRuleMatches,
+    archiveExclusions,
     config.observationDays,
     generatedAt
   );
@@ -614,8 +623,9 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
 
   for (const target of targets) {
     target.remove = new Set(
-      [...target.managed].filter(
-        (id) => target.current.has(id) && !target.desired.has(id)
+      [...target.current].filter((id) =>
+        archiveExclusions.has(id) ||
+        (target.managed.has(id) && !target.desired.has(id))
       )
     );
     for (const id of target.desired) {
@@ -758,15 +768,17 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
         source: managed ? 'managed' : 'manual',
         status: paused
           ? 'paused'
-          : managed && current
+          : current && (managed || archiveExclusions.has(ratingKey))
             ? 'remove'
             : 'manual',
         reason: paused
           ? 'inventory_unavailable'
-          : managed && current
-            ? kept
-              ? 'global_keep'
-              : 'release_revoked'
+          : current && (managed || archiveExclusions.has(ratingKey))
+            ? archiveExclusions.has(ratingKey)
+              ? 'sonarr_archive_workflow'
+              : kept
+                ? 'global_keep'
+                : 'release_revoked'
             : 'existing_foreign_member',
         lastWatched: latest.get(ratingKey) ?? null,
         dueAt: null,

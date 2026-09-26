@@ -1695,6 +1695,24 @@ export function markedForDeleteItems(): MarkedForDeleteItem[] {
   return [...byItem.values()];
 }
 
+/**
+ * Titles whose current household decision is Sonarr archiving rather than full
+ * title removal. A single remove_title decision wins, matching getArchiveTarget.
+ * Maintainerr must never receive these titles because its collection action can
+ * remove the complete series instead of only the archived episode files.
+ */
+export function maintainerrArchiveExclusions(): Set<string> {
+  const rows = getDb().prepare(
+    `SELECT rating_key
+       FROM user_deletes
+      GROUP BY rating_key
+     HAVING SUM(CASE WHEN release_mode = 'remove_title' THEN 1 ELSE 0 END) = 0
+        AND SUM(CASE WHEN release_mode IN ('archive_existing', 'archive_completed')
+                     THEN 1 ELSE 0 END) > 0`
+  ).all() as { rating_key: string }[];
+  return new Set(rows.map((row) => row.rating_key));
+}
+
 /** Distinct titles + summed bytes that anyone marked "OK to delete" (the KPI). */
 export function markedForDeleteSummary(): { titles: number; bytes: number } {
   const row = getDb()

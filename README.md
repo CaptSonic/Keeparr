@@ -491,6 +491,14 @@ age. Automatic candidates use the 180-day requester and 540-day household rules
 described above, then complete Keeparr's persistent observation period before
 Maintainerr sees them. A live Keep excludes every source immediately:
 
+Series released with **Archive existing seasons** are excluded from every Maintainerr
+source, including campaign and automatic-rule matches. If Keeparr had already added
+such a series to its Maintainerr collection, the next hand-off removes that membership.
+This archive safety rule also removes an existing manual membership from the selected
+Keeparr Maintainerr collection; unrelated manual members remain untouched.
+A conflicting **Release title** decision takes precedence and keeps the normal full-title
+Maintainerr workflow active.
+
 After a fully successful Seerr request refresh, active media without a known Seerr
 requester is assigned to the configured Keeparr Owner/Admin (for example
 `CaptSonic`). This uses the stable account id rather than the display name. A real

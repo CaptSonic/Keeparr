@@ -19,6 +19,7 @@ import {
   isRequestedByUser,
   markedForDeleteItems,
   markedForDeleteSummary,
+  maintainerrArchiveExclusions,
   countFeedRemaining,
   getFeed,
   isKept,
@@ -1462,6 +1463,20 @@ describe('OK to delete (user_deletes)', () => {
       effectiveMode: 'remove_title',
       requestedModes: expect.arrayContaining(['remove_title', 'archive_existing']),
     });
+  });
+
+  it('excludes only effectively archived titles from the Maintainerr hand-off', () => {
+    upsertMediaBatch([
+      media('archive', { libraryKind: 'show' }),
+      media('completed', { libraryKind: 'show' }),
+      media('conflict', { libraryKind: 'show' }),
+    ]);
+    addDelete('one', 'archive', 'archive_existing');
+    addDelete('one', 'completed', 'archive_completed');
+    addDelete('one', 'conflict', 'archive_existing');
+    addDelete('two', 'conflict', 'remove_title');
+
+    expect([...maintainerrArchiveExclusions()].sort()).toEqual(['archive', 'completed']);
   });
 
   it('getFeed excludes the user\'s own delete-marked items only', () => {

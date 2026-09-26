@@ -246,7 +246,11 @@ The chrome is a Sonarr/Radarr-style left rail (logo → Keep; Keep / Browse[expa
   unprotected requester `user_deletes`, `listAutomationReleases()`, and matured
   persisted automatic watch-rule matches into Maintainerr's internal membership using only
   `POST /api/collections/add` and `/remove`. It validates every collection/member
-  before writing and verifies every candidate against the live media server
+  before writing. Titles whose effective release mode is Sonarr episode archiving
+  are excluded from every Maintainerr source and withdrawn from the selected collection
+  even when their existing membership was manual; unrelated manual members remain
+  untouched, and one `remove_title` decision still wins the conflict.
+  Every remaining candidate is verified against the live media server
   (`Media[].Part[].exists` for Plex). An unavailable inventory freezes all writes
   and ownership state (never withdraw on uncertainty, which would reset grace after
   re-add). It requires `useRules=false`
