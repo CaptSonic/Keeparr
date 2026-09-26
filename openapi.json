@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Keeparr API",
-    "version": "0.5.23",
+    "version": "0.5.24",
     "description": "Keeparr collects keep/release decisions. Admins can optionally archive released Sonarr series through a previewed, revalidated two-step workflow; Keeparr never deletes directly from the filesystem.\n\n**Authentication**: most endpoints use the `keeparr_session` cookie (set by logging in through the web UI). Endpoints marked with `X-Api-Key` security also accept the admin API key (Settings → General) in the `X-Api-Key` header — intended for automation (`/api/stats`, `/api/admin/jobs`, and the separately enabled `/api/automation/releases`).\n\nAll ids (`ratingKey`) are the media server's item ids (Plex ratingKey or Jellyfin/Emby item id)."
   },
   "servers": [{ "url": "/", "description": "This Keeparr instance" }],

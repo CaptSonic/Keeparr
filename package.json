@@ -1,6 +1,6 @@
 {
   "name": "keeparr",
-  "version": "0.5.23",
+  "version": "0.5.24",
   "private": true,
   "description": "Media retention app with reviewed Sonarr series archiving and optional Placeholdarr companion support.",
   "license": "MIT",
