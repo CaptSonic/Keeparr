@@ -441,7 +441,7 @@ when it has no tvdb/tmdb **and** no imdb.
 - Admin (require `is_admin`): `GET/PUT /api/admin/settings` (PUT accepts
   `storageMappings`, `managedSectionIds`, `appTitle`, `appUrl`, `apiKey`, `plexBaseUrl`,
   `jobSchedules`, `plexServer`, `tautulli`, `seerr`, `sonarrInstances`,
-  `radarrInstances`, `maintainerr`, `backupRetention`, `automationBridgeEnabled` — GET returns instances as `[{id,name,url,hasKey}]`, never their
+  `radarrInstances`, `maintainerr`, `archivePlaceholders`, `backupRetention`, `automationBridgeEnabled` — GET returns instances as `[{id,name,url,hasKey}]`, never their
   apiKeys; the automation `apiKey` IS returned so the UI can show a masked
   copy-able field, Servarr-style),
   `GET /api/admin/plex-servers`, `POST /api/admin/test-connection` (services
@@ -469,7 +469,11 @@ when it has no tvdb/tmdb **and** no imdb.
   `sizeBytes`, largest-first),
   `GET/PUT /api/admin/users` (list + grant/revoke admin + enable/disable + the
   `openSignin` toggle; Owner can't be demoted or disabled),
-  `POST /api/admin/users/import` (import the Plex shared-user list).
+  `POST /api/admin/users/import` (import the Plex shared-user list),
+  `GET/POST/PUT/PATCH /api/admin/archive` (dashboard, preview, execute, manual
+  episode restore). Public-but-secret-authenticated integrations:
+  `POST /api/webhooks/plex?token=` (native multipart `payload`, playback events only)
+  and `POST /api/webhooks/sonarr?instance=&token=` (Download/ImportComplete cleanup).
 
 ## Settings keys (all via `lib/settings.ts`)
 
@@ -497,6 +501,9 @@ all), `open_signin` (`'true'`/`'false'`), `api_key`* (automation), `app_title`,
 re-add approvals; cleared on Maintainerr config changes and dev reset),
 `app_url` (Plex sign-in forwardUrl; overrides the `APP_URL` env var),
 `backup_retention` (how many backup files to keep; default 14),
+`archive_placeholder_enabled`, `archive_placeholder_root`, `archive_plex_root`,
+`archive_placeholder_template`, `archive_automatic_restore`, `archive_plex_refresh`,
+`archive_webhook_secret`* (integrated Plex-only placeholders; disabled by default),
 `dev_storage_total` (demo-only synthetic capacity, set by the seed). `*` = encrypted
 at rest.
 
@@ -561,7 +568,11 @@ backend-aware UI are clickable offline (default = Plex). All inert/absent in pro
   script/style CSP (would break the inline theme script + Scalar). Backup filenames
   are regex-validated (`isValidBackupName`); the image cache key is SHA-1-hashed before
   becoming a path. `KEEPARR_DEV_LOGIN` is the only auth bypass and is env-gated +
-  `NODE_ENV`-guarded + inert in production (never set it in the image).
+  `NODE_ENV`-guarded + inert in production (never set it in the image). Archive
+  webhooks use a separate encrypted random secret, request-size limits, server/
+  instance identity checks, and fail closed unless a Plex path exactly matches an
+  `archive_episodes` manifest row. Placeholder filesystem operations reject path
+  traversal, symlinks, collisions, and paths outside the configured archive root.
 - **API key** (`api_key`): `requireAdminOrApiKey`/`requireUserOrApiKey` (`lib/auth.ts`)
   accept an `X-Api-Key` header as an alternative to a session (for `/api/admin/jobs`,
   `/api/stats`, and the separately enabled `/api/automation/releases`). `middleware.ts`

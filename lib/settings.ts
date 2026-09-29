@@ -27,6 +27,7 @@ const SECRET_KEYS = new Set([
   // Whole JSON blob encrypted at rest (each instance holds an apiKey).
   'sonarr_instances',
   'radarr_instances',
+  'archive_webhook_secret',
 ]);
 
 export function readSetting(key: string): string | null {
@@ -190,6 +191,52 @@ export function setRadarrInstances(instances: ArrInstance[]): void {
 /** True once at least one Sonarr or Radarr instance is configured. */
 export const isArrConfigured = () =>
   getSonarrInstances().length > 0 || getRadarrInstances().length > 0;
+
+// --- Keeparr-managed Plex-only placeholders ---
+export interface ArchivePlaceholderConfig {
+  enabled: boolean;
+  archiveRoot: string;
+  plexArchiveRoot: string;
+  templatePath: string;
+  automaticRestore: boolean;
+  plexRefresh: boolean;
+  webhookSecret: string;
+}
+
+export function getArchivePlaceholderConfig(): ArchivePlaceholderConfig {
+  return {
+    enabled: readSetting('archive_placeholder_enabled') === 'true',
+    archiveRoot: readSetting('archive_placeholder_root') ?? '/archive',
+    plexArchiveRoot: readSetting('archive_plex_root') ?? '',
+    templatePath: readSetting('archive_placeholder_template') ?? '',
+    automaticRestore: readSetting('archive_automatic_restore') !== 'false',
+    plexRefresh: readSetting('archive_plex_refresh') !== 'false',
+    webhookSecret: readSetting('archive_webhook_secret') ?? '',
+  };
+}
+
+export function setArchivePlaceholderConfig(
+  config: Omit<ArchivePlaceholderConfig, 'webhookSecret'> & { webhookSecret?: string }
+): ArchivePlaceholderConfig {
+  writeSetting('archive_placeholder_enabled', config.enabled ? 'true' : 'false');
+  writeSetting('archive_placeholder_root', config.archiveRoot.trim());
+  writeSetting('archive_plex_root', config.plexArchiveRoot.trim());
+  writeSetting('archive_placeholder_template', config.templatePath.trim());
+  writeSetting('archive_automatic_restore', config.automaticRestore ? 'true' : 'false');
+  writeSetting('archive_plex_refresh', config.plexRefresh ? 'true' : 'false');
+  const secret = config.webhookSecret?.trim() ||
+    getArchivePlaceholderConfig().webhookSecret || randomUUID().replaceAll('-', '');
+  writeSetting('archive_webhook_secret', secret);
+  return getArchivePlaceholderConfig();
+}
+
+export function getOrCreateArchiveWebhookSecret(): string {
+  const existing = getArchivePlaceholderConfig().webhookSecret;
+  if (existing) return existing;
+  const secret = randomUUID().replaceAll('-', '');
+  writeSetting('archive_webhook_secret', secret);
+  return secret;
+}
 
 // --- Stable per-install client/device ids (generated once, then persisted) ---
 

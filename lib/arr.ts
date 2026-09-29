@@ -40,6 +40,7 @@ export interface SonarrSeries {
   status?: string;
   qualityProfileId?: number;
   rootFolderPath?: string;
+  path?: string;
   statistics?: { sizeOnDisk?: number };
   tags?: number[];
   monitorNewItems?: string;
@@ -187,6 +188,7 @@ export interface SonarrEpisodeFile {
   relativePath?: string;
   path?: string;
   size?: number;
+  dateAdded?: string;
 }
 
 export interface SonarrEpisode {
@@ -194,6 +196,7 @@ export interface SonarrEpisode {
   seriesId?: number;
   seasonNumber?: number;
   episodeNumber?: number;
+  title?: string;
   monitored?: boolean;
   hasFile?: boolean;
   episodeFileId?: number;
@@ -210,7 +213,7 @@ export interface SonarrQueueRecord {
 async function arrWrite<T>(
   inst: ArrInstance,
   path: string,
-  method: 'PUT' | 'DELETE',
+  method: 'POST' | 'PUT' | 'DELETE',
   body: unknown
 ): Promise<T | null> {
   const url = inst.url.replace(/\/$/, '') + '/api/v3' + path;
@@ -293,4 +296,13 @@ export async function setSonarrEpisodesMonitored(
 ): Promise<void> {
   if (episodeIds.length === 0) return;
   await arrWrite(inst, '/episode/monitor', 'PUT', { episodeIds, monitored });
+}
+
+/** Queue an explicit search for exactly these episodes. */
+export async function searchSonarrEpisodes(
+  inst: ArrInstance,
+  episodeIds: number[]
+): Promise<void> {
+  if (episodeIds.length === 0) return;
+  await arrWrite(inst, '/command', 'POST', { name: 'EpisodeSearch', episodeIds });
 }

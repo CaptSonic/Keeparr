@@ -25,6 +25,11 @@ services:
       # Persist the SQLite db. On unraid point this at e.g.
       # /mnt/user/appdata/keeparr/data
       - ./data:/data
+      # OPTIONAL integrated Plex archive. Plex must mount this same host folder
+      # into its TV library; Sonarr must NOT mount or use it as a root folder.
+      # - ./archive:/archive
+      # Playable media copied for each placeholder (read-only on purpose).
+      # - ./placeholder.mkv:/placeholder/archived.mkv:ro
       # OPTIONAL — to show array capacity / free space on the home page, mount
       # your media share(s) READ-ONLY, then map each library to its container
       # path in Settings → Storage. Use the same container path you enter there.

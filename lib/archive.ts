@@ -1,5 +1,13 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
+  buildPlaceholderPlans,
+  cleanupStaging,
+  publishPlaceholders,
+  stagePlaceholders,
+  validatePlaceholderConfig,
+  type PlaceholderPlan,
+} from './archive-files';
+import {
   deleteSonarrEpisodeFiles,
   getSonarrEpisodes,
   getSonarrEpisodeFiles,
@@ -18,11 +26,22 @@ import {
   finishArchiveRun,
   getArchiveRun,
   getArchiveTarget,
+  listArchiveEpisodes,
   listArchiveTargets,
   logEvent,
   recentArchiveRuns,
+  replacePreparedArchiveEpisodes,
+  setArchiveEpisodesStatus,
 } from './queries';
-import { getSonarrInstances, type ArrInstance } from './settings';
+import {
+  getArchivePlaceholderConfig,
+  getMediaServerType,
+  getPlexBaseUrl,
+  getServerToken,
+  getSonarrInstances,
+  type ArrInstance,
+} from './settings';
+import { refreshPlexSection } from './plex';
 
 export type ArchiveBlockReason =
   | 'not_found'
@@ -35,6 +54,7 @@ export type ArchiveBlockReason =
   | 'sonarr_match_ambiguous'
   | 'active_downloads'
   | 'no_episode_files'
+  | 'placeholder_unavailable'
   | 'stale_preview'
   | 'already_executed';
 
@@ -196,7 +216,11 @@ function blocked(
 }
 
 export function archiveDashboard() {
-  return { targets: listArchiveTargets(), runs: recentArchiveRuns(50) };
+  return {
+    targets: listArchiveTargets(),
+    runs: recentArchiveRuns(50),
+    episodes: listArchiveEpisodes({ statuses: ['archived', 'restoring', 'failed'] }),
+  };
 }
 
 export async function previewArchive(
@@ -244,6 +268,21 @@ export async function previewArchive(
   const plannedEpisodes = episodePlan(files, episodes);
   if (!plannedEpisodes.complete) {
     return blocked(ratingKey, target.title, 'sonarr_unavailable');
+  }
+  const placeholderConfig = getArchivePlaceholderConfig();
+  if (placeholderConfig.enabled) {
+    try {
+      validatePlaceholderConfig(placeholderConfig);
+      buildPlaceholderPlans({
+        config: placeholderConfig,
+        runId: 'preview',
+        series,
+        files,
+        episodes,
+      });
+    } catch {
+      return blocked(ratingKey, target.title, 'placeholder_unavailable');
+    }
   }
 
   const seasonNumbers = [
@@ -329,6 +368,10 @@ export async function executeArchive(runId: string, requestedBy: string) {
     return { ok: false, reason };
   }
 
+  const placeholderConfig = getArchivePlaceholderConfig();
+  let placeholderPlans: PlaceholderPlan[] = [];
+  let manifestEpisodeIds: number[] = [];
+  let sonarrDeleteCompleted = false;
   try {
     const [series, files, episodes, queue] = await Promise.all([
       getSonarrSeries(resolved.inst, resolved.series.id),
@@ -355,6 +398,44 @@ export async function executeArchive(runId: string, requestedBy: string) {
       return { ok: false, reason: 'stale_preview' as ArchiveBlockReason };
     }
 
+    if (placeholderConfig.enabled) {
+      placeholderPlans = buildPlaceholderPlans({
+        config: placeholderConfig,
+        runId,
+        series,
+        files,
+        episodes,
+      });
+      stagePlaceholders(placeholderConfig, placeholderPlans);
+      const planByFile = new Map(
+        placeholderPlans.map((plan) => [plan.originalFileId, plan])
+      );
+      const rows = episodes
+        .filter((episode) => episode.episodeFileId != null && planByFile.has(episode.episodeFileId))
+        .map((episode) => {
+          const plan = planByFile.get(episode.episodeFileId!)!;
+          return {
+            episodeId: episode.id,
+            instanceId: resolved.inst.id,
+            ratingKey: target.ratingKey,
+            sectionId: target.sectionId,
+            seriesId: series.id,
+            seriesTitle: series.title,
+            seasonNumber: episode.seasonNumber!,
+            episodeNumber: episode.episodeNumber!,
+            episodeTitle: episode.title ?? null,
+            originalFileId: plan.originalFileId,
+            originalPath: plan.originalPath,
+            originalRelativePath: plan.originalRelativePath,
+            placeholderPath: plan.targetPath,
+            placeholderRelPath: plan.relativePath,
+            plexPlaceholderPath: plan.plexPath,
+          };
+        });
+      replacePreparedArchiveEpisodes(rows);
+      manifestEpisodeIds = rows.map((row) => row.episodeId);
+    }
+
     const updated: SonarrSeries = {
       ...series,
       monitored: true,
@@ -374,6 +455,7 @@ export async function executeArchive(runId: string, requestedBy: string) {
       resolved.inst,
       files.map((file) => file.id)
     );
+    sonarrDeleteCompleted = true;
     await setSonarrEpisodesMonitored(
       resolved.inst,
       plannedEpisodes.episodeIds,
@@ -402,12 +484,28 @@ export async function executeArchive(runId: string, requestedBy: string) {
           : episode.monitored === false
       );
     if (!verified) throw new Error('Sonarr archive verification failed');
+    if (placeholderConfig.enabled) {
+      publishPlaceholders(placeholderConfig, placeholderPlans);
+      setArchiveEpisodesStatus(resolved.inst.id, manifestEpisodeIds, 'archived');
+      if (placeholderConfig.plexRefresh && getMediaServerType() === 'plex') {
+        const baseUrl = getPlexBaseUrl();
+        const token = getServerToken();
+        if (baseUrl && token) {
+          try {
+            await refreshPlexSection(baseUrl, token, target.sectionId);
+          } catch (error) {
+            logEvent('warn', 'archive', `Plex refresh failed for ${target.title}: ${String(error)}`);
+          }
+        }
+      }
+    }
 
     const result = {
       ok: true,
       deletedFiles: files.length,
       archivedEpisodes: plannedEpisodes.episodeIds.length,
       deletedBytes: files.reduce((sum, file) => sum + (file.size ?? 0), 0),
+      placeholders: placeholderPlans.length,
     };
     finishArchiveRun(runId, 'succeeded', result);
     logEvent(
@@ -417,6 +515,17 @@ export async function executeArchive(runId: string, requestedBy: string) {
     );
     return result;
   } catch (error) {
+    if (placeholderConfig.enabled) {
+      cleanupStaging(placeholderConfig.archiveRoot, placeholderPlans[0]?.stagingPath);
+      if (manifestEpisodeIds.length > 0) {
+        setArchiveEpisodesStatus(
+          resolved.inst.id,
+          manifestEpisodeIds,
+          sonarrDeleteCompleted ? 'archived' : 'failed',
+          String(error)
+        );
+      }
+    }
     const result = {
       ok: false,
       reason: 'sonarr_unavailable' as ArchiveBlockReason,

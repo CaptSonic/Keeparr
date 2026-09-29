@@ -14,8 +14,10 @@ care" are mutually exclusive per person. Everything nobody keeps shows up in a
 into an explainable priority queue using size, requester sign-off, watch age, and
 optional Sonarr/Radarr signals.
 
-Keeparr **never deletes anything** — it only tags and reports. You delete
-manually in Plex / Jellyfin / Emby / Sonarr / Radarr.
+Keeparr is report-only by default. Admins can explicitly enable and approve the
+Sonarr archive workflow; only that reviewed workflow removes real episode files
+(through Sonarr), while Keeparr directly creates/removes only its own manifested
+Plex placeholder files.
 
 > [!IMPORTANT]
 > This repository is a maintained fork. The original source repository is
@@ -175,6 +177,15 @@ manually in Plex / Jellyfin / Emby / Sonarr / Radarr.
   tmdb/tvdb id (so you can fix them). Report-only; Keeparr never changes
   anything in *arr. Titles match on stable tvdb/tmdb ids; unmatched titles are fine
   to leave. All of this stays hidden until you connect an instance.
+- **Integrated Plex episode archive** (optional) — after a requester releases a
+  series for `archive_existing`, an admin previews and revalidates the exact Sonarr
+  file/episode plan. Keeparr stages a copy of an administrator-provided playable
+  media file, removes the real files through Sonarr, publishes one Plex-only
+  placeholder per physical episode file, and stores a durable SQLite manifest.
+  Playing that placeholder in Plex (Plex Pass webhooks required) or pressing
+  **Restore** in Settings queues an exact Sonarr `EpisodeSearch`; the Sonarr import
+  webhook removes only the manifested placeholder after the real episode group is
+  present again. Multi-episode files are always archived/restored as one group.
 - **Watch history** — powers the Browse **Watched** filter, a small "watched" badge on
   cards, and the Big Picture **never watched by anyone** reclaim metric. On **Plex** this
   needs **Tautulli** (optional connector); on **Jellyfin/Emby** it comes natively from the
@@ -289,6 +300,8 @@ Not on Unraid? Run the same published image directly:
 docker run -d --name keeparr \
   -p 8767:3000 \
   -v /path/to/appdata/keeparr:/data \
+  -v /path/to/plex-archive:/archive \
+  -v /path/to/placeholder.mkv:/placeholder/archived.mkv:ro \
   ghcr.io/CaptSonic/keeparr:latest
 ```
 
@@ -298,6 +311,25 @@ docker run -d --name keeparr \
 docker compose up -d                          # pulls ghcr.io/${GHCR_NAMESPACE:-CaptSonic}/keeparr:latest
 docker compose pull && docker compose up -d   # to update
 ```
+
+### Integrated Plex archive setup (optional)
+
+1. Mount a dedicated host archive directory writable at `/archive` in Keeparr.
+   Mount that same host directory into Plex and add it as a second folder of the
+   existing TV library. **Do not mount it into Sonarr and never configure it as a
+   Sonarr root folder.**
+2. Mount a short, playable media file read-only, for example at
+   `/placeholder/archived.mkv`. Keeparr copies this file; FFmpeg is not required.
+3. In **Settings → Archive**, configure `/archive`, the path Plex sees for that
+   same directory, and `/placeholder/archived.mkv`, then enable placeholders.
+4. Add the displayed Plex webhook URL in Plex. Plex webhooks require Plex Pass.
+5. In each Sonarr instance add the displayed Sonarr webhook URL, replacing
+   `<INSTANCE_ID>` with that instance's Keeparr ID. Enable **On Import/Download**
+   and retain the secret query parameter.
+
+The first attempted playback starts the download but cannot seamlessly switch the
+already-running player to a file that does not exist yet. Retry playback after the
+Sonarr import finishes and Plex has rescanned the library.
 
 ### Publishing from your fork to GHCR
 

@@ -36,7 +36,7 @@ export default function AboutPanel() {
         {de ? 'Keeparr hilft allen Personen mit Zugriff auf deinen Medienserver zu entscheiden, was ' : 'Keeparr helps everyone with access to your media server decide what’s worth '}<strong>{de ? 'behalten' : 'keeping'}</strong>{de ? ' werden soll, und zeigt, was zur Speicherfreigabe gelöscht werden könnte.' : ', and surfaces what could be deleted to reclaim space.'}
       </p>
       <p className="mt-3 text-sm text-amber-400">
-        {de ? 'Keeparr löscht niemals etwas — es markiert und berichtet nur. Du löschst in deinem Medienserver / Sonarr / Radarr.' : 'Keeparr never deletes anything — it only tags and reports. You delete in your media server / Sonarr / Radarr.'}
+        {de ? 'Keeparr ist standardmäßig nur Berichtswerkzeug. Nur der ausdrücklich aktivierte und bestätigte Archivablauf löscht Episodendateien über Sonarr; direkt verwaltet Keeparr ausschließlich eigene Platzhalter.' : 'Keeparr is report-only by default. Only the explicitly enabled and approved archive workflow deletes episode files through Sonarr; Keeparr directly manages only its own placeholders.'}
       </p>
       {info?.updateAvailable && (
         <p className="mt-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-300">

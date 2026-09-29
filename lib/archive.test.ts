@@ -1,14 +1,18 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { __closeDb, __setTestDbToMemory } from './db';
 import { executeArchive, previewArchive } from './archive';
 import {
   addDelete,
   addKeep,
+  listArchiveEpisodes,
   replaceArrItems,
   upsertMediaBatch,
   type UpsertMediaInput,
 } from './queries';
-import { setSonarrInstances } from './settings';
+import { setArchivePlaceholderConfig, setSonarrInstances } from './settings';
 
 const item: UpsertMediaInput = {
   ratingKey: 'show',
@@ -366,5 +370,103 @@ describe('Sonarr archive workflow', () => {
       reason: 'sonarr_unavailable',
       message: expect.stringContaining('verification failed'),
     });
+  });
+
+  it('keeps a verified Sonarr deletion manually restorable when placeholder publication fails', async () => {
+    const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'keeparr-archive-publish-failure-'));
+    const archiveRoot = path.join(temp, 'archive');
+    const templatePath = path.join(temp, 'placeholder.mkv');
+    fs.mkdirSync(archiveRoot);
+    fs.writeFileSync(templatePath, 'placeholder');
+    setArchivePlaceholderConfig({
+      enabled: true,
+      archiveRoot,
+      plexArchiveRoot: '/plex/archive',
+      templatePath,
+      automaticRestore: true,
+      plexRefresh: false,
+      webhookSecret: 'secret',
+    });
+
+    let deleted = false;
+    let updated = false;
+    let collisionCreated = false;
+    const series = () => ({
+      id: 7,
+      title: 'Show',
+      tvdbId: 123,
+      monitored: updated,
+      monitorNewItems: updated ? 'all' : 'none',
+      seasons: [{ seasonNumber: 1, monitored: !updated }],
+    });
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      if (url.endsWith('/api/v3/series') && method === 'GET') return json([series()]);
+      if (url.endsWith('/api/v3/series/7') && method === 'GET') return json(series());
+      if (url.includes('/episodefile?')) {
+        return json(deleted ? [] : [{
+          id: 11,
+          seriesId: 7,
+          seasonNumber: 1,
+          path: '/tv/Show/Season 01/episode.mkv',
+          relativePath: 'Season 01/episode.mkv',
+          size: 100,
+        }]);
+      }
+      if (url.includes('/episode?') && method === 'GET') {
+        if (deleted && !collisionCreated) {
+          const target = path.join(
+            archiveRoot,
+            'Show',
+            'Season 01',
+            'Show - S01E01 - Archived.mkv'
+          );
+          fs.mkdirSync(path.dirname(target), { recursive: true });
+          fs.writeFileSync(target, 'foreign-collision');
+          collisionCreated = true;
+        }
+        return json([{
+          id: 101,
+          seriesId: 7,
+          seasonNumber: 1,
+          episodeNumber: 1,
+          monitored: deleted,
+          hasFile: !deleted,
+          episodeFileId: deleted ? undefined : 11,
+        }]);
+      }
+      if (url.includes('/queue?')) return json({ records: [] });
+      if (url.endsWith('/series/7') && method === 'PUT') {
+        updated = true;
+        return json(JSON.parse(String(init?.body)));
+      }
+      if (url.endsWith('/episode/monitor') && method === 'PUT') return json({});
+      if (url.endsWith('/episodefile/bulk') && method === 'DELETE') {
+        deleted = true;
+        return new Response(null, { status: 204 });
+      }
+      return json({}, 404);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      const preview = await previewArchive('show', 'admin');
+      expect(preview).toMatchObject({ ready: true, episodeIds: [101] });
+      expect(await executeArchive(preview.runId!, 'admin')).toMatchObject({
+        ok: false,
+        reason: 'sonarr_unavailable',
+        message: expect.stringContaining('already exists'),
+      });
+      expect(deleted).toBe(true);
+      expect(listArchiveEpisodes()).toEqual([
+        expect.objectContaining({
+          episodeId: 101,
+          status: 'archived',
+          lastError: expect.stringContaining('already exists'),
+        }),
+      ]);
+    } finally {
+      fs.rmSync(temp, { recursive: true, force: true });
+    }
   });
 });

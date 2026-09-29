@@ -361,6 +361,11 @@ export interface PlexMetadata {
   thumb?: string;
   addedAt?: number;
   type?: string;
+  librarySectionID?: string | number;
+  parentRatingKey?: string;
+  grandparentRatingKey?: string;
+  parentIndex?: number;
+  index?: number;
   /** Legacy single-guid string (older agents), e.g.
    *  "com.plexapp.agents.thetvdb://376459?lang=en". The modern agent uses Guid[]. */
   guid?: string;
@@ -564,4 +569,19 @@ export async function getAllLeaves(
     MediaContainer: { Metadata?: PlexMetadata[] };
   }>(baseUrl, `/library/metadata/${showRatingKey}/allLeaves`, token);
   return d.MediaContainer.Metadata ?? [];
+}
+
+/** Ask Plex to rescan one library section after publishing/removing placeholders. */
+export async function refreshPlexSection(
+  baseUrl: string,
+  token: string,
+  sectionId: string
+): Promise<void> {
+  const path = `/library/sections/${encodeURIComponent(sectionId)}/refresh`;
+  const response = await fetch(pmsUrl(baseUrl, path, token), {
+    method: 'GET',
+    headers: { Accept: 'application/json' },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) throw new Error(`PMS ${path} → HTTP ${response.status}`);
 }

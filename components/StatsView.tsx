@@ -662,8 +662,8 @@ function QualityReclaim({ overview }: { overview: Overview }) {
       </div>
       <p className="mt-2 text-[11px] text-slate-500">
         {de
-          ? '„Nicht behalten“ = Niemand hat dafür „Behalten“ gewählt — diese Titel kommen für eine Prüfung zur Speicherfreigabe infrage (Keeparr löscht niemals selbst). Prüfe die größten hochauflösenden Zeilen auf mögliche Herabstufungen. „Nicht in *arr“ = Titel, die Keeparr nicht zuordnen konnte.'
-          : '“Not kept” = nobody pressed Keep on it — the candidates to review for freeing space (Keeparr never deletes). Scan the biggest high-resolution rows for downgrades. “Not in *arr” = titles Keeparr couldn’t match.'}
+          ? '„Nicht behalten“ = Niemand hat dafür „Behalten“ gewählt — diese Statistik ist rein informativ und zeigt Kandidaten zur Speicherprüfung. Prüfe die größten hochauflösenden Zeilen auf mögliche Herabstufungen. „Nicht in *arr“ = Titel, die Keeparr nicht zuordnen konnte.'
+          : '“Not kept” = nobody pressed Keep on it — this statistic is informational and shows candidates for storage review. Scan the biggest high-resolution rows for downgrades. “Not in *arr” = titles Keeparr couldn’t match.'}
       </p>
     </section>
   );

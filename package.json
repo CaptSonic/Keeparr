@@ -2,7 +2,7 @@
   "name": "keeparr",
   "version": "0.5.24",
   "private": true,
-  "description": "Media retention app with reviewed Sonarr series archiving and optional Placeholdarr companion support.",
+  "description": "Media retention app with reviewed Sonarr archiving, Plex placeholders, and on-demand restore.",
   "license": "MIT",
   "author": "drohack",
   "repository": {

@@ -25,7 +25,7 @@ WORKDIR /app
 
 # Image metadata + Unraid Docker UI hints (icon + WebUI button).
 LABEL org.opencontainers.image.title="Keeparr" \
-      org.opencontainers.image.description="Media retention app with reviewed Sonarr series archiving and optional Placeholdarr companion support." \
+      org.opencontainers.image.description="Media retention app with reviewed Sonarr archiving, Plex placeholders, and on-demand restore." \
       org.opencontainers.image.source="https://github.com/CaptSonic/Keeparr" \
       org.opencontainers.image.licenses="MIT" \
       net.unraid.docker.icon="https://raw.githubusercontent.com/CaptSonic/Keeparr/main/public/icon.png" \
@@ -45,8 +45,8 @@ ENV PGID=1001
 RUN apk add --no-cache libc6-compat su-exec \
   && addgroup -g 1001 -S nodejs \
   && adduser -u 1001 -S nextjs -G nodejs \
-  && mkdir -p /data \
-  && chown -R nextjs:nodejs /data \
+  && mkdir -p /data /archive /placeholder \
+  && chown -R nextjs:nodejs /data /archive \
   # Runtime is `node server.js` — the bundled package managers are never
   # invoked. Drop npm/npx/yarn/corepack: their transitive deps carry CVEs and
   # they're pure attack surface here.
@@ -70,7 +70,7 @@ COPY --from=builder /app/public ./public
 COPY --chmod=755 docker-entrypoint.sh /docker-entrypoint.sh
 
 EXPOSE 3000
-VOLUME ["/data"]
+VOLUME ["/data", "/archive"]
 
 # Health check (works in the Unraid Docker UI too, not just compose).
 # Uses $PORT so overriding it doesn't leave the container perpetually unhealthy.

@@ -17,7 +17,7 @@ import { DEV_USER_ID } from '@/lib/dev-constants';
 // WITHOUT credentials (unless crossorigin=use-credentials), and favicons are
 // fetched pre-login on the login page itself.
 const PUBLIC_PATHS = ['/login', '/manifest.webmanifest', '/icon.svg', '/icon.png'];
-const PUBLIC_PREFIXES = ['/api/auth/', '/api/health', '/icons/'];
+const PUBLIC_PREFIXES = ['/api/auth/', '/api/health', '/api/webhooks/', '/icons/'];
 
 function isPublic(pathname: string): boolean {
   if (PUBLIC_PATHS.includes(pathname)) return true;

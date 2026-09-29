@@ -35,6 +35,11 @@ fi
 # created .session-secret (root:root 0600) is re-owned to the runtime user and
 # stays readable once we drop privileges below.
 chown -R "$PUID:$PGID" "$DATA_DIR" 2>/dev/null || true
+# The optional integrated placeholder archive is writable; the template mount
+# stays read-only and is intentionally never chowned.
+if [ -d /archive ]; then
+  chown -R "$PUID:$PGID" /archive 2>/dev/null || true
+fi
 
 # Drop root → PUID:PGID and hand off to node.
 exec su-exec "$PUID:$PGID" "$@"

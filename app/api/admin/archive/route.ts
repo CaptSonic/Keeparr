@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth';
 import { archiveDashboard, executeArchive, previewArchive } from '@/lib/archive';
+import { requestArchiveRestore } from '@/lib/archive-restore';
 import { errorResponse } from '@/lib/route-helpers';
 
 export const runtime = 'nodejs';
@@ -39,6 +40,25 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'bad_request' }, { status: 400 });
     }
     const result = await executeArchive(runId, user.plexUserId);
+    return NextResponse.json(result, { status: result.ok ? 200 : 409 });
+  } catch (error) {
+    return errorResponse(error, 'api/admin/archive');
+  }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    await requireAdmin();
+    const body = (await request.json()) as { instanceId?: string; episodeIds?: number[] };
+    if (!body.instanceId || !Array.isArray(body.episodeIds) || body.episodeIds.length === 0 ||
+        !body.episodeIds.every((id) => Number.isSafeInteger(id) && id > 0)) {
+      return NextResponse.json({ error: 'bad_request' }, { status: 400 });
+    }
+    const result = await requestArchiveRestore({
+      instanceId: body.instanceId,
+      episodeIds: [...new Set(body.episodeIds)],
+      source: 'manual',
+    });
     return NextResponse.json(result, { status: result.ok ? 200 : 409 });
   } catch (error) {
     return errorResponse(error, 'api/admin/archive');

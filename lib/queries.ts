@@ -2764,6 +2764,7 @@ export function mediaMissingExternalIds(): {
 export interface ArchiveTarget {
   ratingKey: string;
   title: string;
+  sectionId: string;
   year: number | null;
   libraryKind: LibraryKind;
   guidTvdb: string | null;
@@ -2781,7 +2782,7 @@ export interface ArchiveTarget {
 export function getArchiveTarget(ratingKey: string): ArchiveTarget | null {
   const row = getDb()
     .prepare(
-      `SELECT m.rating_key, m.title, m.year, m.library_kind, m.guid_tvdb, m.guid_imdb,
+      `SELECT m.rating_key, m.title, m.section_id, m.year, m.library_kind, m.guid_tvdb, m.guid_imdb,
               EXISTS (SELECT 1 FROM keeps k WHERE k.rating_key = m.rating_key) AS kept,
               a.instance_id, a.instance_name, a.arr_id,
               GROUP_CONCAT(DISTINCT ud.release_mode) AS modes
@@ -2795,6 +2796,7 @@ export function getArchiveTarget(ratingKey: string): ArchiveTarget | null {
     | {
         rating_key: string;
         title: string;
+        section_id: string;
         year: number | null;
         library_kind: LibraryKind;
         guid_tvdb: string | null;
@@ -2816,6 +2818,7 @@ export function getArchiveTarget(ratingKey: string): ArchiveTarget | null {
   return {
     ratingKey: row.rating_key,
     title: row.title,
+    sectionId: row.section_id,
     year: row.year,
     libraryKind: row.library_kind,
     guidTvdb: row.guid_tvdb,
@@ -2948,6 +2951,221 @@ export function recentArchiveRuns(limit = 50): ArchiveRunRow[] {
       .prepare('SELECT * FROM archive_runs ORDER BY created_at DESC, id DESC LIMIT ?')
       .all(limit) as ArchiveRunDbRow[]
   ).map(mapArchiveRun);
+}
+
+export type ArchiveEpisodeStatus =
+  | 'prepared'
+  | 'archived'
+  | 'restoring'
+  | 'restored'
+  | 'failed';
+
+export interface ArchiveEpisodeRow {
+  episodeId: number;
+  instanceId: string;
+  ratingKey: string;
+  sectionId: string;
+  seriesId: number;
+  seriesTitle: string;
+  seasonNumber: number;
+  episodeNumber: number;
+  episodeTitle: string | null;
+  originalFileId: number;
+  originalPath: string | null;
+  originalRelativePath: string | null;
+  placeholderPath: string;
+  placeholderRelPath: string;
+  plexPlaceholderPath: string | null;
+  status: ArchiveEpisodeStatus;
+  archivedAt: number | null;
+  restoreRequestedAt: number | null;
+  restoredAt: number | null;
+  lastError: string | null;
+  updatedAt: number;
+}
+
+interface ArchiveEpisodeDbRow {
+  episode_id: number;
+  instance_id: string;
+  rating_key: string;
+  section_id: string;
+  series_id: number;
+  series_title: string;
+  season_number: number;
+  episode_number: number;
+  episode_title: string | null;
+  original_file_id: number;
+  original_path: string | null;
+  original_relative_path: string | null;
+  placeholder_path: string;
+  placeholder_rel_path: string;
+  plex_placeholder_path: string | null;
+  status: ArchiveEpisodeStatus;
+  archived_at: number | null;
+  restore_requested_at: number | null;
+  restored_at: number | null;
+  last_error: string | null;
+  updated_at: number;
+}
+
+function mapArchiveEpisode(row: ArchiveEpisodeDbRow): ArchiveEpisodeRow {
+  return {
+    episodeId: row.episode_id,
+    instanceId: row.instance_id,
+    ratingKey: row.rating_key,
+    sectionId: row.section_id,
+    seriesId: row.series_id,
+    seriesTitle: row.series_title,
+    seasonNumber: row.season_number,
+    episodeNumber: row.episode_number,
+    episodeTitle: row.episode_title,
+    originalFileId: row.original_file_id,
+    originalPath: row.original_path,
+    originalRelativePath: row.original_relative_path,
+    placeholderPath: row.placeholder_path,
+    placeholderRelPath: row.placeholder_rel_path,
+    plexPlaceholderPath: row.plex_placeholder_path,
+    status: row.status,
+    archivedAt: row.archived_at,
+    restoreRequestedAt: row.restore_requested_at,
+    restoredAt: row.restored_at,
+    lastError: row.last_error,
+    updatedAt: row.updated_at,
+  };
+}
+
+export function replacePreparedArchiveEpisodes(rows: Omit<ArchiveEpisodeRow,
+  'status' | 'archivedAt' | 'restoreRequestedAt' | 'restoredAt' | 'lastError' | 'updatedAt'>[]): void {
+  const db = getDb();
+  const insert = db.prepare(`
+    INSERT INTO archive_episodes
+      (episode_id, instance_id, rating_key, section_id, series_id, series_title,
+       season_number, episode_number, episode_title, original_file_id, original_path,
+       original_relative_path, placeholder_path, placeholder_rel_path,
+       plex_placeholder_path, status, updated_at)
+    VALUES (@episodeId, @instanceId, @ratingKey, @sectionId, @seriesId, @seriesTitle,
+       @seasonNumber, @episodeNumber, @episodeTitle, @originalFileId, @originalPath,
+       @originalRelativePath, @placeholderPath, @placeholderRelPath,
+       @plexPlaceholderPath, 'prepared', @updatedAt)
+    ON CONFLICT(instance_id, episode_id) DO UPDATE SET
+      rating_key=excluded.rating_key, section_id=excluded.section_id,
+      series_id=excluded.series_id, series_title=excluded.series_title,
+      season_number=excluded.season_number, episode_number=excluded.episode_number,
+      episode_title=excluded.episode_title, original_file_id=excluded.original_file_id,
+      original_path=excluded.original_path,
+      original_relative_path=excluded.original_relative_path,
+      placeholder_path=excluded.placeholder_path,
+      placeholder_rel_path=excluded.placeholder_rel_path,
+      plex_placeholder_path=excluded.plex_placeholder_path,
+      status='prepared', archived_at=NULL, restore_requested_at=NULL,
+      restored_at=NULL, last_error=NULL, updated_at=excluded.updated_at
+    WHERE archive_episodes.status IN ('prepared', 'failed', 'restored')
+  `);
+  db.transaction(() => {
+    for (const row of rows) insert.run({ ...row, updatedAt: now() });
+  })();
+}
+
+export function setArchiveEpisodesStatus(
+  instanceId: string,
+  episodeIds: number[],
+  status: ArchiveEpisodeStatus,
+  error: string | null = null
+): void {
+  if (episodeIds.length === 0) return;
+  const placeholders = episodeIds.map(() => '?').join(',');
+  const timestampColumn = status === 'archived' ? ', archived_at = ?' :
+    status === 'restored' ? ', restored_at = ?' : '';
+  const params: unknown[] = [status, error, now()];
+  if (timestampColumn) params.push(now());
+  params.push(instanceId, ...episodeIds);
+  getDb().prepare(
+    `UPDATE archive_episodes SET status = ?, last_error = ?, updated_at = ?${timestampColumn}
+      WHERE instance_id = ? AND episode_id IN (${placeholders})`
+  ).run(...params);
+}
+
+export function listArchiveEpisodes(options: {
+  ratingKey?: string;
+  statuses?: ArchiveEpisodeStatus[];
+} = {}): ArchiveEpisodeRow[] {
+  const where: string[] = [];
+  const params: unknown[] = [];
+  if (options.ratingKey) {
+    where.push('rating_key = ?');
+    params.push(options.ratingKey);
+  }
+  if (options.statuses?.length) {
+    where.push(`status IN (${options.statuses.map(() => '?').join(',')})`);
+    params.push(...options.statuses);
+  }
+  return (getDb().prepare(
+    `SELECT * FROM archive_episodes ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+     ORDER BY series_title COLLATE NOCASE, season_number, episode_number`
+  ).all(...params) as ArchiveEpisodeDbRow[]).map(mapArchiveEpisode);
+}
+
+export function claimArchiveRestoreByEpisodes(
+  instanceId: string,
+  episodeIds: number[]
+): ArchiveEpisodeRow[] {
+  if (episodeIds.length === 0) return [];
+  const db = getDb();
+  const placeholders = episodeIds.map(() => '?').join(',');
+  return db.transaction(() => {
+    const selected = db.prepare(
+      `SELECT original_file_id FROM archive_episodes WHERE instance_id = ?
+       AND episode_id IN (${placeholders}) AND status = 'archived'`
+    ).all(instanceId, ...episodeIds) as { original_file_id: number }[];
+    const fileIds = [...new Set(selected.map((row) => row.original_file_id))];
+    if (fileIds.length === 0) return [];
+    const filePlaceholders = fileIds.map(() => '?').join(',');
+    const rows = db.prepare(
+      `SELECT * FROM archive_episodes WHERE instance_id = ?
+       AND original_file_id IN (${filePlaceholders}) AND status = 'archived'`
+    ).all(instanceId, ...fileIds) as ArchiveEpisodeDbRow[];
+    if (rows.length === 0) return [];
+    const ids = rows.map((row) => row.episode_id);
+    db.prepare(
+      `UPDATE archive_episodes SET status='restoring', restore_requested_at=?,
+       last_error=NULL, updated_at=? WHERE instance_id=?
+       AND episode_id IN (${ids.map(() => '?').join(',')}) AND status='archived'`
+    ).run(now(), now(), instanceId, ...ids);
+    return rows.map((row) => mapArchiveEpisode({
+      ...row, status: 'restoring', restore_requested_at: now(), updated_at: now(),
+    }));
+  })();
+}
+
+export function failRestoringArchiveEpisodes(
+  instanceId: string,
+  episodeIds: number[],
+  error: string
+): void {
+  if (episodeIds.length === 0) return;
+  getDb().prepare(
+    `UPDATE archive_episodes SET status='archived', last_error=?, updated_at=?
+     WHERE instance_id=? AND episode_id IN (${episodeIds.map(() => '?').join(',')})
+     AND status='restoring'`
+  ).run(error, now(), instanceId, ...episodeIds);
+}
+
+export function findArchivedEpisodesByPlexPath(plexPath: string): ArchiveEpisodeRow[] {
+  return (getDb().prepare(
+    `SELECT * FROM archive_episodes
+     WHERE plex_placeholder_path = ? AND status = 'archived'
+     ORDER BY episode_id`
+  ).all(plexPath) as ArchiveEpisodeDbRow[]).map(mapArchiveEpisode);
+}
+
+export function restoringEpisodesForSeries(
+  instanceId: string,
+  seriesId: number
+): ArchiveEpisodeRow[] {
+  return (getDb().prepare(
+    `SELECT * FROM archive_episodes WHERE instance_id=? AND series_id=?
+     AND status='restoring' ORDER BY episode_id`
+  ).all(instanceId, seriesId) as ArchiveEpisodeDbRow[]).map(mapArchiveEpisode);
 }
 
 /** Count of arr-matched titles (rows in arr_items). */

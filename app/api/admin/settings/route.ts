@@ -40,7 +40,11 @@ import {
   type JobSchedule,
   getMaintainerrConfig,
   setMaintainerrConfig,
+  getArchivePlaceholderConfig,
+  getOrCreateArchiveWebhookSecret,
+  setArchivePlaceholderConfig,
 } from '@/lib/settings';
+import { validatePlaceholderConfig } from '@/lib/archive-files';
 
 export const runtime = 'nodejs';
 
@@ -124,6 +128,10 @@ export async function GET() {
       apiKey: getApiKey() ?? '',
       automationBridgeEnabled: isAutomationBridgeEnabled(),
       maintainerr: getMaintainerrConfig(),
+      archivePlaceholders: {
+        ...getArchivePlaceholderConfig(),
+        webhookSecret: getOrCreateArchiveWebhookSecret(),
+      },
       backupRetention: getBackupRetention(),
     });
   } catch (e) {
@@ -160,6 +168,15 @@ interface PutBody {
     watchAgeDays?: number;
     observationDays?: number;
     enabled?: boolean;
+  };
+  archivePlaceholders?: {
+    enabled?: boolean;
+    archiveRoot?: string;
+    plexArchiveRoot?: string;
+    templatePath?: string;
+    automaticRestore?: boolean;
+    plexRefresh?: boolean;
+    webhookSecret?: string;
   };
   /** How many backup files to keep (oldest pruned first). */
   backupRetention?: number;
@@ -311,6 +328,38 @@ export async function PUT(req: Request) {
         );
       }
       setMaintainerrConfig(nextMaintainerr);
+    }
+
+    if (body.archivePlaceholders && typeof body.archivePlaceholders === 'object') {
+      const current = getArchivePlaceholderConfig();
+      const nextArchive = {
+        enabled: typeof body.archivePlaceholders.enabled === 'boolean'
+          ? body.archivePlaceholders.enabled : current.enabled,
+        archiveRoot: typeof body.archivePlaceholders.archiveRoot === 'string'
+          ? body.archivePlaceholders.archiveRoot : current.archiveRoot,
+        plexArchiveRoot: typeof body.archivePlaceholders.plexArchiveRoot === 'string'
+          ? body.archivePlaceholders.plexArchiveRoot : current.plexArchiveRoot,
+        templatePath: typeof body.archivePlaceholders.templatePath === 'string'
+          ? body.archivePlaceholders.templatePath : current.templatePath,
+        automaticRestore: typeof body.archivePlaceholders.automaticRestore === 'boolean'
+          ? body.archivePlaceholders.automaticRestore : current.automaticRestore,
+        plexRefresh: typeof body.archivePlaceholders.plexRefresh === 'boolean'
+          ? body.archivePlaceholders.plexRefresh : current.plexRefresh,
+        webhookSecret: typeof body.archivePlaceholders.webhookSecret === 'string'
+          ? body.archivePlaceholders.webhookSecret : current.webhookSecret,
+      };
+      if (nextArchive.enabled && !nextArchive.plexArchiveRoot.trim()) {
+        return NextResponse.json({ error: 'archive_plex_root_required' }, { status: 400 });
+      }
+      try {
+        validatePlaceholderConfig(nextArchive);
+      } catch (error) {
+        return NextResponse.json(
+          { error: 'archive_config_invalid', message: String(error) },
+          { status: 400 }
+        );
+      }
+      setArchivePlaceholderConfig(nextArchive);
     }
 
     if (typeof body.backupRetention === 'number' && body.backupRetention >= 1) {

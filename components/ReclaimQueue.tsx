@@ -83,8 +83,8 @@ export default function ReclaimQueue() {
         <h1 className="text-2xl font-bold">{de ? 'Intelligente Speicherfreigabe' : 'Smart Reclaim'}</h1>
         <p className="mt-1 max-w-3xl text-sm text-slate-400">
           {de
-            ? 'Eine transparente Prioritätenliste ungeschützter Titel. Keeparr löscht niemals Medien; schütze alles, was du behalten möchtest, bevor du in deinen Medienwerkzeugen aktiv wirst.'
-            : 'A transparent priority list of unprotected titles. Keeparr never deletes media; protect anything you want to keep before acting in your media tools.'}
+            ? 'Eine transparente Prioritätenliste ungeschützter Titel. Diese Warteschlange ist rein informativ; schütze alles, was du behalten möchtest, bevor du in deinen Medienwerkzeugen aktiv wirst.'
+            : 'A transparent priority list of unprotected titles. This queue is informational only; protect anything you want to keep before acting in your media tools.'}
         </p>
       </header>
 

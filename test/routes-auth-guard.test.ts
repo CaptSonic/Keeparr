@@ -49,6 +49,12 @@ import { POST as adminSyncLibraries } from '@/app/api/admin/sync-libraries/route
 import { POST as adminTestConnection } from '@/app/api/admin/test-connection/route';
 import { GET as adminHealth } from '@/app/api/admin/health/route';
 import { GET as adminLogsGet, DELETE as adminLogsDelete } from '@/app/api/admin/logs/route';
+import {
+  GET as adminArchiveGet,
+  POST as adminArchivePost,
+  PUT as adminArchivePut,
+  PATCH as adminArchivePatch,
+} from '@/app/api/admin/archive/route';
 import { PUT as localePreference } from '@/app/api/preferences/locale/route';
 
 type Handler = (req: Request) => Promise<Response>;
@@ -101,6 +107,10 @@ const ADMIN_GUARDED: [string, Handler, string][] = [
   ['GET /api/admin/logs', adminLogsGet, 'GET'],
   ['DELETE /api/admin/logs', adminLogsDelete, 'DELETE'],
   ['POST /api/admin/campaigns', adminCampaigns, 'POST'],
+  ['GET /api/admin/archive', adminArchiveGet, 'GET'],
+  ['POST /api/admin/archive', adminArchivePost, 'POST'],
+  ['PUT /api/admin/archive', adminArchivePut, 'PUT'],
+  ['PATCH /api/admin/archive', adminArchivePatch, 'PATCH'],
 ];
 
 describe('public routes stay public', () => {

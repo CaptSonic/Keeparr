@@ -87,6 +87,41 @@ export function applySchema(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_archive_runs_time ON archive_runs(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_archive_runs_item ON archive_runs(rating_key, created_at DESC);
 
+    -- One durable row per archived Sonarr episode. Several rows may point at the
+    -- same placeholder_path when one physical file contains multiple episodes.
+    -- Only paths recorded here may ever be removed by Keeparr.
+    CREATE TABLE IF NOT EXISTS archive_episodes (
+      episode_id          INTEGER NOT NULL,
+      instance_id         TEXT NOT NULL,
+      rating_key          TEXT NOT NULL,
+      section_id          TEXT NOT NULL,
+      series_id           INTEGER NOT NULL,
+      series_title        TEXT NOT NULL,
+      season_number       INTEGER NOT NULL,
+      episode_number      INTEGER NOT NULL,
+      episode_title       TEXT,
+      original_file_id    INTEGER NOT NULL,
+      original_path       TEXT,
+      original_relative_path TEXT,
+      placeholder_path    TEXT NOT NULL,
+      placeholder_rel_path TEXT NOT NULL,
+      plex_placeholder_path TEXT,
+      status              TEXT NOT NULL CHECK (status IN
+        ('prepared', 'archived', 'restoring', 'restored', 'failed')),
+      archived_at         INTEGER,
+      restore_requested_at INTEGER,
+      restored_at         INTEGER,
+      last_error          TEXT,
+      updated_at          INTEGER NOT NULL,
+      PRIMARY KEY (instance_id, episode_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_archive_episodes_item
+      ON archive_episodes(rating_key, status, season_number, episode_number);
+    CREATE INDEX IF NOT EXISTS idx_archive_episodes_placeholder
+      ON archive_episodes(placeholder_path, status);
+    CREATE INDEX IF NOT EXISTS idx_archive_episodes_series
+      ON archive_episodes(instance_id, series_id, status);
+
     CREATE TABLE IF NOT EXISTS users (
       plex_user_id TEXT PRIMARY KEY,           -- numeric Plex account id
       username     TEXT,
