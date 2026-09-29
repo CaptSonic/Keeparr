@@ -57,6 +57,12 @@ interface PlaceholderSettings {
   webhookSecret: string;
 }
 
+interface SonarrInstance {
+  id: string;
+  name: string;
+  url: string;
+}
+
 export default function ArchiveControlCenter() {
   const { locale } = useLocale();
   const de = locale === 'de';
@@ -64,6 +70,7 @@ export default function ArchiveControlCenter() {
   const [runs, setRuns] = useState<Run[]>([]);
   const [episodes, setEpisodes] = useState<ArchivedEpisode[]>([]);
   const [settings, setSettings] = useState<PlaceholderSettings | null>(null);
+  const [sonarrInstances, setSonarrInstances] = useState<SonarrInstance[]>([]);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState('');
@@ -79,6 +86,7 @@ export default function ArchiveControlCenter() {
     setRuns(data.runs ?? []);
     setEpisodes(data.episodes ?? []);
     setSettings(settingsData.archivePlaceholders ?? null);
+    setSonarrInstances(settingsData.sonarr?.instances ?? []);
   }, []);
 
   useEffect(() => {
@@ -268,7 +276,29 @@ export default function ArchiveControlCenter() {
             <p className="font-semibold text-slate-300">Plex webhook</p>
             <code className="break-all">{typeof window !== 'undefined' ? window.location.origin : ''}/api/webhooks/plex?token={settings.webhookSecret}</code>
             <p className="mt-2 font-semibold text-slate-300">Sonarr webhook ({de ? 'je Instanz' : 'per instance'})</p>
-            <code className="break-all">{typeof window !== 'undefined' ? window.location.origin : ''}/api/webhooks/sonarr?instance=&lt;INSTANCE_ID&gt;&amp;token={settings.webhookSecret}</code>
+            {sonarrInstances.length === 0 ? (
+              <p>
+                {de
+                  ? 'Keine Sonarr-Instanz konfiguriert. Füge sie zuerst unter Einstellungen → Verbindungen hinzu.'
+                  : 'No Sonarr instance configured. Add one under Settings → Connections first.'}
+              </p>
+            ) : (
+              <div className="mt-1 space-y-2">
+                {sonarrInstances.map((instance) => (
+                  <div key={instance.id}>
+                    <p>
+                      <span className="font-semibold text-slate-300">
+                        {instance.name || 'Sonarr'}
+                      </span>{' '}
+                      · Instance ID: <code>{instance.id}</code>
+                    </p>
+                    <code className="block break-all">
+                      {typeof window !== 'undefined' ? window.location.origin : ''}/api/webhooks/sonarr?instance={encodeURIComponent(instance.id)}&amp;token={encodeURIComponent(settings.webhookSecret)}
+                    </code>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           <button className={`${btnCls} mt-4`} disabled={!!busy} onClick={saveSettings}>
             {busy === 'settings' ? (de ? 'Speichere…' : 'Saving…') : (de ? 'Konfiguration speichern' : 'Save configuration')}
