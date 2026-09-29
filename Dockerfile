@@ -62,6 +62,9 @@ RUN apk add --no-cache libc6-compat su-exec \
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
+# Bundled playable default for Plex archive placeholders. Administrators can
+# still configure another absolute template path in Settings → Archive.
+COPY --from=builder /app/plex_platzhalter_comic.mp4 /placeholder/plex_platzhalter_comic.mp4
 
 # Entrypoint auto-generates SESSION_SECRET into /data on first boot when the
 # env var isn't provided (no required secrets at install — the Seerr pattern),

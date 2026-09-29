@@ -6,6 +6,7 @@ import {
   consumeMaintainerrPlanApproval,
   consumeMaintainerrReaddApproval,
   getMaintainerrApprovedPlanHash,
+  getArchivePlaceholderConfig,
   isMaintainerrReaddApproved,
   getMediaServerType,
   setMediaServerType,
@@ -26,6 +27,16 @@ afterAll(() => {
 });
 
 describe('media server type + backend-aware settings', () => {
+  it('uses the bundled Plex placeholder video by default', () => {
+    expect(getArchivePlaceholderConfig().templatePath)
+      .toBe('/placeholder/plex_platzhalter_comic.mp4');
+    writeSetting('archive_placeholder_template', '   ');
+    expect(getArchivePlaceholderConfig().templatePath)
+      .toBe('/placeholder/plex_platzhalter_comic.mp4');
+    writeSetting('archive_placeholder_template', '/placeholder/custom.mp4');
+    expect(getArchivePlaceholderConfig().templatePath).toBe('/placeholder/custom.mp4');
+  });
+
   it('defaults to plex when unset (backward compat for existing installs)', () => {
     expect(getMediaServerType()).toBe('plex');
   });

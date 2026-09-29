@@ -301,7 +301,6 @@ docker run -d --name keeparr \
   -p 8767:3000 \
   -v /path/to/appdata/keeparr:/data \
   -v /path/to/plex-archive:/archive \
-  -v /path/to/placeholder.mkv:/placeholder/archived.mkv:ro \
   ghcr.io/CaptSonic/keeparr:latest
 ```
 
@@ -318,10 +317,14 @@ docker compose pull && docker compose up -d   # to update
    Mount that same host directory into Plex and add it as a second folder of the
    existing TV library. **Do not mount it into Sonarr and never configure it as a
    Sonarr root folder.**
-2. Mount a short, playable media file read-only, for example at
-   `/placeholder/archived.mkv`. Keeparr copies this file; FFmpeg is not required.
-3. In **Settings → Archive**, configure `/archive`, the path Plex sees for that
-   same directory, and `/placeholder/archived.mkv`, then enable placeholders.
+2. Keeparr includes the playable placeholder video
+   `/placeholder/plex_platzhalter_comic.mp4` in the Docker image and selects it by
+   default. To use another video, mount it read-only and enter its absolute
+   container path as the placeholder template. Keeparr copies the selected file;
+   FFmpeg is not required.
+3. In **Settings → Archive**, configure `/archive` and the path Plex sees for that
+   same directory, verify the prefilled placeholder template, then enable
+   placeholders.
 4. Add the displayed Plex webhook URL in Plex. Plex webhooks require Plex Pass.
 5. In each Sonarr instance add the displayed Sonarr webhook URL, replacing
    `<INSTANCE_ID>` with that instance's Keeparr ID. Enable **On Import/Download**

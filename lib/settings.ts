@@ -203,12 +203,16 @@ export interface ArchivePlaceholderConfig {
   webhookSecret: string;
 }
 
+export const DEFAULT_ARCHIVE_PLACEHOLDER_TEMPLATE =
+  '/placeholder/plex_platzhalter_comic.mp4';
+
 export function getArchivePlaceholderConfig(): ArchivePlaceholderConfig {
+  const configuredTemplate = readSetting('archive_placeholder_template')?.trim();
   return {
     enabled: readSetting('archive_placeholder_enabled') === 'true',
     archiveRoot: readSetting('archive_placeholder_root') ?? '/archive',
     plexArchiveRoot: readSetting('archive_plex_root') ?? '',
-    templatePath: readSetting('archive_placeholder_template') ?? '',
+    templatePath: configuredTemplate || DEFAULT_ARCHIVE_PLACEHOLDER_TEMPLATE,
     automaticRestore: readSetting('archive_automatic_restore') !== 'false',
     plexRefresh: readSetting('archive_plex_refresh') !== 'false',
     webhookSecret: readSetting('archive_webhook_secret') ?? '',
