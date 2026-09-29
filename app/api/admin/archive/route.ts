@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth';
 import { archiveDashboard, executeArchive, previewArchive } from '@/lib/archive';
-import { requestArchiveRestore } from '@/lib/archive-restore';
+import { repairArchivePlaceholder, requestArchiveRestore } from '@/lib/archive-restore';
 import { errorResponse } from '@/lib/route-helpers';
 
 export const runtime = 'nodejs';
@@ -49,7 +49,22 @@ export async function PUT(request: Request) {
 export async function PATCH(request: Request) {
   try {
     await requireAdmin();
-    const body = (await request.json()) as { instanceId?: string; episodeIds?: number[] };
+    const body = (await request.json()) as {
+      action?: 'restore' | 'repair-placeholder';
+      instanceId?: string;
+      episodeId?: number;
+      episodeIds?: number[];
+    };
+    if (body.action === 'repair-placeholder') {
+      if (!body.instanceId || !Number.isSafeInteger(body.episodeId) || body.episodeId! <= 0) {
+        return NextResponse.json({ error: 'bad_request' }, { status: 400 });
+      }
+      const result = await repairArchivePlaceholder({
+        instanceId: body.instanceId,
+        episodeId: body.episodeId!,
+      });
+      return NextResponse.json(result, { status: result.ok ? 200 : 409 });
+    }
     if (!body.instanceId || !Array.isArray(body.episodeIds) || body.episodeIds.length === 0 ||
         !body.episodeIds.every((id) => Number.isSafeInteger(id) && id > 0)) {
       return NextResponse.json({ error: 'bad_request' }, { status: 400 });

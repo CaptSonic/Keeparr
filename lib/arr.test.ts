@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest';
 import { __setTestDbToMemory, __closeDb } from './db';
 import { getSetting } from './queries';
-import { normalizeSonarr, normalizeRadarr } from './arr';
+import { deleteSonarrEpisodeFiles, normalizeSonarr, normalizeRadarr } from './arr';
 import {
   getSonarrInstances,
   setSonarrInstances,
@@ -12,6 +12,39 @@ import {
 } from './settings';
 
 const inst: ArrInstance = { id: 'i1', name: 'Main', url: 'http://x', apiKey: 'k' };
+
+afterEach(() => vi.unstubAllGlobals());
+
+describe('Sonarr writes', () => {
+  it('accepts a timed-out bulk delete when Sonarr confirms the files are gone', async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'DELETE') {
+        throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+      }
+      return new Response('[]', { headers: { 'content-type': 'application/json' } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(deleteSonarrEpisodeFiles(inst, [11], 7)).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('reports the endpoint and timeout when a timed-out delete did not complete', async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'DELETE') {
+        throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+      }
+      return new Response(JSON.stringify([{ id: 11 }]), {
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(deleteSonarrEpisodeFiles(inst, [11], 7)).rejects.toThrow(
+      'Main /episodefile/bulk timed out after 120 seconds'
+    );
+  });
+});
 
 describe('arr normalize (pure, no network)', () => {
   it('normalizes a Sonarr series: profile name + resolved tags', () => {

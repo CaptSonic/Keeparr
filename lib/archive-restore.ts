@@ -1,13 +1,25 @@
+import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import {
   getSonarrEpisodes,
+  getSonarrEpisodeFiles,
   searchSonarrEpisodes,
   setSonarrEpisodesMonitored,
 } from './arr';
-import { removeManagedPlaceholder } from './archive-files';
+import {
+  cleanupStaging,
+  publishPlaceholders,
+  removeManagedPlaceholder,
+  resolveArchivePath,
+  stagePlaceholders,
+  validatePlaceholderConfig,
+  type PlaceholderPlan,
+} from './archive-files';
 import {
   claimArchiveRestoreByEpisodes,
   failRestoringArchiveEpisodes,
   findArchivedEpisodesByPlexPath,
+  listArchiveEpisodes,
   logEvent,
   restoringEpisodesForSeries,
   setArchiveEpisodesStatus,
@@ -24,6 +36,96 @@ import { refreshPlexSection } from './plex';
 
 function instanceById(instanceId: string) {
   return getSonarrInstances().find((instance) => instance.id === instanceId) ?? null;
+}
+
+export async function repairArchivePlaceholder(input: {
+  instanceId: string;
+  episodeId: number;
+}): Promise<{ ok: boolean; repaired: number; error?: string; message?: string }> {
+  const instance = instanceById(input.instanceId);
+  if (!instance) return { ok: false, repaired: 0, error: 'sonarr_instance_missing' };
+  const failed = listArchiveEpisodes({ statuses: ['failed'] });
+  const selected = failed.find((row) =>
+    row.instanceId === input.instanceId && row.episodeId === input.episodeId
+  );
+  if (!selected) return { ok: false, repaired: 0, error: 'failed_manifest_missing' };
+  const group = failed.filter((row) =>
+    row.instanceId === selected.instanceId && row.originalFileId === selected.originalFileId
+  );
+  if (group.length === 0) return { ok: false, repaired: 0, error: 'failed_manifest_missing' };
+
+  let stagingPath: string | undefined;
+  try {
+    const config = getArchivePlaceholderConfig();
+    if (!config.enabled) throw new Error('Archive placeholders are disabled');
+    validatePlaceholderConfig(config);
+    const expectedTarget = resolveArchivePath(config.archiveRoot, selected.placeholderRelPath);
+    if (path.resolve(expectedTarget) !== path.resolve(selected.placeholderPath)) {
+      throw new Error('Configured archive root no longer matches the failed manifest');
+    }
+    const [episodes, files] = await Promise.all([
+      getSonarrEpisodes(instance, selected.seriesId),
+      getSonarrEpisodeFiles(instance, selected.seriesId),
+    ]);
+    const liveById = new Map(episodes.map((episode) => [episode.id, episode]));
+    const originalStillExists = files.some((file) => file.id === selected.originalFileId) ||
+      group.some((row) => {
+        const episode = liveById.get(row.episodeId);
+        return !episode || episode.hasFile === true || !!episode.episodeFileId;
+      });
+    if (originalStillExists) {
+      return {
+        ok: false,
+        repaired: 0,
+        error: 'original_file_still_present',
+        message: 'Sonarr still reports a real episode file; no placeholder was created.',
+      };
+    }
+
+    const extension = path.extname(config.templatePath) || '.mkv';
+    stagingPath = resolveArchivePath(
+      config.archiveRoot,
+      path.join('.staging', `repair-${randomUUID()}`, `${selected.originalFileId}${extension}`)
+    );
+    const plan: PlaceholderPlan = {
+      originalFileId: selected.originalFileId,
+      originalPath: selected.originalPath,
+      originalRelativePath: selected.originalRelativePath,
+      episodeIds: group.map((row) => row.episodeId),
+      relativePath: selected.placeholderRelPath,
+      targetPath: expectedTarget,
+      plexPath: selected.plexPlaceholderPath,
+      stagingPath,
+    };
+    stagePlaceholders(config, [plan]);
+    publishPlaceholders(config, [plan]);
+    setArchiveEpisodesStatus(
+      selected.instanceId,
+      group.map((row) => row.episodeId),
+      'archived'
+    );
+    await refreshSection(selected.sectionId).catch((error) =>
+      logEvent('warn', 'archive', `Plex refresh after placeholder repair failed: ${String(error)}`)
+    );
+    logEvent(
+      'info',
+      'archive',
+      `Repaired placeholder for ${selected.seriesTitle}: ${group.length} episode(s).`
+    );
+    return { ok: true, repaired: group.length };
+  } catch (error) {
+    const message = String(error);
+    const config = getArchivePlaceholderConfig();
+    if (stagingPath && config.archiveRoot) cleanupStaging(config.archiveRoot, stagingPath);
+    setArchiveEpisodesStatus(
+      selected.instanceId,
+      group.map((row) => row.episodeId),
+      'failed',
+      message
+    );
+    logEvent('error', 'archive', `Placeholder repair failed: ${message}`);
+    return { ok: false, repaired: 0, error: 'placeholder_repair_failed', message };
+  }
 }
 
 export async function requestArchiveRestore(input: {

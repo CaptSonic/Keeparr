@@ -453,7 +453,8 @@ export async function executeArchive(runId: string, requestedBy: string) {
     );
     await deleteSonarrEpisodeFiles(
       resolved.inst,
-      files.map((file) => file.id)
+      files.map((file) => file.id),
+      series.id
     );
     sonarrDeleteCompleted = true;
     await setSonarrEpisodesMonitored(

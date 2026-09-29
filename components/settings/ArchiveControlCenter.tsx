@@ -140,10 +140,12 @@ export default function ArchiveControlCenter() {
       });
       const data = await response.json();
       if (!response.ok) {
+        const reason = data.reason ?? data.error ?? 'unknown';
+        const detail = typeof data.message === 'string' && data.message.trim()
+          ? ` — ${data.message}`
+          : '';
         setError(
-          `${de ? 'Ausführung blockiert/fehlgeschlagen' : 'Execution blocked/failed'}: ${
-            data.reason ?? data.error ?? 'unknown'
-          }`
+          `${de ? 'Ausführung blockiert/fehlgeschlagen' : 'Execution blocked/failed'}: ${reason}${detail}`
         );
       } else {
         setPreview(null);
@@ -190,6 +192,27 @@ export default function ArchiveControlCenter() {
       await load();
     } catch (reason) {
       setError(`${de ? 'Wiederherstellung fehlgeschlagen' : 'Restore failed'}: ${String(reason)}`);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function repairPlaceholder(instanceId: string, episodeId: number) {
+    setBusy(`repair:${instanceId}:${episodeId}`);
+    setError('');
+    try {
+      const response = await fetch('/api/admin/archive', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'repair-placeholder', instanceId, episodeId }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message ?? data.error ?? 'placeholder_repair_failed');
+      }
+      await load();
+    } catch (reason) {
+      setError(`${de ? 'Platzhalter-Reparatur fehlgeschlagen' : 'Placeholder repair failed'}: ${String(reason)}`);
     } finally {
       setBusy(null);
     }
@@ -379,11 +402,22 @@ export default function ArchiveControlCenter() {
                   <td className="p-2">{episode.seriesTitle} · S{String(episode.seasonNumber).padStart(2, '0')}E{String(episode.episodeNumber).padStart(2, '0')}{episode.episodeTitle ? ` · ${episode.episodeTitle}` : ''}
                     {episode.lastError && <div className="text-xs text-red-300">{episode.lastError}</div>}</td>
                   <td className="p-2 text-slate-400">{episode.status}</td>
-                  <td className="p-2 text-right"><button className={btnGhost}
-                    disabled={!!busy || episode.status !== 'archived'}
-                    onClick={() => restore(episode.instanceId, [episode.episodeId])}>
-                    {episode.status === 'restoring' ? (de ? 'Läuft…' : 'Running…') : (de ? 'Wiederherstellen' : 'Restore')}
-                  </button></td>
+                  <td className="p-2 text-right">
+                    {episode.status === 'failed' ? (
+                      <button className={btnGhost} disabled={!!busy}
+                        onClick={() => repairPlaceholder(episode.instanceId, episode.episodeId)}>
+                        {busy === `repair:${episode.instanceId}:${episode.episodeId}`
+                          ? (de ? 'Prüfe…' : 'Checking…')
+                          : (de ? 'Platzhalter reparieren' : 'Repair placeholder')}
+                      </button>
+                    ) : (
+                      <button className={btnGhost}
+                        disabled={!!busy || episode.status !== 'archived'}
+                        onClick={() => restore(episode.instanceId, [episode.episodeId])}>
+                        {episode.status === 'restoring' ? (de ? 'Läuft…' : 'Running…') : (de ? 'Wiederherstellen' : 'Restore')}
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

@@ -214,19 +214,33 @@ async function arrWrite<T>(
   inst: ArrInstance,
   path: string,
   method: 'POST' | 'PUT' | 'DELETE',
-  body: unknown
+  body: unknown,
+  timeoutMs = 60_000
 ): Promise<T | null> {
   const url = inst.url.replace(/\/$/, '') + '/api/v3' + path;
-  const response = await fetch(url, {
-    method,
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-      'X-Api-Key': inst.apiKey,
-    },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(15_000),
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method,
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        'X-Api-Key': inst.apiKey,
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (error) {
+    if (
+      error instanceof DOMException &&
+      (error.name === 'TimeoutError' || error.name === 'AbortError')
+    ) {
+      throw new Error(
+        `${inst.name || inst.url} ${path} timed out after ${Math.round(timeoutMs / 1000)} seconds`
+      );
+    }
+    throw error;
+  }
   if (!response.ok) {
     throw new Error(`${inst.name || inst.url} ${path} → HTTP ${response.status}`);
   }
@@ -283,10 +297,26 @@ export async function updateSonarrSeries(
 
 export async function deleteSonarrEpisodeFiles(
   inst: ArrInstance,
-  episodeFileIds: number[]
+  episodeFileIds: number[],
+  seriesId?: number
 ): Promise<void> {
   if (episodeFileIds.length === 0) return;
-  await arrWrite(inst, '/episodefile/bulk', 'DELETE', { episodeFileIds });
+  try {
+    await arrWrite(inst, '/episodefile/bulk', 'DELETE', { episodeFileIds }, 120_000);
+  } catch (error) {
+    const timedOut = error instanceof Error && error.message.includes('timed out after');
+    if (!timedOut || seriesId == null) throw error;
+    try {
+      const remaining = await getSonarrEpisodeFiles(inst, seriesId);
+      const requested = new Set(episodeFileIds);
+      if (remaining.some((file) => requested.has(file.id))) throw error;
+    } catch (verificationError) {
+      if (verificationError === error) throw error;
+      throw new Error(
+        `${String(error)}; deletion state could not be verified: ${String(verificationError)}`
+      );
+    }
+  }
 }
 
 export async function setSonarrEpisodesMonitored(
