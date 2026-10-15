@@ -28,6 +28,8 @@ export interface ArrRecord {
   rootFolder: string | null;
   sizeOnDisk: number;
   tags: string[];
+  /** TMDB film-series id from Radarr, not a Plex/Maintainerr collection id. */
+  collectionTmdbId?: number | null;
 }
 
 // --- Raw payload shapes (only the fields we read) ---
@@ -57,6 +59,7 @@ interface RadarrMovie {
   sizeOnDisk?: number;
   movieFile?: { quality?: { quality?: { name?: string } } };
   tags?: number[];
+  collection?: { tmdbId?: number; title?: string } | null;
 }
 interface ArrTag {
   id: number;
@@ -108,6 +111,8 @@ export function normalizeRadarr(
   if (m.tmdbId == null) return null;
   return {
     source: 'radarr',
+    collectionTmdbId: Number.isSafeInteger(m.collection?.tmdbId) && m.collection!.tmdbId! > 0
+      ? m.collection!.tmdbId! : null,
     instanceId: inst.id,
     instanceName: inst.name || inst.url,
     arrId: m.id,

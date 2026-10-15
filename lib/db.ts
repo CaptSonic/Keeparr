@@ -333,6 +333,12 @@ export function applySchema(database: Database.Database): void {
 
 /** Idempotent column migrations for databases created before a column existed. */
 function migrate(database: Database.Database): void {
+  for (const table of ['arr_items', 'arr_unmatched']) {
+    const columns = database.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+    if (!columns.some((column) => column.name === 'collection_tmdb_id')) {
+      database.exec(`ALTER TABLE ${table} ADD COLUMN collection_tmdb_id INTEGER`);
+    }
+  }
   const cols = database
     .prepare(`PRAGMA table_info(users)`)
     .all() as { name: string }[];

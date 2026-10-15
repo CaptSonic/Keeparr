@@ -284,6 +284,7 @@ export async function syncSeerrRequestsForUser(
 
 function toArrInput(ratingKey: string, r: ArrRecord): ArrItemInput {
   return {
+    collectionTmdbId: r.collectionTmdbId,
     ratingKey,
     source: r.source,
     instanceId: r.instanceId,
@@ -339,6 +340,7 @@ export async function syncArr(): Promise<JobResult> {
             extKind: r.source === 'sonarr' ? 'tvdb' : 'tmdb',
             extId: r.matchId,
             sizeBytes: r.sizeOnDisk,
+            collectionTmdbId: r.collectionTmdbId,
           });
         }
         continue;

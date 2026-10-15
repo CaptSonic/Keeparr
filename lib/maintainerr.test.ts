@@ -11,6 +11,8 @@ import {
   recentMaintainerrHistory,
   maintainerrRuleTracking,
   replaceSeerrRequests,
+  replaceArrItems,
+  replaceArrUnmatched,
   tombstoneStale,
   upsertWatchBatch,
   upsertMediaBatch,
@@ -220,6 +222,85 @@ afterEach(() => {
 afterAll(() => __closeDb());
 
 describe('Maintainerr safe hand-off', () => {
+  function collectionMedia(): void {
+    requesterReleasedMedia();
+    removeDelete('requester', 'requester-movie');
+    upsertMediaBatch([{
+      ratingKey: 'movie-1', sectionId: 'movies', libraryKind: 'movie', title: 'Sequel',
+      year: 2025, thumb: null, sizeBytes: GB, addedAt: 1, guidTmdb: '1', guidTvdb: null,
+    }]);
+    replaceArrItems(['requester-movie', 'movie-1'].map((ratingKey, index) => ({
+      ratingKey, source: 'radarr' as const, instanceId: 'radarr', instanceName: 'Radarr',
+      arrId: index + 1, monitored: true, status: 'released', quality: null,
+      qualityKind: 'file' as const, rootFolder: null, arrSizeBytes: GB, tags: [],
+      collectionTmdbId: 100,
+    })));
+  }
+
+  it('blocks automatic collection members, then releases all once every member matures', async () => {
+    collectionMedia();
+    upsertWatchBatch([{ ratingKey: 'movie-1', plexUserId: 'viewer', plays: 1, lastWatched: BASE }]);
+    const remote = mockMaintainerr();
+    await syncMaintainerr();
+    vi.setSystemTime((BASE + 30 * 86400) * 1000);
+    expect((await previewMaintainerr()).items).toContainEqual(expect.objectContaining({
+      ratingKey: 'requester-movie', status: 'blocked_keep', reason: 'radarr_collection_protected',
+    }));
+    await syncMaintainerr();
+    expect([...remote.members.get(10)!]).toEqual([]);
+    vi.setSystemTime((BASE + 541 * 86400) * 1000);
+    await syncMaintainerr();
+    vi.setSystemTime((BASE + 571 * 86400) * 1000);
+    await syncMaintainerr();
+    expect([...remote.members.get(10)!].sort()).toEqual(['movie-1', 'requester-movie']);
+  });
+
+  it('withdraws owned automatic members when a collection member receives a Keep', async () => {
+    collectionMedia();
+    addKeep('protector', 'movie-1');
+    setMaintainerrManagedItems({ '10': ['requester-movie'] });
+    const remote = mockMaintainerr({ movieMembers: ['requester-movie', 'movie-1'] });
+    const preview = await previewMaintainerr();
+    expect(preview.items).toContainEqual(expect.objectContaining({
+      ratingKey: 'requester-movie', status: 'remove', reason: 'radarr_collection_protected',
+    }));
+    await syncMaintainerr();
+    expect([...remote.members.get(10)!]).toEqual(['movie-1']);
+  });
+
+  it('blocks a collection with an unmatched downloaded sequel but allows an explicit release', async () => {
+    collectionMedia();
+    replaceArrUnmatched([{
+      source: 'radarr', instanceId: 'other', instanceName: 'Other', title: 'Unmatched sequel',
+      extKind: 'tmdb', extId: '555', sizeBytes: GB, collectionTmdbId: 100,
+    }]);
+    mockMaintainerr();
+    await syncMaintainerr();
+    vi.setSystemTime((BASE + 30 * 86400) * 1000);
+    expect((await previewMaintainerr()).items).toContainEqual(expect.objectContaining({
+      ratingKey: 'requester-movie', status: 'blocked_keep', reason: 'radarr_collection_protected',
+    }));
+    addDelete('requester', 'requester-movie');
+    expect((await previewMaintainerr()).items).toContainEqual(expect.objectContaining({
+      ratingKey: 'requester-movie', status: 'add',
+    }));
+  });
+
+  it('protects members across libraries and preserves collection metadata on a failed arr sync', async () => {
+    collectionMedia();
+    upsertMediaBatch([{
+      ratingKey: 'movie-1', sectionId: 'other-library', libraryKind: 'movie', title: 'Sequel',
+      year: 2025, thumb: null, sizeBytes: GB, addedAt: 1, guidTmdb: '1', guidTvdb: null,
+    }]);
+    replaceArrItems([], ['radarr']);
+    mockMaintainerr();
+    await syncMaintainerr();
+    vi.setSystemTime((BASE + 30 * 86400) * 1000);
+    expect((await previewMaintainerr()).items).toContainEqual(expect.objectContaining({
+      ratingKey: 'requester-movie', status: 'blocked_keep', reason: 'radarr_collection_protected',
+    }));
+  });
+
   it('uses separate observation periods for movie and show automatic rules', async () => {
     requesterReleasedMedia();
     // Keep only the automatic source, not explicit requester releases.

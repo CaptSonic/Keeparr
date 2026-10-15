@@ -1,5 +1,13 @@
 # Keeparr
 
+Automatic Maintainerr movie hand-off preserves Radarr film series: every present
+member must be eligible (including its observation period) before automatic
+members are handed off. Keeps, recent watches, other libraries, and downloaded
+unmatched Radarr members can protect the whole series. Explicit requester and
+closed-campaign releases remain individual decisions; foreign manual Maintainerr
+memberships are untouched. Collection metadata is refreshed by the Sonarr/Radarr
+sync; run that sync after upgrading to populate the new cache fields.
+
 A self-hosted web app that makes it dead-simple for a household to decide **what
 media to keep** — and to find what can be safely deleted to reclaim disk space.
 

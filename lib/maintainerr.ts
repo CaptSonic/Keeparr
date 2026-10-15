@@ -7,6 +7,7 @@ import {
   listAutomationReleases,
   maintainerrArchiveExclusions,
   maintainerrAutomaticRuleMatches,
+  maintainerrCollectionBlockedItems,
   maintainerrRuleTracking,
   markedForDeleteItems,
   recentMaintainerrHistory,
@@ -556,12 +557,21 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
   const inventoryIds = new Set(inventory.items.map((item) => item.ratingKey));
   const latest = latestWatchedAtByItem();
   const cutoff = generatedAt - config.watchAgeDays * 86400;
-  const desiredCandidates = inventory.items.filter((item) => {
+  const eligibleBeforeCollection = inventory.items.filter((item) => {
     const watchedAt = latest.get(item.ratingKey);
     const explicitEligible = item.explicitRelease &&
       (watchedAt == null || watchedAt <= cutoff);
     const automaticEligible = item.dueAt !== null && item.dueAt <= generatedAt;
     return watchReady && (explicitEligible || automaticEligible);
+  });
+  const collectionBlocked = maintainerrCollectionBlockedItems(
+    new Set(eligibleBeforeCollection.map((item) => item.ratingKey))
+  );
+  // Explicit requester/campaign approvals remain intentional individual actions.
+  const desiredCandidates = eligibleBeforeCollection.filter((item) => {
+    const watchedAt = latest.get(item.ratingKey);
+    const explicitEligible = item.explicitRelease && (watchedAt == null || watchedAt <= cutoff);
+    return explicitEligible || !collectionBlocked.has(item.ratingKey);
   });
   const desiredIds = new Set(desiredCandidates.map((item) => item.ratingKey));
   const targets: Target[] = [];
@@ -697,6 +707,8 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
           ? 'watch_cache_untrusted'
           : !inventoryIds.has(item.ratingKey)
             ? 'missing_from_media_server'
+            : collectionBlocked.has(item.ratingKey)
+              ? 'radarr_collection_protected'
             : 'watched_too_recently';
     } else if (item.kept) {
       status = 'blocked_keep';
@@ -707,6 +719,9 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
     } else if (!watchReady) {
       status = 'paused';
       reason = 'watch_cache_untrusted';
+    } else if (!explicitEligible && collectionBlocked.has(item.ratingKey)) {
+      status = 'blocked_keep';
+      reason = 'radarr_collection_protected';
     } else if (!explicitEligible && !automaticEligible && item.automaticRules.length > 0) {
       status = 'tracking';
       reason = item.automaticRules.length > 1

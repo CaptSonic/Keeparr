@@ -19,6 +19,13 @@ per-user. See README.md for the feature overview.
 
 ## Canonical rules
 
+- Automatic Maintainerr movie hand-off preserves Radarr film series using the
+  TMDB collection id cached in `arr_items` and `arr_unmatched` by the arr sync.
+  Every present member must be eligible, including observation. Keeps, recent
+  watches, members outside selected libraries, and unmatched downloaded movies
+  veto automatic hand-off. Explicit requester/campaign releases remain individual
+  decisions. Withdraw only Keeparr-owned memberships; leave foreign members alone.
+
 - **Categories are the user's actual Plex libraries — never hardcode "Movies /
   TV / Anime".** Everyone's library setup differs; the feed filters and library
   sidebar are driven by `getPlexSections()` (section ids). `library_kind`

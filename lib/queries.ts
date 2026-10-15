@@ -2529,6 +2529,7 @@ export function seerrRequestKeys(plexUserId: string): string[] {
 // ---------------------------------------------------------------------------
 
 export interface ArrItemInput {
+  collectionTmdbId?: number | null;
   ratingKey: string;
   source: 'sonarr' | 'radarr';
   instanceId: string;
@@ -2543,6 +2544,30 @@ export interface ArrItemInput {
   tags: string[];
 }
 
+/** Protect a whole Radarr film series when any present member is not eligible.
+ * Downloaded titles missing from the media-server cache cannot be verified and
+ * therefore veto automatic hand-off too. Undownloaded future sequels do not.
+ * TMDB collection ids are global, including across libraries/instances.
+ */
+export function maintainerrCollectionBlockedItems(eligibleIds: Set<string>): Set<string> {
+  const db = getDb();
+  const members = db.prepare(
+    `SELECT a.rating_key, a.collection_tmdb_id AS collectionId
+       FROM arr_items a JOIN media_items m ON m.rating_key = a.rating_key
+      WHERE a.source = 'radarr' AND a.collection_tmdb_id > 0
+        AND m.library_kind = 'movie' AND m.removed = 0`
+  ).all() as { rating_key: string; collectionId: number }[];
+  const blockedCollections = new Set((db.prepare(
+    `SELECT DISTINCT collection_tmdb_id AS collectionId FROM arr_unmatched
+      WHERE source = 'radarr' AND collection_tmdb_id > 0 AND size_bytes > 0`
+  ).all() as { collectionId: number }[]).map((row) => row.collectionId));
+  for (const member of members) {
+    if (!eligibleIds.has(member.rating_key)) blockedCollections.add(member.collectionId);
+  }
+  return new Set(members.filter((member) => blockedCollections.has(member.collectionId))
+    .map((member) => member.rating_key));
+}
+
 /** Replace the arr_items cache atomically (small dataset; avoids stale).
  *  `preserveInstanceIds` keeps rows belonging to instances that failed this
  *  run (their fresh data is missing from `rows`, not gone from the arr). */
@@ -2554,16 +2579,16 @@ export function replaceArrItems(
   const ins = db.prepare(
     `INSERT INTO arr_items
        (rating_key, source, instance_id, instance_name, arr_id, monitored, status,
-        quality, quality_kind, root_folder, arr_size_bytes, tags, last_synced)
+        quality, quality_kind, root_folder, arr_size_bytes, tags, last_synced, collection_tmdb_id)
      VALUES (@rating_key, @source, @instance_id, @instance_name, @arr_id, @monitored,
-        @status, @quality, @quality_kind, @root_folder, @arr_size_bytes, @tags, @ts)
+        @status, @quality, @quality_kind, @root_folder, @arr_size_bytes, @tags, @ts, @collection_tmdb_id)
      ON CONFLICT(rating_key) DO UPDATE SET
        source=excluded.source, instance_id=excluded.instance_id,
        instance_name=excluded.instance_name, arr_id=excluded.arr_id,
        monitored=excluded.monitored, status=excluded.status, quality=excluded.quality,
        quality_kind=excluded.quality_kind, root_folder=excluded.root_folder,
        arr_size_bytes=excluded.arr_size_bytes, tags=excluded.tags,
-       last_synced=excluded.last_synced`
+       last_synced=excluded.last_synced, collection_tmdb_id=excluded.collection_tmdb_id`
   );
   const del = preserveInstanceIds.length
     ? db.prepare(
@@ -2578,6 +2603,7 @@ export function replaceArrItems(
     for (const r of rows) {
       ins.run({
         rating_key: r.ratingKey,
+        collection_tmdb_id: r.collectionTmdbId ?? null,
         source: r.source,
         instance_id: r.instanceId,
         instance_name: r.instanceName,
@@ -2676,6 +2702,7 @@ export function arrFacets(): {
 // --- Match health (Sonarr/Radarr titles with no Plex match) ---
 
 export interface ArrUnmatchedInput {
+  collectionTmdbId?: number | null;
   source: string;
   instanceId: string;
   instanceName: string;
@@ -2697,8 +2724,8 @@ export function replaceArrUnmatched(
 ): number {
   const db = getDb();
   const ins = db.prepare(
-    `INSERT INTO arr_unmatched (source, instance_id, instance_name, title, ext_kind, ext_id, size_bytes, last_synced)
-     VALUES (@source, @instanceId, @instanceName, @title, @extKind, @extId, @sizeBytes, @ts)`
+    `INSERT INTO arr_unmatched (source, instance_id, instance_name, title, ext_kind, ext_id, size_bytes, last_synced, collection_tmdb_id)
+     VALUES (@source, @instanceId, @instanceName, @title, @extKind, @extId, @sizeBytes, @ts, @collectionTmdbId)`
   );
   const del = preserveInstanceIds.length
     ? db.prepare(
@@ -2710,7 +2737,7 @@ export function replaceArrUnmatched(
   const ts = now();
   db.transaction(() => {
     del.run(...preserveInstanceIds);
-    for (const r of rows) ins.run({ ...r, ts });
+    for (const r of rows) ins.run({ ...r, collectionTmdbId: r.collectionTmdbId ?? null, ts });
   })();
   return rows.length;
 }
