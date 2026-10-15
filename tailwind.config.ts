@@ -1,4 +1,4 @@
-import type { Config } from 'tailwindcss';
+import type { Config } from 'tailwindcss-build';
 
 /**
  * THEMING: every color family the UI actually uses is defined as a CSS
