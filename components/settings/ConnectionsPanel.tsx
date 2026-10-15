@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { defaultMaintainerrRules, type MaintainerrAutomaticRules } from '@/lib/maintainerr-rules';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { formatBytes, formatNumber } from '@/lib/i18n';
 import { useLocale } from '../LocaleProvider';
@@ -279,6 +280,7 @@ export default function ConnectionsPanel() {
   const [maintainerrShowCollectionId, setMaintainerrShowCollectionId] = useState<number | null>(null);
   const [maintainerrWatchAgeDays, setMaintainerrWatchAgeDays] = useState(180);
   const [maintainerrObservationDays, setMaintainerrObservationDays] = useState(30);
+  const [maintainerrAutomaticRules, setMaintainerrAutomaticRules] = useState<MaintainerrAutomaticRules>(defaultMaintainerrRules);
   const [maintainerrCollections, setMaintainerrCollections] = useState<MaintainerrCollection[]>([]);
 
   const [servers, setServers] = useState<DiscoveredServer[] | null>(null);
@@ -324,6 +326,7 @@ export default function ConnectionsPanel() {
     setMaintainerrShowCollectionId(d.maintainerr?.showCollectionId ?? null);
     setMaintainerrWatchAgeDays(d.maintainerr?.watchAgeDays ?? 180);
     setMaintainerrObservationDays(d.maintainerr?.observationDays ?? 30);
+    setMaintainerrAutomaticRules(d.maintainerr?.automaticRules ?? defaultMaintainerrRules(d.maintainerr?.observationDays ?? 30));
     setSections(d.sections ?? []);
     const mgd: string[] = d.managedSectionIds ?? [];
     setAllManaged(mgd.length === 0);
@@ -551,6 +554,7 @@ export default function ConnectionsPanel() {
             showCollectionId: maintainerrShowCollectionId,
             watchAgeDays: maintainerrWatchAgeDays,
             observationDays: maintainerrObservationDays,
+            automaticRules: maintainerrAutomaticRules,
             enabled: maintainerrEnabled,
           },
           managedSectionIds: allManaged ? [] : [...managed],
@@ -955,22 +959,47 @@ export default function ConnectionsPanel() {
               : 'Applies to “OK to delete” and closed campaigns server-wide across all users. Never-watched titles are also eligible.'}
           </span>
         </label>
-        <label className="mt-4 block max-w-xs text-sm text-slate-400">
-          {de ? 'Beobachtungsfrist für automatische Regeln (Tage)' : 'Observation period for automatic rules (days)'}
-          <input
-            className={`${inputCls} mt-1`}
-            type="number"
-            min={1}
-            max={365}
-            value={maintainerrObservationDays}
-            onChange={(e) => setMaintainerrObservationDays(Number(e.target.value))}
-          />
-          <span className="mt-1 block text-xs text-slate-500">
-            {de
-              ? 'Für automatische Treffer gelten fest 6 Monate ohne Wiedergabe durch mindestens einen Anfragenden bzw. 18 Monate ohne Wiedergabe durch irgendjemanden. Keeparr übergibt erst, wenn eine Regel zusätzlich diese Frist durchgehend erfüllt bleibt.'
-              : 'Automatic matches use fixed rules: at least one requester has not watched for 6 months, or nobody has watched for 18 months. Keeparr hands off only after a rule also remains true for this entire period.'}
-          </span>
-        </label>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          {(['movie', 'show'] as const).map((kind) => {
+            const rules = maintainerrAutomaticRules[kind];
+            const update = (patch: Partial<typeof rules>) => setMaintainerrAutomaticRules((previous) => ({
+              ...previous, [kind]: { ...previous[kind], ...patch },
+            }));
+            return <fieldset key={kind} className="space-y-3 rounded-lg border border-slate-700 p-3">
+              <legend className="px-1 text-sm font-semibold text-slate-200">{de
+                ? `Automatische Regeln: ${kind === 'movie' ? 'Filme' : 'Serien'}`
+                : `Automatic rules: ${kind === 'movie' ? 'Movies' : 'Shows'}`}</legend>
+              <label className="flex items-start gap-2 text-sm text-slate-300">
+                <input type="checkbox" checked={rules.requesterEnabled}
+                  onChange={(event) => update({ requesterEnabled: event.target.checked })} />
+                {de ? 'Mindestens ein Anfragender hat nicht angesehen' : 'At least one requester has not watched'}
+              </label>
+              <label className="block text-sm text-slate-400">{de ? 'Zeitraum Anfragender (Tage)' : 'Requester inactivity (days)'}
+                <input className={`${inputCls} mt-1`} type="number" min={1} max={3650}
+                  disabled={!rules.requesterEnabled} value={rules.requesterDays}
+                  onChange={(event) => update({ requesterDays: Number(event.target.value) })} />
+              </label>
+              <label className="flex items-start gap-2 text-sm text-slate-300">
+                <input type="checkbox" checked={rules.globalEnabled}
+                  onChange={(event) => update({ globalEnabled: event.target.checked })} />
+                {de ? 'Von niemandem angesehen' : 'Not watched by anyone'}
+              </label>
+              <label className="block text-sm text-slate-400">{de ? 'Zeitraum aller Nutzer (Tage)' : 'Household inactivity (days)'}
+                <input className={`${inputCls} mt-1`} type="number" min={1} max={3650}
+                  disabled={!rules.globalEnabled} value={rules.globalDays}
+                  onChange={(event) => update({ globalDays: Number(event.target.value) })} />
+              </label>
+              <label className="block text-sm text-slate-400">{de ? 'Zusätzliche Beobachtungsfrist (Tage)' : 'Additional observation period (days)'}
+                <input className={`${inputCls} mt-1`} type="number" min={1} max={365}
+                  value={rules.observationDays}
+                  onChange={(event) => update({ observationDays: Number(event.target.value) })} />
+              </label>
+            </fieldset>;
+          })}
+        </div>
+        <p className="mt-2 text-xs text-slate-500">{de
+          ? 'Eine aktivierte Regel genügt. Noch nie angesehene Titel zählen ebenfalls. Keep bleibt immer geschützt. Änderungen starten die Beobachtung der betroffenen Medienart neu und verwerfen Einmalfreigaben. Sonarr-Archivserien bleiben ausgeschlossen.'
+          : 'Either enabled rule can qualify a title. Never-watched titles also qualify. Keep always wins. Changes restart observation for the affected media type and clear one-time approvals. Sonarr archive shows remain excluded.'}</p>
         <label className="mt-4 flex items-start gap-3 text-sm text-slate-300">
           <input
             type="checkbox"

@@ -45,7 +45,7 @@ describe('archive placeholder files', () => {
     const plans = buildPlaceholderPlans({
       config: config(),
       runId: 'run-1',
-      series: { id: 7, title: 'A: Show' },
+      series: { id: 7, title: 'A: Show', path: '/tv/A Show (2024)' },
       files: [{ id: 11, path: '/tv/A Show/file.mkv', relativePath: 'Season 1/file.mkv' }],
       episodes: [
         { id: 101, episodeFileId: 11, seasonNumber: 1, episodeNumber: 1 },
@@ -55,7 +55,55 @@ describe('archive placeholder files', () => {
     expect(plans).toHaveLength(1);
     expect(plans[0].episodeIds).toEqual([101, 102]);
     expect(plans[0].relativePath).toContain('S01E01-E02');
-    expect(plans[0].plexPath).toContain('/plex/archive/A Show/Season 01/');
+    expect(plans[0].plexPath).toContain('/plex/archive/A Show (2024)/Season 1/');
+  });
+
+  it('preserves the original Sonarr series and nested folder names', () => {
+    const [plan] = buildPlaceholderPlans({
+      config: config(),
+      runId: 'run-original-folders',
+      series: { id: 7, title: 'SEAL Team', path: 'D:\\Serien\\SEAL Team (2017)' },
+      files: [{
+        id: 11,
+        path: 'D:\\Serien\\SEAL Team (2017)\\Staffel 01\\WEB-DL\\episode.mkv',
+        relativePath: 'Staffel 01\\WEB-DL\\episode.mkv',
+      }],
+      episodes: [{ id: 101, episodeFileId: 11, seasonNumber: 1, episodeNumber: 1 }],
+    });
+    expect(plan.relativePath).toBe(path.join(
+      'SEAL Team (2017)',
+      'Staffel 01',
+      'WEB-DL',
+      'SEAL Team - S01E01 - Archived.mkv'
+    ));
+    expect(plan.plexPath).toBe(
+      '/plex/archive/SEAL Team (2017)/Staffel 01/WEB-DL/SEAL Team - S01E01 - Archived.mkv'
+    );
+  });
+
+  it('derives original subfolders from the absolute file path when relativePath is absent', () => {
+    const [plan] = buildPlaceholderPlans({
+      config: config(),
+      runId: 'run-derived-folders',
+      series: { id: 7, title: 'Show', path: '/tv/Show Folder' },
+      files: [{ id: 11, path: '/tv/Show Folder/Series 1/episode.mkv' }],
+      episodes: [{ id: 101, episodeFileId: 11, seasonNumber: 1, episodeNumber: 1 }],
+    });
+    expect(plan.relativePath).toBe(path.join(
+      'Show Folder',
+      'Series 1',
+      'Show - S01E01 - Archived.mkv'
+    ));
+  });
+
+  it('rejects traversal in an original Sonarr relative path', () => {
+    expect(() => buildPlaceholderPlans({
+      config: config(),
+      runId: 'run-traversal',
+      series: { id: 7, title: 'Show', path: '/tv/Show' },
+      files: [{ id: 11, relativePath: '../outside/episode.mkv' }],
+      episodes: [{ id: 101, episodeFileId: 11, seasonNumber: 1, episodeNumber: 1 }],
+    })).toThrow(/invalid relative path/);
   });
 
   it('stages then atomically publishes and refuses foreign collisions', () => {

@@ -1,19 +1,18 @@
-import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
   getSonarrEpisodes,
   getSonarrEpisodeFiles,
+  getSonarrSeries,
   searchSonarrEpisodes,
   setSonarrEpisodesMonitored,
 } from './arr';
 import {
+  buildPlaceholderPlans,
   cleanupStaging,
   publishPlaceholders,
   removeManagedPlaceholder,
-  resolveArchivePath,
   stagePlaceholders,
   validatePlaceholderConfig,
-  type PlaceholderPlan,
 } from './archive-files';
 import {
   claimArchiveRestoreByEpisodes,
@@ -23,6 +22,7 @@ import {
   logEvent,
   restoringEpisodesForSeries,
   setArchiveEpisodesStatus,
+  updateArchiveEpisodePlaceholderPaths,
   type ArchiveEpisodeRow,
 } from './queries';
 import {
@@ -59,11 +59,8 @@ export async function repairArchivePlaceholder(input: {
     const config = getArchivePlaceholderConfig();
     if (!config.enabled) throw new Error('Archive placeholders are disabled');
     validatePlaceholderConfig(config);
-    const expectedTarget = resolveArchivePath(config.archiveRoot, selected.placeholderRelPath);
-    if (path.resolve(expectedTarget) !== path.resolve(selected.placeholderPath)) {
-      throw new Error('Configured archive root no longer matches the failed manifest');
-    }
-    const [episodes, files] = await Promise.all([
+    const [series, episodes, files] = await Promise.all([
+      getSonarrSeries(instance, selected.seriesId),
       getSonarrEpisodes(instance, selected.seriesId),
       getSonarrEpisodeFiles(instance, selected.seriesId),
     ]);
@@ -82,23 +79,37 @@ export async function repairArchivePlaceholder(input: {
       };
     }
 
-    const extension = path.extname(config.templatePath) || '.mkv';
-    stagingPath = resolveArchivePath(
-      config.archiveRoot,
-      path.join('.staging', `repair-${randomUUID()}`, `${selected.originalFileId}${extension}`)
-    );
-    const plan: PlaceholderPlan = {
-      originalFileId: selected.originalFileId,
-      originalPath: selected.originalPath,
-      originalRelativePath: selected.originalRelativePath,
-      episodeIds: group.map((row) => row.episodeId),
-      relativePath: selected.placeholderRelPath,
-      targetPath: expectedTarget,
-      plexPath: selected.plexPlaceholderPath,
-      stagingPath,
-    };
+    const [plan] = buildPlaceholderPlans({
+      config,
+      runId: `repair-${randomUUID()}`,
+      series,
+      files: [{
+        id: selected.originalFileId,
+        seriesId: selected.seriesId,
+        path: selected.originalPath ?? undefined,
+        relativePath: selected.originalRelativePath ?? undefined,
+      }],
+      episodes: group.map((row) => ({
+        id: row.episodeId,
+        seriesId: row.seriesId,
+        seasonNumber: row.seasonNumber,
+        episodeNumber: row.episodeNumber,
+        title: row.episodeTitle ?? undefined,
+        episodeFileId: selected.originalFileId,
+      })),
+    });
+    stagingPath = plan.stagingPath;
     stagePlaceholders(config, [plan]);
     publishPlaceholders(config, [plan]);
+    updateArchiveEpisodePlaceholderPaths(
+      selected.instanceId,
+      group.map((row) => row.episodeId),
+      {
+        placeholderPath: plan.targetPath,
+        placeholderRelPath: plan.relativePath,
+        plexPlaceholderPath: plan.plexPath,
+      }
+    );
     setArchiveEpisodesStatus(
       selected.instanceId,
       group.map((row) => row.episodeId),

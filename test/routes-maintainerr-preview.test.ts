@@ -1,10 +1,11 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { cookieJar, previewMock, approveMassMock, approveReaddMock } = vi.hoisted(() => ({
+const { cookieJar, previewMock, approveMassMock, approveReaddMock, syncMock } = vi.hoisted(() => ({
   cookieJar: new Map<string, string>(),
   previewMock: vi.fn(),
   approveMassMock: vi.fn(),
   approveReaddMock: vi.fn(),
+  syncMock: vi.fn(),
 }));
 
 vi.mock('next/headers', () => ({
@@ -18,6 +19,7 @@ vi.mock('@/lib/maintainerr', () => ({
   previewMaintainerr: previewMock,
   approveCurrentMaintainerrPlan: approveMassMock,
   approveCurrentMaintainerrReadd: approveReaddMock,
+  syncMaintainerr: syncMock,
 }));
 
 import { __closeDb, __setTestDbToMemory } from '@/lib/db';
@@ -35,6 +37,7 @@ beforeEach(() => {
   previewMock.mockReset();
   approveMassMock.mockReset();
   approveReaddMock.mockReset();
+  syncMock.mockReset();
   __setTestDbToMemory();
 });
 
@@ -42,6 +45,21 @@ describe('POST /api/admin/maintainerr-preview', () => {
   const request = (body: unknown) => new Request('http://localhost/api/admin/maintainerr-preview', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+  });
+
+  it('validates and executes only the explicit admin selection', async () => {
+    await loginAs('admin', true);
+    const selection = {
+      planHash: 'a'.repeat(64),
+      operations: [{ collectionId: 10, ratingKey: 'movie-1', action: 'add' }],
+    };
+    syncMock.mockResolvedValue({ result: 1, message: 'done' });
+    expect((await POST(request({ action: 'execute-selection', ...selection }))).status).toBe(200);
+    expect(syncMock).toHaveBeenCalledWith(selection);
+    expect((await POST(request({ action: 'execute-selection', ...selection, operations: [] }))).status)
+      .toBe(400);
+    syncMock.mockRejectedValue(new Error('Maintainerr selection is stale.'));
+    expect((await POST(request({ action: 'execute-selection', ...selection }))).status).toBe(409);
   });
 
   it('requires an admin before reading the approval body', async () => {

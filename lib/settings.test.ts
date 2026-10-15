@@ -1,11 +1,13 @@
 import { beforeEach, afterAll, describe, expect, it } from 'vitest';
 import { __setTestDbToMemory, __closeDb } from './db';
+import { maintainerrRuleTracking, reconcileMaintainerrRuleTracking, upsertMediaBatch } from './queries';
 import {
   approveMaintainerrPlan,
   approveMaintainerrReadd,
   consumeMaintainerrPlanApproval,
   consumeMaintainerrReaddApproval,
   getMaintainerrApprovedPlanHash,
+  getMaintainerrConfig,
   getArchivePlaceholderConfig,
   isMaintainerrReaddApproved,
   getMediaServerType,
@@ -83,6 +85,45 @@ describe('media server type + backend-aware settings', () => {
 });
 
 describe('Maintainerr one-time safety approvals', () => {
+  it('inherits the legacy observation period for both media kinds', () => {
+    writeSetting('maintainerr_observation_days', '45');
+    const rules = getMaintainerrConfig().automaticRules;
+    expect(rules.movie).toEqual({
+      requesterEnabled: true, requesterDays: 180, globalEnabled: true,
+      globalDays: 540, observationDays: 45,
+    });
+    expect(rules.show).toEqual(rules.movie);
+  });
+
+  it('resets only changed media-kind clocks and clears pending approvals', () => {
+    upsertMediaBatch((['movie', 'show'] as const).map((kind) => ({
+      ratingKey: kind, sectionId: kind, libraryKind: kind, title: kind,
+      year: null, thumb: null, sizeBytes: 1, addedAt: 1, guidTmdb: null, guidTvdb: null,
+    })));
+    reconcileMaintainerrRuleTracking([
+      { ratingKey: 'movie', rule: 'global_unwatched_540d' },
+      { ratingKey: 'show', rule: 'global_unwatched_540d' },
+    ], 100);
+    const config = getMaintainerrConfig();
+    approveMaintainerrPlan('plan');
+    approveMaintainerrReadd(10, 'movie');
+    config.automaticRules.movie.globalDays = 365;
+    setMaintainerrConfig(config);
+    expect(maintainerrRuleTracking().map((row) => row.ratingKey)).toEqual(['show']);
+    expect(getMaintainerrApprovedPlanHash()).toBeNull();
+    expect(isMaintainerrReaddApproved(10, 'movie')).toBe(false);
+    setMaintainerrConfig(config);
+    expect(maintainerrRuleTracking().map((row) => row.ratingKey)).toEqual(['show']);
+  });
+
+  it('disables automatic rules if their stored configuration is corrupt', () => {
+    writeSetting('maintainerr_automatic_rules', 'invalid json');
+    const rules = getMaintainerrConfig().automaticRules;
+    for (const kind of ['movie', 'show'] as const) {
+      expect(rules[kind].requesterEnabled).toBe(false);
+      expect(rules[kind].globalEnabled).toBe(false);
+    }
+  });
   it('consumes only the exact approved plan hash once', () => {
     approveMaintainerrPlan('plan-a');
     expect(getMaintainerrApprovedPlanHash()).toBe('plan-a');

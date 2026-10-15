@@ -86,6 +86,10 @@ describe('/api/admin/settings', () => {
       showCollectionId: 20,
       watchAgeDays: 365,
       observationDays: 45,
+      automaticRules: {
+        movie: { requesterEnabled: true, requesterDays: 90, globalEnabled: false, globalDays: 365, observationDays: 14 },
+        show: { requesterEnabled: false, requesterDays: 270, globalEnabled: true, globalDays: 730, observationDays: 60 },
+      },
       enabled: true,
     };
     expect((await settingsPut(putReq({ maintainerr }))).status).toBe(200);
@@ -145,5 +149,31 @@ describe('/api/admin/settings', () => {
     }));
     expect(response.status).toBe(400);
     expect((await response.json()).error).toBe('maintainerr_invalid_observation_days');
+  });
+
+  it.each([
+    null, [], { movie: null }, { movie: { requesterDays: 0 } },
+    { show: { globalDays: 3651 } }, { show: { observationDays: 366 } },
+    { movie: { requesterEnabled: 'false' } }, { show: { globalDays: 1.5 } },
+  ])('rejects invalid automatic rule settings: %j', async (automaticRules) => {
+    await loginAs('admin', true);
+    const before = getMaintainerrConfig();
+    const response = await settingsPut(putReq({ maintainerr: { automaticRules } }));
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toBe('maintainerr_invalid_automatic_rules');
+    expect(getMaintainerrConfig()).toEqual(before);
+  });
+
+  it('merges partial automatic rule updates without changing the other media kind', async () => {
+    await loginAs('admin', true);
+    const before = getMaintainerrConfig();
+    expect((await settingsPut(putReq({ maintainerr: {
+      automaticRules: { movie: { requesterDays: 90, globalEnabled: false } },
+    } }))).status).toBe(200);
+    const after = getMaintainerrConfig();
+    expect(after.automaticRules.show).toEqual(before.automaticRules.show);
+    expect(after.automaticRules.movie).toEqual({
+      ...before.automaticRules.movie, requesterDays: 90, globalEnabled: false,
+    });
   });
 });

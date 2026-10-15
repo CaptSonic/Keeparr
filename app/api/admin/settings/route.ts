@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { mergeMaintainerrRules } from '@/lib/maintainerr-rules';
 import { requireAdmin } from '@/lib/auth';
 import { errorResponse } from '@/lib/route-helpers';
 import {
@@ -167,6 +168,7 @@ interface PutBody {
     showCollectionId?: number | null;
     watchAgeDays?: number;
     observationDays?: number;
+    automaticRules?: unknown;
     enabled?: boolean;
   };
   archivePlaceholders?: {
@@ -259,6 +261,14 @@ export async function PUT(req: Request) {
 
     if (body.maintainerr && typeof body.maintainerr === 'object') {
       const current = getMaintainerrConfig();
+      let automaticRules = current.automaticRules;
+      if (body.maintainerr.automaticRules !== undefined) {
+        try {
+          automaticRules = mergeMaintainerrRules(body.maintainerr.automaticRules, current.automaticRules);
+        } catch {
+          return NextResponse.json({ error: 'maintainerr_invalid_automatic_rules' }, { status: 400 });
+        }
+      }
       const id = (value: unknown, fallback: number | null) =>
         value === null
           ? null
@@ -266,6 +276,7 @@ export async function PUT(req: Request) {
             ? Number(value)
             : fallback;
       const nextMaintainerr = {
+        ...(body.maintainerr.automaticRules !== undefined ? { automaticRules } : {}),
         url: typeof body.maintainerr.url === 'string'
           ? body.maintainerr.url
           : current.url,

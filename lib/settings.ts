@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { deleteSetting, getSetting, setSetting } from './queries';
+import { deleteSetting, getSetting, setSetting, resetMaintainerrRuleTracking } from './queries';
+import { defaultMaintainerrRules, mergeMaintainerrRules, type MaintainerrAutomaticRules } from './maintainerr-rules';
 import { decryptSecret, encryptSecret } from './crypto';
 import {
   DEFAULT_BACKUP_RETENTION,
@@ -392,10 +393,23 @@ export interface MaintainerrConfig {
   showCollectionId: number | null;
   watchAgeDays: number;
   observationDays: number;
+  automaticRules: MaintainerrAutomaticRules;
   enabled: boolean;
 }
 
 export function getMaintainerrConfig(): MaintainerrConfig {
+  const storedObservationDays = Number(readSetting('maintainerr_observation_days'));
+  const observationDays = Number.isInteger(storedObservationDays) && storedObservationDays >= 1 &&
+    storedObservationDays <= 365 ? storedObservationDays : 30;
+  let automaticRules = defaultMaintainerrRules(observationDays);
+  try {
+    const stored = readSetting('maintainerr_automatic_rules');
+    if (stored) automaticRules = mergeMaintainerrRules(JSON.parse(stored), automaticRules);
+  } catch {
+    // Corrupt configuration must not enable automatic hand-offs unexpectedly.
+    automaticRules.movie.requesterEnabled = automaticRules.movie.globalEnabled = false;
+    automaticRules.show.requesterEnabled = automaticRules.show.globalEnabled = false;
+  }
   const positiveId = (value: string | null) => {
     const id = Number(value);
     return Number.isSafeInteger(id) && id > 0 ? id : null;
@@ -408,20 +422,29 @@ export function getMaintainerrConfig(): MaintainerrConfig {
       const days = Number(readSetting('maintainerr_watch_age_days'));
       return Number.isInteger(days) && days >= 1 && days <= 3650 ? days : 180;
     })(),
-    observationDays: (() => {
-      const days = Number(readSetting('maintainerr_observation_days'));
-      return Number.isInteger(days) && days >= 1 && days <= 365 ? days : 30;
-    })(),
+    observationDays,
     enabled: readSetting('maintainerr_enabled') === 'true',
+    automaticRules,
   };
 }
 
 export function setMaintainerrConfig(
-  config: Omit<MaintainerrConfig, 'observationDays'> & { observationDays?: number }
+  config: Omit<MaintainerrConfig, 'observationDays' | 'automaticRules'> & {
+    observationDays?: number;
+    automaticRules?: MaintainerrAutomaticRules;
+  }
 ): void {
   const url = config.url.trim().replace(/\/$/, '');
   const previous = getMaintainerrConfig();
   const observationDays = config.observationDays ?? previous.observationDays;
+  const fallbackRules = observationDays !== previous.observationDays
+    ? {
+        movie: { ...previous.automaticRules.movie, observationDays },
+        show: { ...previous.automaticRules.show, observationDays },
+      }
+    : previous.automaticRules;
+  const automaticRules = config.automaticRules === undefined
+    ? fallbackRules : mergeMaintainerrRules(config.automaticRules, fallbackRules);
   const previousUrl = previous.url;
   // Collection ids are local to one Maintainerr instance. Refuse to forget
   // remote memberships: disable + run the job once to remove them before moving.
@@ -439,13 +462,17 @@ export function setMaintainerrConfig(
   writeSetting('maintainerr_watch_age_days', String(config.watchAgeDays));
   writeSetting('maintainerr_observation_days', String(observationDays));
   writeSetting('maintainerr_enabled', config.enabled ? 'true' : 'false');
+  writeSetting('maintainerr_automatic_rules', JSON.stringify(automaticRules));
+  const changedKinds = (['movie', 'show'] as const).filter((kind) =>
+    JSON.stringify(previous.automaticRules[kind]) !== JSON.stringify(automaticRules[kind]));
+  if (changedKinds.length > 0) resetMaintainerrRuleTracking(changedKinds);
   if (
     previous.url !== url ||
     previous.movieCollectionId !== config.movieCollectionId ||
     previous.showCollectionId !== config.showCollectionId ||
     previous.watchAgeDays !== config.watchAgeDays ||
     previous.observationDays !== observationDays ||
-    previous.enabled !== config.enabled
+    previous.enabled !== config.enabled || changedKinds.length > 0
   ) {
     deleteSetting('maintainerr_safety_state');
   }

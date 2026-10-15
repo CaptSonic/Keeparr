@@ -860,7 +860,7 @@
       "get": {
         "tags": ["admin"],
         "summary": "Read-only Maintainerr reconciliation dry run",
-        "description": "Returns the exact current add/remove/unchanged plan with per-title reason codes, including automatic 180-day requester / 540-day household watch-rule matches still completing the configured observation period. Reads Maintainerr and the media server but never writes memberships, Keeparr ownership, or observation state.",
+        "description": "Returns the exact current add/remove/unchanged plan with per-title reason codes and automaticRules configuration. Automatic requester and household inactivity rules have independent movie/show enable flags, inactivity thresholds (1–3650 days; defaults 180/540), and observation periods (1–365 days; default 30). Historical reason IDs remain stable regardless of configured thresholds. Reads Maintainerr and the media server but never writes memberships, Keeparr ownership, or observation state.",
         "security": [{ "cookieAuth": [] }],
         "responses": {
           "200": { "description": "Maintainerr preview with collection counters, item decisions, and pause state" },

@@ -186,12 +186,18 @@ The chrome is a Sonarr/Radarr-style left rail (logo → Keep; Keep / Browse[expa
   only collection visibility, grace period, handling, and deletion.
 - Automatic Maintainerr candidates are separate from Smart Reclaim scoring:
   `requester_unwatched_180d` matches when at least one cached Seerr requester has
-  no watch newer than 180 days; `global_unwatched_540d` matches when no user has a
-  watch newer than 540 days. Both include never-watched. The hard global Keep veto
+  no watch newer than the configured requester threshold (default 180 days);
+  `global_unwatched_540d` matches when no user has a watch newer than the household
+  threshold (default 540 days). The historical rule IDs stay stable for existing
+  tracking/history. `maintainerr_automatic_rules` stores independent movie/show
+  enable flags, inactivity days (1–3650), and observation days (1–365).
+  Both include never-watched. The hard global Keep veto
   is enforced in SQL. `maintainerr_rule_tracking` persists an independent
   `first_eligible_at` per `(rating_key, rule)`; only a real, trusted Maintainerr run
   reconciles it, never preview. A rule must remain true for
-  `maintainerr_observation_days` (default 30, 1–365) before hand-off. Lost trust,
+  the media kind's observation period (legacy `maintainerr_observation_days` is the
+  fallback; default 30) before hand-off. Changed rule groups reset only that kind's
+  clocks and clear all pending one-time approvals. Lost trust,
   Keep, or a watch that breaks the rule resets its clock. Restrict clocks to
   selected target libraries. Explicit requester/campaign releases are not delayed
   by this observation period.

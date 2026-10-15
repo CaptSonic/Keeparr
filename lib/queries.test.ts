@@ -1,5 +1,6 @@
 import { beforeEach, afterAll, describe, expect, it } from 'vitest';
 import { __setTestDbToMemory, __closeDb, getDb } from './db';
+import { defaultMaintainerrRules } from './maintainerr-rules';
 import {
   addKeep,
   applySkipBatch,
@@ -827,6 +828,29 @@ describe('Smart Reclaim Queue', () => {
 
 describe('automatic Maintainerr rule tracking', () => {
   const BASE = 1_800_000_000;
+
+  it('uses independent movie/show thresholds and enable switches with exact boundaries', () => {
+    upsertMediaBatch([
+      media('movie', { libraryKind: 'movie' }), media('show', { libraryKind: 'show' }),
+    ]);
+    replaceSeerrRequests('requester', ['movie', 'show']);
+    upsertWatchBatch((['movie', 'show']).map((ratingKey) => ({
+      plexUserId: 'requester', ratingKey, plays: 1, lastWatched: BASE - 90 * 86400,
+    })));
+    const rules = defaultMaintainerrRules();
+    rules.movie.requesterDays = 90;
+    rules.movie.globalEnabled = false;
+    rules.show.requesterEnabled = false;
+    rules.show.globalDays = 91;
+    const matches = () => maintainerrAutomaticRuleMatches(BASE, rules).map((row) => `${row.rating_key}:${row.rule}`);
+    expect(matches()).toEqual(['movie:requester_unwatched_180d']);
+    rules.show.globalDays = 90;
+    expect(matches()).toEqual(['movie:requester_unwatched_180d', 'show:global_unwatched_540d']);
+    addKeep('protector', 'show');
+    expect(matches()).toEqual(['movie:requester_unwatched_180d']);
+    rules.movie.requesterEnabled = false;
+    expect(matches()).toEqual([]);
+  });
 
   it('matches requester inactivity and global inactivity independently', () => {
     upsertMediaBatch([media('both'), media('requester-only'), media('recent')]);

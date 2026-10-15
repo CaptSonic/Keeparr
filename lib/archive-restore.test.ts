@@ -44,8 +44,8 @@ beforeEach(() => {
     episodeNumber: 1,
     episodeTitle: 'One',
     originalFileId: 11,
-    originalPath: '/tv/Show/Season 01/episode.mkv',
-    originalRelativePath: 'Season 01/episode.mkv',
+    originalPath: '/tv/Show (2024)/Staffel 1/episode.mkv',
+    originalRelativePath: 'Staffel 1/episode.mkv',
     placeholderPath: path.join(archiveRoot, placeholderRelPath),
     placeholderRelPath,
     plexPlaceholderPath: '/plex/archive/Show/Season 01/Show - S01E01 - Archived.mp4',
@@ -62,6 +62,11 @@ afterAll(() => __closeDb());
 describe('failed placeholder repair', () => {
   it('publishes the placeholder only after Sonarr confirms the real file is absent', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.endsWith('/series/7')) {
+        return new Response(JSON.stringify({
+          id: 7, title: 'Show', path: '/tv/Show (2024)',
+        }), { headers: { 'content-type': 'application/json' } });
+      }
       if (url.includes('/episode?')) {
         return new Response(JSON.stringify([{
           id: 101, seriesId: 7, seasonNumber: 1, episodeNumber: 1,
@@ -78,14 +83,21 @@ describe('failed placeholder repair', () => {
       .resolves.toEqual({ ok: true, repaired: 1 });
     const row = listArchiveEpisodes()[0];
     expect(row.status).toBe('archived');
+    expect(row.placeholderRelPath).toBe(path.join(
+      'Show (2024)',
+      'Staffel 1',
+      'Show - S01E01 - Archived.mp4'
+    ));
     expect(fs.readFileSync(row.placeholderPath, 'utf8')).toBe('placeholder');
   });
 
   it('refuses repair while Sonarr still reports the real file', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
-      const body = url.includes('/episodefile?')
-        ? [{ id: 11, seriesId: 7 }]
-        : [{ id: 101, seriesId: 7, hasFile: true, episodeFileId: 11 }];
+      const body = url.endsWith('/series/7')
+        ? { id: 7, title: 'Show', path: '/tv/Show (2024)' }
+        : url.includes('/episodefile?')
+          ? [{ id: 11, seriesId: 7 }]
+          : [{ id: 101, seriesId: 7, hasFile: true, episodeFileId: 11 }];
       return new Response(JSON.stringify(body), {
         headers: { 'content-type': 'application/json' },
       });

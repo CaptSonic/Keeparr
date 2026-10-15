@@ -32,7 +32,7 @@ const colors: Record<MaintainerrPreviewStatus, string> = {
 const labels = {
   en: {
     title: 'Maintainerr Control Center', intro: 'Read-only dry run of the exact plan used by the next hand-off.',
-    refresh: 'Refresh dry run', refreshing: 'Checking…', run: 'Run hand-off now', running: 'Running…',
+    refresh: 'Refresh dry run', refreshing: 'Checking…', run: 'Run entire hand-off now', running: 'Running…',
     current: 'Current', owned: 'Keeparr-owned', desired: 'Desired', add: 'Add', remove: 'Remove',
     all: 'All', item: 'Title', collection: 'Collection', source: 'Source', status: 'Status', reason: 'Reason', watched: 'Last watched',
     empty: 'No rows match this filter.', failed: 'Could not create the dry run. Check Maintainerr and media-server connectivity.',
@@ -40,7 +40,7 @@ const labels = {
     notConfigured: 'Maintainerr hand-off is not configured. Configure it under Connections → Maintainerr first.',
     watchWarning: 'Watch data is not trusted for the current source. A real run will add nothing and withdraw Keeparr-owned memberships.',
     massBlocked: 'Safety stop: {count} planned changes exceed the mass-change threshold. Approve this exact plan once before running it.',
-    approveMass: 'Approve exact plan once', approving: 'Approving…', approveReadd: 'Allow re-add once',
+    approveMass: 'Approve entire exact plan once', approving: 'Approving…', approveReadd: 'Allow re-add once',
     history: 'Recent hand-off history', noHistory: 'No hand-off events recorded yet.', action: 'Action', time: 'Time',
     historyFilter: 'Filter history by title or media id',
     statuses: { add: 'Add', remove: 'Remove', managed: 'Managed', manual: 'Manual', blocked_keep: 'Keep blocked', blocked_recent: 'Recently watched', tracking: 'Observing', missing: 'Missing', outside: 'Outside', readd_blocked: 'Re-add blocked', paused: 'Paused' },
@@ -48,7 +48,7 @@ const labels = {
   },
   de: {
     title: 'Maintainerr-Kontrollzentrum', intro: 'Schreibfreie Vorschau exakt des Plans, den die nächste Übergabe verwendet.',
-    refresh: 'Dry-Run aktualisieren', refreshing: 'Prüfung läuft…', run: 'Übergabe jetzt ausführen', running: 'Wird ausgeführt…',
+    refresh: 'Dry-Run aktualisieren', refreshing: 'Prüfung läuft…', run: 'Gesamte Übergabe jetzt ausführen', running: 'Wird ausgeführt…',
     current: 'Aktuell', owned: 'Keeparr-eigen', desired: 'Gewünscht', add: 'Hinzufügen', remove: 'Entfernen',
     all: 'Alle', item: 'Titel', collection: 'Collection', source: 'Quelle', status: 'Status', reason: 'Begründung', watched: 'Zuletzt angesehen',
     empty: 'Keine Einträge entsprechen diesem Filter.', failed: 'Dry-Run konnte nicht erstellt werden. Prüfe Maintainerr und den Medienserver.',
@@ -56,7 +56,7 @@ const labels = {
     notConfigured: 'Die Maintainerr-Übergabe ist nicht konfiguriert. Richte sie zuerst unter Verbindungen → Maintainerr ein.',
     watchWarning: 'Die Watch-Daten sind für die aktuelle Quelle nicht vertrauenswürdig. Ein echter Lauf fügt nichts hinzu und zieht Keeparr-eigene Memberships zurück.',
     massBlocked: 'Sicherheitsstopp: {count} geplante Änderungen überschreiten den Massenschwellwert. Bestätige diesen exakten Plan einmalig vor der Ausführung.',
-    approveMass: 'Exakten Plan einmalig freigeben', approving: 'Freigabe läuft…', approveReadd: 'Re-Add einmalig erlauben',
+    approveMass: 'Gesamten exakten Plan einmalig freigeben', approving: 'Freigabe läuft…', approveReadd: 'Re-Add einmalig erlauben',
     history: 'Letzte Übergabe-Historie', noHistory: 'Noch keine Übergabe-Ereignisse gespeichert.', action: 'Aktion', time: 'Zeitpunkt',
     historyFilter: 'Historie nach Titel oder Medien-ID filtern',
     statuses: { add: 'Hinzufügen', remove: 'Entfernen', managed: 'Verwaltet', manual: 'Manuell', blocked_keep: 'Durch Keep blockiert', blocked_recent: 'Kürzlich angesehen', tracking: 'Beobachtung', missing: 'Nicht vorhanden', outside: 'Außerhalb', readd_blocked: 'Re-Add blockiert', paused: 'Pausiert' },
@@ -92,6 +92,7 @@ export default function MaintainerrControlCenter() {
   const [approving, setApproving] = useState(false);
   const [error, setError] = useState('');
   const [historyFilter, setHistoryFilter] = useState('');
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async () => {
@@ -101,6 +102,7 @@ export default function MaintainerrControlCenter() {
       const response = await fetch('/api/admin/maintainerr-preview', { cache: 'no-store' });
       if (!response.ok) throw new Error('preview_failed');
       setData(await response.json());
+      setSelected(new Set());
     } catch {
       setError(text.failed);
     } finally {
@@ -137,6 +139,34 @@ export default function MaintainerrControlCenter() {
     }, 1500);
   }
 
+  async function executeSelection() {
+    if (!data || selected.size === 0) return;
+    const operations = data.items.filter((item) =>
+      selected.has(`${item.collectionId}:${item.ratingKey}`) &&
+      (item.status === 'add' || item.status === 'remove') && item.collectionId !== null
+    ).map((item) => ({ collectionId: item.collectionId!, ratingKey: item.ratingKey, action: item.status }));
+    if (!window.confirm(locale === 'de'
+      ? `Nur diese ${operations.length} ausgewählten Änderungen jetzt einmalig ausführen? Alle anderen bleiben unverändert.`
+      : `Execute only these ${operations.length} selected changes once? All others remain unchanged.`)) return;
+    setRunning(true);
+    setError('');
+    try {
+      const response = await fetch('/api/admin/maintainerr-preview', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'execute-selection', planHash: data.planHash, operations }),
+      });
+      if (!response.ok) throw new Error('selection_failed');
+      await load();
+    } catch {
+      setError(locale === 'de'
+        ? 'Auswahl nicht ausgeführt oder nur teilweise abgeschlossen. Vorschau aktualisieren und erneut prüfen; der Plan könnte sich geändert haben.'
+        : 'Selection not executed or only partially completed. Refresh and review the plan; it may have changed.');
+      setSelected(new Set());
+    } finally {
+      setRunning(false);
+    }
+  }
+
   async function approve(action: 'approve-mass' | 'approve-readd', item?: MaintainerrPreviewItem) {
     setApproving(true);
     setError('');
@@ -151,6 +181,7 @@ export default function MaintainerrControlCenter() {
       });
       if (!response.ok) throw new Error('approval_failed');
       setData(await response.json());
+      setSelected(new Set());
     } catch {
       setError(text.failed);
     } finally {
@@ -161,6 +192,27 @@ export default function MaintainerrControlCenter() {
   const rows = useMemo(() =>
     data?.items.filter((item) => filter === 'all' || item.status === filter) ?? [],
   [data, filter]);
+
+  function reasonLabel(item: MaintainerrPreviewItem): string {
+    const rules = data?.automaticRules?.[item.libraryKind];
+    if (rules) {
+      const observing = item.reason.startsWith('observing_');
+      const rule = observing ? item.reason.slice('observing_'.length) : item.reason;
+      let description: string | undefined;
+      if (rule === 'requester_unwatched_180d') {
+        description = locale === 'de'
+          ? `Ein Anfragender hat seit ${rules.requesterDays} Tagen nicht angesehen`
+          : `A requester has not watched in ${rules.requesterDays} days`;
+      } else if (rule === 'global_unwatched_540d') {
+        description = locale === 'de'
+          ? `Seit ${rules.globalDays} Tagen von niemandem angesehen`
+          : `Not watched by anyone in ${rules.globalDays} days`;
+      }
+      if (description) return observing
+        ? `${locale === 'de' ? 'Beobachtung' : 'Tracking'}: ${description}` : description;
+    }
+    return text.reasons[item.reason as keyof typeof text.reasons] ?? item.reason;
+  }
   const history = useMemo(() => {
     const query = historyFilter.trim().toLocaleLowerCase(locale);
     if (!query) return data?.history ?? [];
@@ -194,6 +246,16 @@ export default function MaintainerrControlCenter() {
       </div>
 
       <Card title={locale === 'de' ? 'Entscheidungen' : 'Decisions'}>
+        <div className="mb-3 flex flex-wrap items-center gap-3">
+          <span className="text-sm text-slate-400">{locale === 'de'
+            ? 'Änderungen einzeln auswählen. Nicht ausgewählte Einträge werden nicht ausgeführt.'
+            : 'Select individual changes. Unselected entries will not be executed.'}</span>
+          <button type="button" className={btnCls}
+            disabled={loading || running || approving || !data || data.paused || selected.size === 0}
+            onClick={executeSelection}>
+            {locale === 'de' ? 'Auswahl einmalig ausführen' : 'Execute selection once'} ({selected.size})
+          </button>
+        </div>
         <div className="mb-3 flex flex-wrap gap-1.5">
           <button type="button" onClick={() => setFilter('all')} className={`rounded-full px-3 py-1 text-xs ${filter === 'all' ? 'bg-brand text-ink' : 'bg-slate-800 text-slate-300'}`}>{text.all} ({formatNumber(data?.items.length ?? 0, locale)})</button>
           {statuses.map((status) => <button key={status} type="button" onClick={() => setFilter(status)} className={`rounded-full px-3 py-1 text-xs ${filter === status ? colors[status] : 'bg-slate-800 text-slate-400'}`}>{text.statuses[status]} ({formatNumber(data?.summary[status] ?? 0, locale)})</button>)}
@@ -203,11 +265,25 @@ export default function MaintainerrControlCenter() {
             <thead className="border-b border-slate-700 text-xs uppercase text-slate-500"><tr><th className="px-3 py-2">{text.item}</th><th className="px-3 py-2">{text.collection}</th><th className="px-3 py-2">{text.source}</th><th className="px-3 py-2">{text.status}</th><th className="px-3 py-2">{text.reason}</th><th className="px-3 py-2">{text.watched}</th></tr></thead>
             <tbody className="divide-y divide-slate-800">
               {rows.map((item) => <tr key={`${item.collectionId ?? 'none'}:${item.ratingKey}`}>
-                <td className="px-3 py-2 font-medium text-slate-200">{item.title}{item.year ? <span className="ml-1 text-xs text-slate-500">({item.year})</span> : null}</td>
+                <td className="px-3 py-2 font-medium text-slate-200">
+                  {(item.status === 'add' || item.status === 'remove') && item.collectionId !== null &&
+                    <input type="checkbox" className="mr-2" disabled={loading || running || approving}
+                      aria-label={`${locale === 'de' ? 'Auswählen' : 'Select'}: ${item.title}`}
+                      checked={selected.has(`${item.collectionId}:${item.ratingKey}`)}
+                      onChange={(event) => {
+                        const checked = event.target.checked;
+                        setSelected((previous) => {
+                          const next = new Set(previous);
+                          const key = `${item.collectionId}:${item.ratingKey}`;
+                          if (checked) next.add(key); else next.delete(key);
+                          return next;
+                        });
+                      }} />}
+                  {item.title}{item.year ? <span className="ml-1 text-xs text-slate-500">({item.year})</span> : null}</td>
                 <td className="px-3 py-2 text-slate-400">{item.collectionTitle ?? '—'}</td>
                 <td className="px-3 py-2 text-slate-400">{sourceLabel(item.source, locale === 'de')}</td>
                 <td className="px-3 py-2"><span className={`rounded-full px-2 py-1 text-xs font-semibold ${colors[item.status]}`}>{text.statuses[item.status]}</span></td>
-                <td className="px-3 py-2 text-slate-400">{text.reasons[item.reason as keyof typeof text.reasons] ?? item.reason}{item.status === 'tracking' && item.dueAt ? <span className="ml-1 text-xs text-cyan-400">({locale === 'de' ? 'bis' : 'until'} {formatDate(item.dueAt * 1000, locale, { dateStyle: 'medium' })})</span> : null}{item.status === 'readd_blocked' && item.collectionId !== null ? <button type="button" className="ml-2 rounded border border-rose-800 px-2 py-1 text-xs text-rose-300 hover:border-rose-500" disabled={approving} onClick={() => approve('approve-readd', item)}>{text.approveReadd}</button> : null}</td>
+                <td className="px-3 py-2 text-slate-400">{reasonLabel(item)}{item.status === 'tracking' && item.dueAt ? <span className="ml-1 text-xs text-cyan-400">({locale === 'de' ? 'bis' : 'until'} {formatDate(item.dueAt * 1000, locale, { dateStyle: 'medium' })})</span> : null}{item.status === 'readd_blocked' && item.collectionId !== null ? <button type="button" className="ml-2 rounded border border-rose-800 px-2 py-1 text-xs text-rose-300 hover:border-rose-500" disabled={approving} onClick={() => approve('approve-readd', item)}>{text.approveReadd}</button> : null}</td>
                 <td className="px-3 py-2 text-slate-500">{item.lastWatched ? formatRelativeTime(item.lastWatched, locale) : text.never}</td>
               </tr>)}
             </tbody>

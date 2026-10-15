@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import type { MaintainerrAutomaticRules } from './maintainerr-rules';
 import {
   getMediaItem,
   isKept,
@@ -278,6 +279,7 @@ export interface MaintainerrPreview {
   watchReady: boolean;
   watchAgeDays: number;
   observationDays: number;
+  automaticRules: MaintainerrAutomaticRules;
   requesterReleases: number;
   campaignReleases: number;
   planHash: string;
@@ -304,7 +306,7 @@ interface MaintainerrPlan {
 function maintainerrCandidates(
   automaticMatches: ReturnType<typeof maintainerrAutomaticRuleMatches>,
   archiveExclusions: Set<string>,
-  observationDays: number,
+  automaticRulesConfig: MaintainerrAutomaticRules,
   at: number
 ): {
   items: MaintainerrCandidate[];
@@ -358,7 +360,7 @@ function maintainerrCandidates(
     const previous = byId.get(item.rating_key);
     const tracking = persisted.get(`${item.rating_key}\0${item.rule}`);
     const firstEligibleAt = tracking?.firstEligibleAt ?? at;
-    const dueAt = firstEligibleAt + observationDays * 86400;
+    const dueAt = firstEligibleAt + automaticRulesConfig[item.library_kind].observationDays * 86400;
     const automaticRules = [...new Set([
       ...(previous?.automaticRules ?? []), item.rule,
     ])];
@@ -490,6 +492,7 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
         watchReady: getReclaimSignalReadiness().watch,
         watchAgeDays: config.watchAgeDays,
         observationDays: config.observationDays,
+        automaticRules: config.automaticRules,
         requesterReleases: 0,
         campaignReleases: 0,
         planHash: planHash([], config.url),
@@ -530,7 +533,7 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
   const watchReady = getReclaimSignalReadiness().watch;
   const archiveExclusions = maintainerrArchiveExclusions();
   const automaticRuleMatches = watchReady
-    ? maintainerrAutomaticRuleMatches(generatedAt).filter((item) =>
+    ? maintainerrAutomaticRuleMatches(generatedAt, config.automaticRules).filter((item) =>
         selectedLibraries.has(`${item.library_kind}\0${item.section_id}`) &&
         !archiveExclusions.has(item.rating_key)
       )
@@ -542,7 +545,7 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
   const candidates = maintainerrCandidates(
     automaticRuleMatches,
     archiveExclusions,
-    config.observationDays,
+    config.automaticRules,
     generatedAt
   );
   const selectedCandidates = candidates.items.filter((item) =>
@@ -802,6 +805,7 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
     watchReady,
     watchAgeDays: config.watchAgeDays,
     observationDays: config.observationDays,
+    automaticRules: config.automaticRules,
     requesterReleases: candidates.requesterReleases,
     campaignReleases: candidates.campaignReleases,
     planHash: hash,
@@ -877,7 +881,12 @@ export async function approveCurrentMaintainerrReadd(
  * collections. This function NEVER calls Maintainerr's handle/delete endpoints.
  * All targets are validated and read before the first write (fail closed).
  */
-export async function syncMaintainerr(): Promise<JobResult> {
+export interface MaintainerrSelection {
+  planHash: string;
+  operations: Array<{ collectionId: number; ratingKey: string; action: 'add' | 'remove' }>;
+}
+
+export async function syncMaintainerr(selection?: MaintainerrSelection): Promise<JobResult> {
   const config = getMaintainerrConfig();
   const managedState = getMaintainerrManagedItems();
   if (!config.url || (!isMaintainerrConfigured() && Object.keys(managedState).length === 0)) {
@@ -899,6 +908,32 @@ export async function syncMaintainerr(): Promise<JobResult> {
         'Maintainerr hand-off paused: media-server inventory not ready; ' +
         'existing memberships left unchanged.',
     };
+  }
+
+  if (selection) {
+    if (selection.planHash !== preview.planHash || selection.operations.length === 0) {
+      throw new Error('Maintainerr selection is stale.');
+    }
+    const keys = new Set<string>();
+    for (const operation of selection.operations) {
+      const target = targets.find((row) => row.collection.id === operation.collectionId);
+      const key = `${operation.collectionId}\0${operation.action}\0${operation.ratingKey}`;
+      if (!target || !target[operation.action].has(operation.ratingKey) || keys.has(key)) {
+        throw new Error('Maintainerr selection is stale.');
+      }
+      keys.add(key);
+    }
+    for (const target of targets) {
+      target.add = new Set([...target.add].filter((id) =>
+        keys.has(`${target.collection.id}\0add\0${id}`)));
+      target.remove = new Set([...target.remove].filter((id) =>
+        keys.has(`${target.collection.id}\0remove\0${id}`)));
+      target.approvedReadds = new Set([...target.approvedReadds].filter((id) => target.add.has(id)));
+      // Preserve ownership of removals that were deliberately not selected.
+      for (const id of target.managed) {
+        if (!target.remove.has(id)) target.desired.add(id);
+      }
+    }
   }
 
   // Preview is strictly read-only. Only a real run with trusted watch data and
@@ -939,7 +974,7 @@ export async function syncMaintainerr(): Promise<JobResult> {
       }
     }
   }
-  if (preview.massBlocked && !preview.massApproved) {
+  if (!selection && preview.massBlocked && !preview.massApproved) {
     recordMaintainerrHistory({
       eventType: 'mass_blocked', action: 'none', reason: 'mass_change',
       planHash: preview.planHash,
@@ -954,7 +989,7 @@ export async function syncMaintainerr(): Promise<JobResult> {
 
   // Consume every one-time approval before the first remote write. A partial or
   // failed run therefore cannot silently reuse authorization on a later plan.
-  if (preview.massBlocked && !consumeMaintainerrPlanApproval(preview.planHash)) {
+  if (!selection && preview.massBlocked && !consumeMaintainerrPlanApproval(preview.planHash)) {
     return { result: 0, message: 'Maintainerr hand-off blocked: plan approval expired.' };
   }
   for (const target of targets) {

@@ -3,6 +3,7 @@ import { __closeDb, __setTestDbToMemory } from './db';
 import {
   addKeep,
   addDelete,
+  removeDelete,
   closeCleanupCampaign,
   createCleanupCampaign,
   reviewCleanupCampaignItem,
@@ -17,6 +18,7 @@ import {
 import {
   getWatchSourceFingerprint,
   getMaintainerrApprovedPlanHash,
+  getMaintainerrConfig,
   getMaintainerrManagedItems,
   setMaintainerrConfig,
   setMaintainerrManagedItems,
@@ -218,6 +220,71 @@ afterEach(() => {
 afterAll(() => __closeDb());
 
 describe('Maintainerr safe hand-off', () => {
+  it('uses separate observation periods for movie and show automatic rules', async () => {
+    requesterReleasedMedia();
+    // Keep only the automatic source, not explicit requester releases.
+    removeDelete('requester', 'requester-movie');
+    removeDelete('requester', 'requester-show');
+    const config = getMaintainerrConfig();
+    config.automaticRules.movie.observationDays = 2;
+    config.automaticRules.show.observationDays = 4;
+    setMaintainerrConfig(config);
+    mockMaintainerr();
+    await syncMaintainerr();
+    vi.setSystemTime((BASE + 2 * 86400) * 1000);
+    // The watch source must still be trusted after advancing the clock.
+    setJobState('watch', { lastStatus: 'ok', lastRun: BASE + 2 * 86400 });
+    const preview = await previewMaintainerr();
+    expect(preview.items).toContainEqual(expect.objectContaining({
+      ratingKey: 'requester-movie', status: 'add',
+    }));
+    expect(preview.items).toContainEqual(expect.objectContaining({
+      ratingKey: 'requester-show', status: 'tracking', dueAt: BASE + 4 * 86400,
+    }));
+  });
+  it('executes only one selected addition from a mass-blocked plan', async () => {
+    const ids = bulkRequesterReleases(10);
+    const remote = mockMaintainerr();
+    const preview = await previewMaintainerr();
+    expect(preview.massBlocked).toBe(true);
+    await syncMaintainerr({
+      planHash: preview.planHash,
+      operations: [{ collectionId: 10, ratingKey: ids[0], action: 'add' }],
+    });
+    expect([...remote.members.get(10)!]).toEqual([ids[0]]);
+    expect(getMaintainerrManagedItems()['10']).toEqual([ids[0]]);
+    expect((await previewMaintainerr()).totalChanges).toBe(9);
+  });
+
+  it('rejects a stale selection before changing any membership', async () => {
+    bulkRequesterReleases(10);
+    const remote = mockMaintainerr();
+    await expect(syncMaintainerr({
+      planHash: 'outdated',
+      operations: [{ collectionId: 10, ratingKey: 'bulk-1', action: 'add' }],
+    })).rejects.toThrow('Maintainerr selection is stale.');
+    expect(remote.writes).toEqual([]);
+  });
+
+  it('preserves unselected removals and their ownership', async () => {
+    releasedMedia();
+    const remote = mockMaintainerr({ movieMembers: ['movie-1'], showMembers: ['show-1'] });
+    setMaintainerrManagedItems({ '10': ['movie-1'], '20': ['show-1'] });
+    addKeep('member', 'movie-1');
+    addKeep('member', 'show-1');
+    const preview = await previewMaintainerr();
+    await syncMaintainerr({
+      planHash: preview.planHash,
+      operations: [{ collectionId: 10, ratingKey: 'movie-1', action: 'remove' }],
+    });
+    expect([...remote.members.get(10)!]).toEqual([]);
+    expect([...remote.members.get(20)!]).toEqual(['show-1']);
+    expect(getMaintainerrManagedItems()['20']).toEqual(['show-1']);
+    expect((await previewMaintainerr()).items).toContainEqual(expect.objectContaining({
+      ratingKey: 'show-1', status: 'remove',
+    }));
+  });
+
   it('returns a paused empty preview when the hand-off is not configured', async () => {
     setMaintainerrConfig({
       url: '', movieCollectionId: null, showCollectionId: null,

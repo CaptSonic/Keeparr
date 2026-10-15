@@ -102,16 +102,19 @@ Plex placeholder files.
 - **Automatic Maintainerr watch rules** — in addition to explicit requester
   **OK to delete** marks and closed-campaign releases, Keeparr can stage an
   unprotected title for Maintainerr when either (a) at least one known Seerr
-  requester has not watched it for 180 days (including never), or (b) nobody has
-  watched it for 540 days (including never). These are not Smart Reclaim score
+  requester has not watched it for 180 days by default (including never), or (b) nobody has
+  watched it for 540 days by default (including never). Both rules can be enabled/disabled
+  and their inactivity thresholds changed independently for movies and shows under
+  **Settings → Connections → Maintainerr** (1–3650 days). These are not Smart Reclaim score
   points. Keeparr persistently observes each matching rule first (30 days by
-  default, configurable from 1–365) and only then adds the title to Maintainerr,
+  default, configurable separately for movies and shows from 1–365 days) and only then adds the title to Maintainerr,
   so Maintainerr's own short delete-after period does not start at first detection.
   Each rule has an independent clock; a Keep or a watch that breaks a rule resets
   that clock. Any household Keep always vetoes tracking/hand-off and withdraws a
   Keeparr-owned membership. Untrusted watch data never starts or advances the
   observation period. Explicit releases keep their existing immediate hand-off
-  path (subject to the configured server-wide watch-age gate).
+  path (subject to the configured server-wide watch-age gate). Changing a media kind's
+  automatic rules restarts its observation clocks and clears pending one-time approvals.
 - **Cleanup Campaigns** — admins turn the current Smart Reclaim result into a
   household plan with a reclaim target, review deadline, grace period, and minimum
   score. Creation freezes every matching candidate's title, size, score, reasons,
@@ -522,7 +525,7 @@ Keeparr can mirror eligible titles into dedicated Maintainerr movie and show
 collections while keeping deletion responsibility outside Keeparr. Immediate
 candidates combine requester **OK to delete** marks with reviewed releases from
 closed cleanup campaigns and remain subject to the configured server-wide watch
-age. Automatic candidates use the 180-day requester and 540-day household rules
+age. Automatic candidates use the independently configurable movie/show requester and household rules
 described above, then complete Keeparr's persistent observation period before
 Maintainerr sees them. A live Keep excludes every source immediately:
 

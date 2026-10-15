@@ -1,4 +1,5 @@
 import { getDb } from './db';
+import { defaultMaintainerrRules, type MaintainerrAutomaticRules } from './maintainerr-rules';
 import { FEED_MOVIE_RESERVE_MIN, FEED_MOVIE_RESERVE_RATIO } from './config';
 import type {
   AdminUserRow,
@@ -2255,11 +2256,15 @@ export interface MaintainerrRuleTracking {
  * the query, not a caller convention. Call only while the watch cache is trusted:
  * an empty trusted cache means never watched, while an untrusted cache is unknown.
  */
-export function maintainerrAutomaticRuleMatches(at = now()): MaintainerrRuleMatch[] {
+export function maintainerrAutomaticRuleMatches(
+  at = now(), rules: MaintainerrAutomaticRules = defaultMaintainerrRules()
+): MaintainerrRuleMatch[] {
   return getDb().prepare(
     `SELECT m.*, 'requester_unwatched_180d' AS rule
        FROM media_items m
       WHERE m.removed = 0
+        AND ((m.library_kind = 'movie' AND @movieRequesterEnabled = 1)
+          OR (m.library_kind = 'show' AND @showRequesterEnabled = 1))
         AND NOT EXISTS (SELECT 1 FROM keeps k WHERE k.rating_key = m.rating_key)
         AND EXISTS (
           SELECT 1 FROM seerr_requests sr
@@ -2268,23 +2273,41 @@ export function maintainerrAutomaticRuleMatches(at = now()): MaintainerrRuleMatc
                SELECT 1 FROM watch_history w
                 WHERE w.rating_key = sr.rating_key
                   AND w.plex_user_id = sr.plex_user_id
-                  AND w.last_watched > @requesterCutoff
+                  AND w.last_watched > CASE m.library_kind
+                    WHEN 'movie' THEN @movieRequesterCutoff ELSE @showRequesterCutoff END
              )
         )
       UNION ALL
      SELECT m.*, 'global_unwatched_540d' AS rule
        FROM media_items m
       WHERE m.removed = 0
+        AND ((m.library_kind = 'movie' AND @movieGlobalEnabled = 1)
+          OR (m.library_kind = 'show' AND @showGlobalEnabled = 1))
         AND NOT EXISTS (SELECT 1 FROM keeps k WHERE k.rating_key = m.rating_key)
         AND NOT EXISTS (
           SELECT 1 FROM watch_history w
            WHERE w.rating_key = m.rating_key
-             AND w.last_watched > @globalCutoff
+             AND w.last_watched > CASE m.library_kind
+               WHEN 'movie' THEN @movieGlobalCutoff ELSE @showGlobalCutoff END
         )`
   ).all({
-    requesterCutoff: at - 180 * 86400,
-    globalCutoff: at - 540 * 86400,
+    movieRequesterEnabled: Number(rules.movie.requesterEnabled),
+    showRequesterEnabled: Number(rules.show.requesterEnabled),
+    movieGlobalEnabled: Number(rules.movie.globalEnabled),
+    showGlobalEnabled: Number(rules.show.globalEnabled),
+    movieRequesterCutoff: at - rules.movie.requesterDays * 86400,
+    showRequesterCutoff: at - rules.show.requesterDays * 86400,
+    movieGlobalCutoff: at - rules.movie.globalDays * 86400,
+    showGlobalCutoff: at - rules.show.globalDays * 86400,
   }) as MaintainerrRuleMatch[];
+}
+
+/** Changed rule settings require a new uninterrupted observation period. */
+export function resetMaintainerrRuleTracking(kinds: readonly ('movie' | 'show')[]): void {
+  const remove = getDb().prepare(`DELETE FROM maintainerr_rule_tracking WHERE rating_key IN (
+    SELECT rating_key FROM media_items WHERE library_kind = ?
+  )`);
+  for (const kind of kinds) remove.run(kind);
 }
 
 /** Read the persisted observation clocks without changing them (preview-safe). */
@@ -3083,6 +3106,30 @@ export function setArchiveEpisodesStatus(
     `UPDATE archive_episodes SET status = ?, last_error = ?, updated_at = ?${timestampColumn}
       WHERE instance_id = ? AND episode_id IN (${placeholders})`
   ).run(...params);
+}
+
+export function updateArchiveEpisodePlaceholderPaths(
+  instanceId: string,
+  episodeIds: number[],
+  paths: {
+    placeholderPath: string;
+    placeholderRelPath: string;
+    plexPlaceholderPath: string | null;
+  }
+): void {
+  if (episodeIds.length === 0) return;
+  getDb().prepare(
+    `UPDATE archive_episodes
+       SET placeholder_path = ?, placeholder_rel_path = ?, plex_placeholder_path = ?, updated_at = ?
+     WHERE instance_id = ? AND episode_id IN (${episodeIds.map(() => '?').join(',')})`
+  ).run(
+    paths.placeholderPath,
+    paths.placeholderRelPath,
+    paths.plexPlaceholderPath,
+    now(),
+    instanceId,
+    ...episodeIds
+  );
 }
 
 export function listArchiveEpisodes(options: {

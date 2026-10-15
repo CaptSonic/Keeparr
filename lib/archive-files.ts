@@ -79,6 +79,45 @@ function episodeToken(episodes: SonarrEpisode[]): string {
   return `S${season}${numbers.join('-')}`;
 }
 
+function portableSegments(value: string): string[] {
+  return value.replace(/\\/g, '/').split('/').filter(Boolean);
+}
+
+function seriesFolderName(series: SonarrSeries): string {
+  const segments = series.path ? portableSegments(series.path) : [];
+  return safePathSegment(segments.at(-1) ?? series.title);
+}
+
+function relativeFilePath(series: SonarrSeries, file: SonarrEpisodeFile): string | null {
+  if (file.relativePath) return file.relativePath.replace(/\\/g, '/');
+  if (!series.path || !file.path) return null;
+  const seriesPath = series.path.replace(/\\/g, '/').replace(/\/+$/, '');
+  const filePath = file.path.replace(/\\/g, '/');
+  const prefix = `${seriesPath}/`;
+  if (!filePath.toLocaleLowerCase().startsWith(prefix.toLocaleLowerCase())) return null;
+  return filePath.slice(prefix.length);
+}
+
+function originalSubfolders(
+  series: SonarrSeries,
+  file: SonarrEpisodeFile,
+  seasonNumber: number
+): string[] {
+  const relative = relativeFilePath(series, file);
+  if (!relative) return [`Season ${String(seasonNumber).padStart(2, '0')}`];
+  if (relative.startsWith('/') || /^[A-Za-z]:\//.test(relative)) {
+    throw new Error(`Episode file ${file.id} has an absolute relative path`);
+  }
+  const segments = portableSegments(relative);
+  if (segments.some((segment) => segment === '.' || segment === '..')) {
+    throw new Error(`Episode file ${file.id} has an invalid relative path`);
+  }
+  const directories = segments.slice(0, -1).map(safePathSegment);
+  return directories.length > 0
+    ? directories
+    : [`Season ${String(seasonNumber).padStart(2, '0')}`];
+}
+
 export function buildPlaceholderPlans(input: {
   config: ArchivePlaceholderConfig;
   runId: string;
@@ -89,7 +128,8 @@ export function buildPlaceholderPlans(input: {
   const { config, runId, series, files, episodes } = input;
   validatePlaceholderConfig(config);
   const extension = path.extname(config.templatePath) || '.mkv';
-  const seriesFolder = safePathSegment(series.title);
+  const seriesFolder = seriesFolderName(series);
+  const filenameBase = safePathSegment(series.title);
   return files.map((file) => {
     const mapped = episodes.filter((episode) => episode.episodeFileId === file.id);
     if (mapped.length === 0) throw new Error(`Episode file ${file.id} has no episodes`);
@@ -100,9 +140,12 @@ export function buildPlaceholderPlans(input: {
     if (mapped.some((episode) => episode.seasonNumber !== seasonNumber)) {
       throw new Error(`Episode file ${file.id} spans multiple seasons`);
     }
-    const seasonFolder = `Season ${String(seasonNumber).padStart(2, '0')}`;
-    const filename = `${seriesFolder} - ${episodeToken(mapped)} - Archived${extension}`;
-    const relativePath = path.join(seriesFolder, seasonFolder, filename);
+    const filename = `${filenameBase} - ${episodeToken(mapped)} - Archived${extension}`;
+    const relativePath = path.join(
+      seriesFolder,
+      ...originalSubfolders(series, file, seasonNumber),
+      filename
+    );
     const targetPath = resolveArchivePath(config.archiveRoot, relativePath);
     const plexPath = config.plexArchiveRoot
       ? path.posix.join(config.plexArchiveRoot.replace(/\\/g, '/'),

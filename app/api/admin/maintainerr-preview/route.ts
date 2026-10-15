@@ -4,6 +4,8 @@ import {
   approveCurrentMaintainerrPlan,
   approveCurrentMaintainerrReadd,
   previewMaintainerr,
+  syncMaintainerr,
+  type MaintainerrSelection,
 } from '@/lib/maintainerr';
 import { errorResponse } from '@/lib/route-helpers';
 
@@ -29,7 +31,24 @@ export async function POST(request: Request) {
       action?: string;
       collectionId?: unknown;
       ratingKey?: unknown;
+      planHash?: unknown;
+      operations?: unknown;
     };
+    if (body.action === 'execute-selection') {
+      if (typeof body.planHash !== 'string' || !/^[a-f0-9]{64}$/.test(body.planHash) ||
+          !Array.isArray(body.operations) || body.operations.length === 0 ||
+          body.operations.length > 10000 || !body.operations.every((operation) =>
+            operation && Number.isSafeInteger(operation.collectionId) && operation.collectionId > 0 &&
+            typeof operation.ratingKey === 'string' && operation.ratingKey.length > 0 &&
+            (operation.action === 'add' || operation.action === 'remove'))) {
+        return NextResponse.json({ error: 'bad_request' }, { status: 400 });
+      }
+      const result = await syncMaintainerr({
+        planHash: body.planHash,
+        operations: body.operations as MaintainerrSelection['operations'],
+      });
+      return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store' } });
+    }
     let preview;
     if (body.action === 'approve-mass') {
       preview = await approveCurrentMaintainerrPlan();
@@ -52,6 +71,7 @@ export async function POST(request: Request) {
     return response;
   } catch (error) {
     if (error instanceof Error && (
+      error.message === 'Maintainerr selection is stale.' ||
       error.message === 'Maintainerr plan is not mass-blocked.' ||
       error.message === 'Maintainerr re-add is not currently blocked.'
     )) {
