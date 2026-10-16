@@ -1,6 +1,7 @@
 import {
   extractGuids,
   getAllLeaves,
+  getMovieCollections,
   getMetadataIfPresent,
   getRecentlyAdded,
   getSectionItems,
@@ -48,6 +49,10 @@ export function isAvailableSectionItem(item: PlexMetadata, kind: LibraryKind): b
 
 /** Plex backend: thin adapter over lib/plex.ts so Plex behavior is unchanged. */
 export const plexBackend: MediaBackend = {
+  async movieCollections(sectionId) {
+    const { baseUrl, token } = creds();
+    return getMovieCollections(baseUrl, token, sectionId);
+  },
   async listSections(): Promise<BackendSection[]> {
     const { baseUrl, token } = creds();
     const secs = await getSections(baseUrl, token);

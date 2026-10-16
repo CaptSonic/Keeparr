@@ -7,7 +7,6 @@ import {
   listAutomationReleases,
   maintainerrArchiveExclusions,
   maintainerrAutomaticRuleMatches,
-  maintainerrCollectionBlockedItems,
   maintainerrRuleTracking,
   markedForDeleteItems,
   recentMaintainerrHistory,
@@ -564,10 +563,38 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
     const automaticEligible = item.dueAt !== null && item.dueAt <= generatedAt;
     return watchReady && (explicitEligible || automaticEligible);
   });
-  const collectionBlocked = maintainerrCollectionBlockedItems(
-    new Set(eligibleBeforeCollection.map((item) => item.ratingKey))
-  );
-  // Explicit requester/campaign approvals remain intentional individual actions.
+  const collectionBlocked = new Set<string>();
+  try {
+    const backend = getBackend();
+    if (backend.movieCollections) {
+      const movieLibraries = new Set(selected.filter((item) => item.kind === 'movie')
+        .map((item) => collections.get(item.id)?.libraryId)
+        .filter((id): id is string => id !== undefined));
+      const groups: string[][] = [];
+      for (const sectionId of movieLibraries) groups.push(...await backend.movieCollections(sectionId));
+      const eligible = new Set(eligibleBeforeCollection.map((item) => item.ratingKey));
+      const explicit = new Set(eligibleBeforeCollection.filter((item) => {
+        const watchedAt = latest.get(item.ratingKey);
+        return item.explicitRelease && (watchedAt == null || watchedAt <= cutoff);
+      }).map((item) => item.ratingKey));
+      // A film can be in several collections. Propagate protection through
+      // overlaps so every automatic member of a protected collection stays safe.
+      let changed: boolean;
+      do {
+        changed = false;
+        for (const group of groups) {
+          if (group.every((id) => eligible.has(id))) continue;
+          for (const id of group) {
+            collectionBlocked.add(id);
+            if (!explicit.has(id) && eligible.delete(id)) changed = true;
+          }
+        }
+      } while (changed);
+    }
+  } catch {
+    // Unknown collection membership must not cause additions OR withdrawals.
+    inventory.inventoryReady = false;
+  }
   const desiredCandidates = eligibleBeforeCollection.filter((item) => {
     const watchedAt = latest.get(item.ratingKey);
     const explicitEligible = item.explicitRelease && (watchedAt == null || watchedAt <= cutoff);
@@ -708,8 +735,8 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
           : !inventoryIds.has(item.ratingKey)
             ? 'missing_from_media_server'
             : collectionBlocked.has(item.ratingKey)
-              ? 'radarr_collection_protected'
-            : 'watched_too_recently';
+              ? 'plex_collection_protected'
+              : 'watched_too_recently';
     } else if (item.kept) {
       status = 'blocked_keep';
       reason = 'global_keep';
@@ -721,7 +748,7 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
       reason = 'watch_cache_untrusted';
     } else if (!explicitEligible && collectionBlocked.has(item.ratingKey)) {
       status = 'blocked_keep';
-      reason = 'radarr_collection_protected';
+      reason = 'plex_collection_protected';
     } else if (!explicitEligible && !automaticEligible && item.automaticRules.length > 0) {
       status = 'tracking';
       reason = item.automaticRules.length > 1

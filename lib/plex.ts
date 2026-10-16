@@ -540,6 +540,50 @@ export async function getSectionItems(
   return out;
 }
 
+/** Read actual collection membership, including smart collections, without
+ * relying on movie tags (which do not describe smart collection membership). */
+export async function getMovieCollections(
+  baseUrl: string, token: string, sectionId: string
+): Promise<string[][]> {
+  type CollectionRow = { ratingKey: string | number; key?: string };
+  async function pages(path: string): Promise<CollectionRow[]> {
+    const rows: CollectionRow[] = [];
+    for (;;) {
+      const data = await pmsGet<{
+        MediaContainer: { totalSize?: number; Metadata?: CollectionRow[]; Directory?: CollectionRow[] };
+      }>(baseUrl, `${path}?X-Plex-Container-Start=${rows.length}&X-Plex-Container-Size=200`, token);
+      const container = data.MediaContainer;
+      if (!container || (container.Metadata !== undefined && !Array.isArray(container.Metadata)) ||
+          (container.Directory !== undefined && !Array.isArray(container.Directory))) {
+        throw new Error('Plex returned invalid collection inventory.');
+      }
+      const batch = container.Metadata ?? container.Directory ?? [];
+      if (batch.some((row) => !row || !['string', 'number'].includes(typeof row.ratingKey) ||
+          String(row.ratingKey).length === 0)) {
+        throw new Error('Plex returned an invalid collection member.');
+      }
+      rows.push(...batch);
+      if (container.totalSize !== undefined && rows.length < container.totalSize) {
+        if (batch.length === 0) throw new Error('Plex returned incomplete collection inventory.');
+      } else if (batch.length < 200 || container.totalSize !== undefined) {
+        return rows;
+      }
+    }
+  }
+  const collections = await pages(`/library/sections/${encodeURIComponent(sectionId)}/collections`);
+  const result: string[][] = [];
+  for (const collection of collections) {
+    const key = collection.key?.replace(/\/children$/, '') ??
+      `/library/metadata/${encodeURIComponent(String(collection.ratingKey))}`;
+    if (!/^\/library\/(?:collections|metadata)\/[^/?#]+$/.test(key)) {
+      throw new Error('Plex returned an invalid collection key.');
+    }
+    const members = await pages(`${key}/children`);
+    result.push(members.map((member) => String(member.ratingKey)));
+  }
+  return result;
+}
+
 /**
  * The most recently added items in a section (newest first), capped at `limit`.
  * Cheap alternative to a full scan — used by the Recently Added job to pick up

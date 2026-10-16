@@ -116,14 +116,6 @@ describe('arr normalize (pure, no network)', () => {
     const r = normalizeRadarr({ id: 7, title: 'x', tmdbId: 1 }, inst, new Map());
     expect(r?.quality).toBeNull();
   });
-  it('reads the Radarr TMDB collection id and ignores absent/invalid ids', () => {
-    const movie = { id: 7, title: 'Dune', tmdbId: 438631 };
-    expect(normalizeRadarr({ ...movie, collection: { tmdbId: 726871 } }, inst, new Map())
-      ?.collectionTmdbId).toBe(726871);
-    for (const collection of [null, {}, { tmdbId: 0 }, { tmdbId: -1 }]) {
-      expect(normalizeRadarr({ ...movie, collection }, inst, new Map())?.collectionTmdbId).toBeNull();
-    }
-  });
 });
 
 describe('arr settings (encrypted round-trip)', () => {

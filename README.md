@@ -1,12 +1,12 @@
 # Keeparr
 
-Automatic Maintainerr movie hand-off preserves Radarr film series: every present
-member must be eligible (including its observation period) before automatic
-members are handed off. Keeps, recent watches, other libraries, and downloaded
-unmatched Radarr members can protect the whole series. Explicit requester and
-closed-campaign releases remain individual decisions; foreign manual Maintainerr
-memberships are untouched. Collection metadata is refreshed by the Sonarr/Radarr
-sync; run that sync after upgrading to populate the new cache fields.
+Automatic Maintainerr movie hand-off preserves Plex collections (including smart
+collections). Every present member must be eligible, including its observation
+period. Keeps, recent watches, and unknown members protect the whole collection;
+protection propagates through overlapping collections. Membership is read live
+from Plex; failed reads pause reconciliation. Explicit requester/campaign releases
+remain individual decisions; foreign manual Maintainerr memberships are untouched.
+Radarr film-series metadata is not used for this protection.
 
 A self-hosted web app that makes it dead-simple for a household to decide **what
 media to keep** — and to find what can be safely deleted to reclaim disk space.

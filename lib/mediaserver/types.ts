@@ -41,6 +41,8 @@ export interface WatchRow {
 }
 
 export interface MediaBackend {
+  /** Live Plex collection members in one movie library; absent on other backends. */
+  movieCollections?(sectionId: string): Promise<string[][]>;
   /** All movie/show libraries on the server. */
   listSections(): Promise<BackendSection[]>;
   /** All items in a section. Movies include size; shows need `showSize()`. */

@@ -194,10 +194,10 @@ export default function MaintainerrControlCenter() {
   [data, filter]);
 
   function reasonLabel(item: MaintainerrPreviewItem): string {
-    if (item.reason === 'radarr_collection_protected') {
+    if (item.reason === 'plex_collection_protected') {
       return locale === 'de'
-        ? 'Radarr-Filmreihe geschützt: Nicht alle vorhandenen Filme sind freigegeben'
-        : 'Radarr film series protected: not all present movies are eligible';
+        ? 'Plex-Collection geschützt: Nicht alle vorhandenen Filme sind freigegeben'
+        : 'Plex collection protected: not all present movies are eligible';
     }
     const rules = data?.automaticRules?.[item.libraryKind];
     if (rules) {
