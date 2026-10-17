@@ -545,7 +545,11 @@ export async function getSectionItems(
 export async function getMovieCollections(
   baseUrl: string, token: string, sectionId: string
 ): Promise<string[][]> {
-  type CollectionRow = { ratingKey: string | number; key?: string };
+  type CollectionRow = {
+    ratingKey: string | number;
+    key?: string;
+    Label?: { tag: string }[];
+  };
   async function pages(path: string): Promise<CollectionRow[]> {
     const rows: CollectionRow[] = [];
     for (;;) {
@@ -573,6 +577,20 @@ export async function getMovieCollections(
   const collections = await pages(`/library/sections/${encodeURIComponent(sectionId)}/collections`);
   const result: string[][] = [];
   for (const collection of collections) {
+    // Collection listings do not always include labels. Read the collection
+    // metadata in that case, rather than guessing ownership from its title.
+    let labels = collection.Label;
+    if (labels === undefined) {
+      const metadata = await pages(`/library/metadata/${encodeURIComponent(String(collection.ratingKey))}`);
+      if (metadata.length !== 1 || String(metadata[0].ratingKey) !== String(collection.ratingKey)) {
+        throw new Error('Plex returned invalid collection metadata.');
+      }
+      labels = metadata[0].Label ?? [];
+    }
+    if (!Array.isArray(labels) || labels.some((label) => !label || typeof label.tag !== 'string')) {
+      throw new Error('Plex returned invalid collection labels.');
+    }
+    if (labels.some((label) => label.tag.toLowerCase().startsWith('agregarr'))) continue;
     const key = collection.key?.replace(/\/children$/, '') ??
       `/library/metadata/${encodeURIComponent(String(collection.ratingKey))}`;
     if (!/^\/library\/(?:collections|metadata)\/[^/?#]+$/.test(key)) {

@@ -1,7 +1,9 @@
 # Keeparr
 
 Automatic Maintainerr movie hand-off preserves Plex collections (including smart
-collections). Every present member must be eligible, including its observation
+collections). Agregarr-managed collections (collection labels starting with
+`agregarr`, case-insensitive) are ignored; other collections still protect shared
+movies. Every present member must be eligible, including its observation
 period. Keeps, recent watches, and unknown members protect the whole collection;
 protection propagates through overlapping collections. Membership is read live
 from Plex; failed reads pause reconciliation. Explicit requester/campaign releases

@@ -20,7 +20,10 @@ per-user. See README.md for the feature overview.
 ## Canonical rules
 
 - Automatic Maintainerr movie hand-off preserves live Plex collections, including
-  smart collections. All present members must be eligible including observation;
+  smart collections. Ignore Agregarr-managed collections identified by collection
+  labels starting with `agregarr` (case-insensitive), not by title or movie labels.
+  Read collection metadata when listing labels are absent; failed reads still pause
+  reconciliation. All present members must be eligible including observation;
   protection propagates through overlaps. Unknown members veto automatic hand-off;
   failed collection reads pause reconciliation. Explicit requester/campaign
   releases remain individual decisions. Foreign manual members remain untouched.
