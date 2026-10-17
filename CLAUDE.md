@@ -5,8 +5,11 @@ or settings keys.
 
 ## What Keeparr is
 
-Plex-login web app for deciding what media to **keep** and reporting what can be
-deleted. Tag + report only — **never deletes**. Keep is **per-user** but
+Media-server-login web app (Plex/Jellyfin/Emby) for deciding what media to **keep**
+and reporting what can be reclaimed. Report-only by default. The optional Maintainerr
+bridge changes collection membership, not media files; the separately approved Sonarr
+archive workflow removes episode files through Sonarr and manages only Keeparr-owned
+manifested Plex placeholders directly. Keep is **per-user** but
 protective: an item is kept (safe) if **anyone** keeps it, and you can only
 remove **your own** keep. Per user the states are **mutually exclusive**:
 none / keep / "don't care" / **"OK to delete"** — the last is the original Seerr
@@ -24,9 +27,15 @@ per-user. See README.md for the feature overview.
   then queue archive targets for admin preview/execution only. The archive dashboard
   also shows observing candidates with due dates and candidates awaiting a successful
   sync; these are display-only, never execution targets before maturity.
-  Revalidate current
-  rules, trusted watch data, selected library, and Keep before automatic-source
-  archive execution. Do not create requester releases on behalf of users.
+  Revalidate current rules, trusted watch data, selected library, and Keep before
+  automatic-source archive execution. Do not create requester releases on behalf of users.
+  `automaticArchiveTargets` defaults to mature targets only; `includeObserving`
+  is enabled only for the dashboard. Automatic rows expose `observationStatus`
+  (`waiting_for_sync`/`observing`/`ready`), `firstEligibleAt`, and `dueAt` (Unix
+  seconds, nullable before the first successful sync). Deduplicate matching rules
+  using the earliest persisted due date. Dashboard reads must not mutate clocks.
+  Live-verified automatic matches, not visible Maintainerr preview rows, drive
+  `reconcileMaintainerrRuleTracking`; preserve archive-only clocks across jobs.
 
 - Automatic Maintainerr movie hand-off preserves live Plex collections, including
   smart collections. Ignore Agregarr-managed collections identified by collection
@@ -35,7 +44,8 @@ per-user. See README.md for the feature overview.
   reconciliation. All present members must be eligible including observation;
   protection propagates through overlaps. Unknown members veto automatic hand-off;
   failed collection reads pause reconciliation. Explicit requester/campaign
-  releases remain individual decisions. Foreign manual members remain untouched.
+  releases remain individual decisions. Foreign manual members remain untouched
+  except for archive safety exclusions in Keeparr's target Maintainerr collections.
   `MediaBackend.movieCollections` is optional and implemented only for Plex.
   Radarr film-series metadata is not used for collection protection.
 
@@ -496,8 +506,10 @@ when it has no tvdb/tmdb **and** no imdb.
   `GET/PUT /api/admin/users` (list + grant/revoke admin + enable/disable + the
   `openSignin` toggle; Owner can't be demoted or disabled),
   `POST /api/admin/users/import` (import the Plex shared-user list),
-  `GET/POST/PUT/PATCH /api/admin/archive` (dashboard, preview, execute, manual
-  episode restore). Public-but-secret-authenticated integrations:
+  `GET/POST/PUT/PATCH /api/admin/archive` (dashboard including observing automatic
+  targets and nullable Unix-second due dates; mature-only preview/execute for
+  automatic sources; manual episode restore/placeholder repair).
+  Public-but-secret-authenticated integrations:
   `POST /api/webhooks/plex?token=` (native multipart `payload`, playback events only)
   and `POST /api/webhooks/sonarr?instance=&token=` (Download/ImportComplete cleanup).
 

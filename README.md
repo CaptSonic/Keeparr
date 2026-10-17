@@ -1,25 +1,5 @@
 # Keeparr
 
-Running Sonarr series (`continuing`, `returning`, or `returning series`) are never
-handed to Maintainerr for full-title removal. Mature automatic watch rules queue
-them in the archive dashboard for explicit admin preview and confirmation instead.
-The archive dashboard also lists automatic candidates still under observation,
-with their due date, or awaiting the first successful sync. These rows cannot be
-previewed or executed until observation is complete; opening the dashboard does
-not start or advance observation clocks.
-Only existing episode files are archived; the series is retained. Keeps still veto
-archiving, and automatic archive eligibility is rechecked before execution.
-
-Automatic Maintainerr movie hand-off preserves Plex collections (including smart
-collections). Agregarr-managed collections (collection labels starting with
-`agregarr`, case-insensitive) are ignored; other collections still protect shared
-movies. Every present member must be eligible, including its observation
-period. Keeps, recent watches, and unknown members protect the whole collection;
-protection propagates through overlapping collections. Membership is read live
-from Plex; failed reads pause reconciliation. Explicit requester/campaign releases
-remain individual decisions; foreign manual Maintainerr memberships are untouched.
-Radarr film-series metadata is not used for this protection.
-
 A self-hosted web app that makes it dead-simple for a household to decide **what
 media to keep** — and to find what can be safely deleted to reclaim disk space.
 
@@ -129,6 +109,8 @@ Plex placeholder files.
   points. Keeparr persistently observes each matching rule first (30 days by
   default, configurable separately for movies and shows from 1–365 days) and only then adds the title to Maintainerr,
   so Maintainerr's own short delete-after period does not start at first detection.
+  Running Sonarr series go to the reviewed archive workflow instead of full-title
+  removal; the archive dashboard shows their observation status and due date.
   Each rule has an independent clock; a Keep or a watch that breaks a rule resets
   that clock. Any household Keep always vetoes tracking/hand-off and withdraws a
   Keeparr-owned membership. Untrusted watch data never starts or advances the
@@ -201,7 +183,8 @@ Plex placeholder files.
   anything in *arr. Titles match on stable tvdb/tmdb ids; unmatched titles are fine
   to leave. All of this stays hidden until you connect an instance.
 - **Integrated Plex episode archive** (optional) — after a requester releases a
-  series for `archive_existing`, an admin previews and revalidates the exact Sonarr
+  series for `archive_existing`, or an automatic rule matures for a running Sonarr
+  series, an admin previews and revalidates the exact Sonarr
   file/episode plan. Keeparr stages a copy of an administrator-provided playable
   media file, removes the real files through Sonarr, publishes one Plex-only
   placeholder per physical episode file, and stores a durable SQLite manifest.
@@ -554,8 +537,9 @@ source, including campaign and automatic-rule matches. If Keeparr had already ad
 such a series to its Maintainerr collection, the next hand-off removes that membership.
 This archive safety rule also removes an existing manual membership from the selected
 Keeparr Maintainerr collection; unrelated manual members remain untouched.
-A conflicting **Release title** decision takes precedence and keeps the normal full-title
-Maintainerr workflow active.
+For non-running titles, a conflicting **Release title** decision takes precedence
+and keeps the normal full-title Maintainerr workflow active. Running Sonarr series
+are always excluded from full-title removal, regardless of individual release modes.
 
 After a fully successful Seerr request refresh, active media without a known Seerr
 requester is assigned to the configured Keeparr Owner/Admin (for example
@@ -605,6 +589,27 @@ Three additional safeguards protect Maintainerr's grace periods and large plans:
   Repeated identical pause/block events are limited to one per six hours; the most
   recent 1000 events are retained and the Control Center shows the newest 100.
 
+#### Plex movie collection protection
+
+Automatic movie hand-off preserves Plex collections, including smart collections.
+Every present collection member must satisfy the hand-off rules, including its
+observation period. A Keep, an ineligible movie, or an unknown member protects the
+whole collection. Protection propagates through overlapping collections.
+
+Agregarr-managed collections are ignored: Keeparr checks **collection labels**
+starting with `agregarr` (case-insensitive), not collection titles or labels on
+individual movies. Missing listing labels are read from collection metadata. A
+movie in both an ignored Agregarr collection and a normal collection is still
+protected by the normal collection.
+
+Membership is read live from every selected movie library, even when no movie is
+currently eligible. Failed collection reads pause both additions and withdrawals.
+Explicit requester/campaign releases remain individual decisions, subject to the
+normal Keep and watch-age checks. This protection is Plex-only; Radarr film-series
+metadata is not used, and it is not implemented for Jellyfin/Emby.
+
+#### Live checks and membership safety
+
 Each hand-off resolves every candidate directly against the media server before
 writing Maintainerr memberships. Titles deleted since Keeparr's last full library
 scan and Plex metadata whose file parts are unavailable are excluded immediately.
@@ -622,7 +627,8 @@ visible collections can take longer than ordinary connector health checks.
 The job validates every selected collection and reads every membership before
 writing. It removes no-longer-released Keeparr-owned memberships first, then adds
 new releases as manual members. Existing members that Keeparr did not add are
-never removed. It calls only Maintainerr's internal collection membership
+left untouched except for archive-workflow safety exclusions in Keeparr's target
+collections, as described above. It calls only Maintainerr's internal collection membership
 endpoints — never collection handling, media deletion, Servarr deletion, or Seerr
 deletion. The job hard-fails before writing if **Use rules** is enabled, a
 collection is inactive or wrongly typed, or *arr tagging is on. Keeparr does not
@@ -655,6 +661,43 @@ curl -H "X-Api-Key: <key>" \
 
 **Telemetry: none.** Keeparr never phones home; its only outbound call beyond
 your own services is the GitHub release check for the update notice.
+
+### Series archive suggestions and observation
+
+Open **Settings → Archive → Pending series** (German: **Archivierung → Ausstehende
+Serien**) for explicit archive releases and automatic running-series suggestions.
+Sonarr statuses `continuing`, `returning`, and `returning series` identify running
+series, which must never enter Maintainerr full-title removal. After admin preview
+and confirmation, only existing episode files are removed through Sonarr; the series
+itself is retained. Archiving is not a backup of the original files: restore requests
+a new download through Sonarr.
+
+Automatic suggestions require an enabled Maintainerr hand-off, a selected show
+collection/library, an enabled matching automatic show rule, trusted watch data,
+and no household Keep. Sonarr matching/status comes from the *arr sync. The list
+shows candidates before their observation period is complete:
+
+| Status | Meaning | Preview/execution |
+| --- | --- | --- |
+| Waiting for successful sync / Wartet auf erfolgreichen Sync | A rule matches, but no persisted observation clock exists yet. | Blocked |
+| Observing · due … / In Beobachtung · fällig am … | Observation is running; the date is based on its persisted start and the configured show observation period. | Blocked |
+| Ready for preview / Bereit zur Vorschau | At least one matching rule has completed observation. | Admin preview and confirmation still required |
+
+Opening or refreshing the dashboard does not start, advance, or reset observation.
+Only a successful **Maintainerr hand-off** job with trusted watch data and successful
+live checks persists the clocks, including those for archive-only series. Both preview
+and execution recheck automatic eligibility; direct API calls cannot bypass the
+observation period. Explicit requester archive releases retain their separate consent
+path and do not require automatic-rule observation.
+
+If the list is empty, check the automatic show rules and selected library under
+**Settings → Connections → Maintainerr**, Sonarr matching in the *arr cache, household
+Keeps, and the watch and Maintainerr jobs under **Settings → Jobs**. After updating,
+run the relevant syncs and refresh the archive page. Already-existing Maintainerr
+memberships remain visible in its Control Center as removal operations until a
+successful hand-off removes them; this does not make them new full-title candidates.
+If a previous version reset an observation clock, the next successful sync starts a
+fresh period rather than bypassing the safety delay.
 
 ## Health checks
 

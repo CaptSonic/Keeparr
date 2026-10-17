@@ -5,11 +5,31 @@ Sonarr/Radarr (Servarr) and Overseerr/Jellyseerr/Seerr (July 2026 research pass)
 Core keep/reclaim functionality is considered complete; these are the "edge"
 features self-hosters expect.
 
-**Status (July 2026):** Tiers 1 and 2 are implemented, merged to `main`, and
-shipping — continuous delivery tags a release + publishes a ghcr image on every
-push (v0.2.x–v0.3.x are live). Tier 3 is deliberately parked — decided July
-2026 that none of it is needed for how Keeparr is used today; revisit on real
-demand.
+**Current status:** Tiers 1 and 2, localization, Smart Reclaim, Cleanup Campaigns,
+the optional Maintainerr hand-off, and reviewed Sonarr archiving are implemented.
+Continuous delivery publishes releases/images from `main`. The historical tiers
+below record earlier planning; the completed retention workflows are summarized
+separately. Remaining Tier 3 ideas are parked until there is real demand.
+
+## Retention automation and reviewed archiving — implemented
+
+- [x] **Safe Maintainerr hand-off** — explicit requester/campaign releases plus
+  automatic movie/show watch rules, persistent per-rule observation, live inventory
+  checks, ownership tracking, mass-change approval, re-add protection, and audit history.
+- [x] **Plex collection protection** — live regular/smart collection membership,
+  whole-group eligibility and overlap propagation; collection-label-based Agregarr
+  exclusions. No Radarr film-series dependency. Failed reads pause reconciliation.
+- [x] **Running-series archive routing** — continuing/returning Sonarr series are
+  excluded from full-title Maintainerr removal. Mature rules feed the admin-reviewed
+  episode archive workflow without inventing requester consent.
+- [x] **Observation visibility** — the archive dashboard shows waiting-for-sync,
+  observing with due date, and ready states. Early preview/execution stays blocked;
+  read-only dashboard refreshes never change observation clocks.
+- [x] **Plex placeholders and restore** — durable manifests, approved Sonarr file
+  removal, Plex-only placeholders, and Sonarr download-based restore. Archiving
+  retains the series but does not back up the original episode files.
+
+See README.md for setup, prerequisites, safety exceptions, and troubleshooting.
 
 ## Tier 1 — done (v0.2.0)
 
@@ -41,7 +61,7 @@ demand.
   + apple-touch), Keep/Browse/Big Picture shortcuts.
 - [x] **`?` keyboard-shortcuts overlay** (+ `/` focuses search).
 
-## Localization — done (post-v0.5.0, unreleased)
+## Localization — implemented
 
 - [x] **German and English UI** — browser detection (`de*` → German, all other
   locales → English), manual switchers on login and in the app shell, anonymous
@@ -53,8 +73,7 @@ demand.
 - [x] **Contract and regression coverage** — locale helper tests, real-SQL route
   tests for preference validation/persistence/auth, and OpenAPI documentation.
 
-This section describes the current uncommitted work after v0.5.0; it is not yet a
-published release.
+Localization is part of the current application, not pending uncommitted work.
 
 ## Tier 3 — parked (decided July 2026: not needed for now)
 
@@ -74,38 +93,33 @@ published release.
   (Authelia/Authentik). Loudest open auth wish across all three peer projects;
   Keeparr's media-server login sidesteps most of the need.
 - **Prometheus `/metrics` endpoint** — niche but rising expectation.
-- **Maintainerr integration** — Keeparr collects the human decisions;
+- **Maintainerr integration — implemented, no longer parked** — Keeparr collects the human decisions;
   [Maintainerr](https://github.com/jorenn92/Maintainerr) executes deletions
   (rules → collections → grace period → delete/unmonitor/clear-request).
   Hooking them together closes the loop while preserving Keeparr's
-  never-deletes stance: Keeparr marks what's safe to reclaim, Maintainerr does
-  the maintenance. Candidate mechanisms (research when un-parked): Keeparr
-  applies a **Plex label/collection** (e.g. `keeparr-release`) to titles that
-  are OK-to-delete + kept by nobody, which a Maintainerr rule can match; or
-  push via Maintainerr's API if it grows an external-source rule input. Needs
-  care: the label must be REMOVED the moment anyone keeps the title (keeps are
-  protective), and this would be Keeparr's first write to the media server —
-  gate it behind an explicit opt-in setting.
+  separation of responsibilities: Keeparr reconciles safe internal memberships;
+  Maintainerr owns its actions and grace periods. The separate reviewed archive
+  workflow removes existing episode files through Sonarr, never entire running series.
 
-  **Safe test hand-off implemented:** Keeparr can reconcile requester sign-offs
+  **Safe hand-off implemented:** Keeparr can reconcile requester sign-offs
   plus closed-campaign, currently unprotected releases into selected Maintainerr movie
   and show collections. It only changes Maintainerr's internal membership,
-  tracks ownership so foreign manual members are untouched, removes keep-vetoed
+  tracks ownership so foreign manual members are untouched except for archive safety
+  exclusions in Keeparr's target collections, removes keep-vetoed
   items first, and hard-blocks unless rules and *arr tagging are disabled.
   Maintainerr owns collection visibility, action, and grace period; Keeparr never
   invokes Maintainerr handling or deletion APIs.
 
 Of these, **notifications** delivers the most day-to-day value if ever
 un-parked (a weekly reclaimable digest fits Keeparr's purpose),
-**read-only guest** is the cheapest to build, and **Maintainerr integration**
-is the most strategically interesting (turns Keeparr's report into automated
-maintenance without Keeparr itself ever deleting).
+**read-only guest** is the cheapest to build. Maintainerr integration has already
+shipped; further automation must retain the explicit opt-ins and safety checks.
 
 ## Next-level workflow — Smart Reclaim Queue and Cleanup Campaigns done
 
 The strongest product-level next step is a guided workflow from Keeparr's
 existing reclaim insights to a household-reviewed action list — while keeping
-the core promise that Keeparr **never deletes media itself**.
+the report-only default and explicit review/opt-in boundaries for external writes.
 
 Delivery stages:
 
@@ -127,7 +141,7 @@ Delivery stages:
    otherwise unprotected title; the live global rule **any keep wins** remains a veto,
    including after closure. Dynamic planned/reviewed/released/protected item + byte
    totals, admin CSV export, audit events, and close-after-grace complete the report
-   workflow. Keeparr still never deletes or mutates external media.
+   workflow. Campaign review itself never deletes or mutates external media.
 3. [x] **Optional automation bridge (read-only pull)** — implemented July 2026.
    A separate admin opt-in exposes `GET /api/automation/releases` to an admin
    session or the existing automation API key. It returns only reviewed titles
@@ -135,9 +149,9 @@ Delivery stages:
    one latest campaign record per media item and stable external ids where known.
    Responses are live and `no-store`, so any keep removes the title on the next
    pull. This phase is deliberately report-only: no webhook, media-server label,
-   Maintainerr write, or deletion is performed. A future push/label transport
-   would be a separate opt-in project and must preserve the same immediate keep
-   veto semantics.
+   Maintainerr write, or deletion is performed by this read-only endpoint. The
+   separately implemented Maintainerr hand-off is its own opt-in and preserves
+   the live Keep veto.
 
 Suggested order after the first queue: validate Jellyfin/Emby against live
 servers, add storage-history snapshots, then add an in-app weekly reclaim

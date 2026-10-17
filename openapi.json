@@ -785,6 +785,7 @@
       "get": {
         "tags": ["admin"],
         "summary": "Pending Sonarr archive targets and durable audit history",
+        "description": "Read-only dashboard returning explicit archive releases and automatic running-series candidates, including candidates still observing or waiting for a successful sync. Automatic suggestions require enabled hand-off/show rules, a selected show library, trusted watch data, and no Keep. Automatic target fields include observationStatus (waiting_for_sync, observing, ready), firstEligibleAt, and dueAt (Unix seconds; null before the first successful sync). Dashboard reads never start or advance observation. Only mature automatic targets may be previewed/executed; explicit requester releases use their separate consent path.",
         "security": [{ "cookieAuth": [] }],
         "responses": { "200": { "description": "`{targets, runs, episodes}`" } }
       },
@@ -802,7 +803,7 @@
       "put": {
         "tags": ["admin"],
         "summary": "Execute one persisted Sonarr archive preview",
-        "description": "Rechecks consent and the exact Sonarr plan. When integrated placeholders are enabled, Keeparr validates/stages the playable template and durable manifest before deleting through Sonarr, then atomically publishes placeholders after Sonarr verification.",
+        "description": "Rechecks consent and the exact Sonarr plan. Automatic-source previews and execution also require current matching show rules, completed persisted observation, trusted watch data, the selected library, and no Keep; dashboard-only observing rows cannot bypass these checks. When integrated placeholders are enabled, Keeparr validates/stages the playable template and durable manifest before deleting through Sonarr, then atomically publishes placeholders after Sonarr verification. Only existing episode files are removed; running series are retained. Restore requests a new Sonarr download rather than recovering a backup of the original file.",
         "security": [{ "cookieAuth": [] }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": { "runId": { "type": "string", "format": "uuid" } }, "required": ["runId"] } } } },
         "responses": {
