@@ -236,6 +236,13 @@ describe('Maintainerr safe hand-off', () => {
     await syncMaintainerr();
     expect(remote.members.get(20)!.has('requester-show')).toBe(false);
     expect(maintainerrRuleTracking()).toContainEqual(expect.objectContaining({ ratingKey: 'requester-show' }));
+    const firstEligibleAt = maintainerrRuleTracking().find((row) => row.ratingKey === 'requester-show')!.firstEligibleAt;
+    // Subsequent jobs must preserve the clock after the remote removal. The
+    // archive-only title no longer appears anywhere in the Maintainerr preview.
+    vi.setSystemTime((BASE + 10 * 86400) * 1000);
+    await syncMaintainerr();
+    expect((await previewMaintainerr()).items).not.toContainEqual(expect.objectContaining({ ratingKey: 'requester-show' }));
+    expect(maintainerrRuleTracking()).toContainEqual(expect.objectContaining({ ratingKey: 'requester-show', firstEligibleAt }));
     vi.setSystemTime((BASE + 30 * 86400) * 1000);
     expect((await archiveDashboard()).targets).toContainEqual(expect.objectContaining({
       ratingKey: 'requester-show', effectiveMode: 'archive_existing', requestedModes: [],
@@ -247,6 +254,7 @@ describe('Maintainerr safe hand-off', () => {
     });
     await syncMaintainerr();
     expect(remote.members.get(20)!.has('requester-show')).toBe(false);
+    expect((await archiveDashboard()).targets).toContainEqual(expect.objectContaining({ ratingKey: 'requester-show' }));
     writeSetting('watch_source_fingerprint', 'untrusted');
     expect((await archiveDashboard()).targets).toEqual([]);
     writeSetting('watch_source_fingerprint', getWatchSourceFingerprint()!);
@@ -260,6 +268,24 @@ describe('Maintainerr safe hand-off', () => {
     expect((await archiveDashboard()).targets).toEqual([]);
     expect(await previewArchive('requester-show', 'admin')).toMatchObject({ ready: false });
     expect(await executeArchive('automatic-preview', 'admin')).toMatchObject({ ok: false });
+  });
+
+  it('does not mature archive-only series that are missing from the live inventory', async () => {
+    requesterReleasedMedia();
+    removeDelete('requester', 'requester-show');
+    replaceArrItems([{
+      ratingKey: 'requester-show', source: 'sonarr', instanceId: 'sonarr', instanceName: 'Sonarr',
+      arrId: 4, monitored: true, status: 'continuing', quality: null, qualityKind: 'profile',
+      rootFolder: null, arrSizeBytes: 15 * GB, tags: [],
+    }]);
+    mockMaintainerr();
+    await syncMaintainerr();
+    expect(maintainerrRuleTracking()).toContainEqual(expect.objectContaining({ ratingKey: 'requester-show' }));
+    fakeBackend.itemExists = async (ratingKey) => ratingKey !== 'requester-show';
+    vi.setSystemTime((BASE + 30 * 86400) * 1000);
+    await syncMaintainerr();
+    expect(maintainerrRuleTracking()).not.toContainEqual(expect.objectContaining({ ratingKey: 'requester-show' }));
+    expect((await archiveDashboard()).targets).toEqual([]);
   });
 
   function plexCollectionMedia(): void {

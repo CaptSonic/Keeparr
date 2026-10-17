@@ -544,21 +544,29 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
     ratingKey: item.rating_key,
     rule: item.rule,
   }));
-  const candidates = maintainerrCandidates(
-    automaticRuleMatches.filter((item) => !archiveExclusions.has(item.rating_key)),
+  const trackedCandidates = maintainerrCandidates(
+    automaticRuleMatches,
     archiveExclusions,
     config.automaticRules,
     generatedAt
   );
-  const selectedCandidates = candidates.items.filter((item) =>
+  const candidates = {
+    ...trackedCandidates,
+    items: trackedCandidates.items.filter((item) => !archiveExclusions.has(item.ratingKey)),
+  };
+  // Running series need live availability checks and observation clocks too,
+  // even though they must never appear as full-title hand-off candidates.
+  const selectedCandidates = trackedCandidates.items.filter((item) =>
     selectedLibraries.has(`${item.libraryKind}\0${item.sectionId}`)
   );
   const eligibleCandidates = selectedCandidates.filter((item) => !item.kept);
   const inventory = await liveInventoryCandidates(eligibleCandidates);
   const inventoryIds = new Set(inventory.items.map((item) => item.ratingKey));
+  const liveAutomaticMatches = automaticMatches.filter((item) => inventoryIds.has(item.ratingKey));
   const latest = latestWatchedAtByItem();
   const cutoff = generatedAt - config.watchAgeDays * 86400;
   const eligibleBeforeCollection = inventory.items.filter((item) => {
+    if (archiveExclusions.has(item.ratingKey)) return false;
     const watchedAt = latest.get(item.ratingKey);
     const explicitEligible = item.explicitRelease &&
       (watchedAt == null || watchedAt <= cutoff);
@@ -879,7 +887,7 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
     ),
     summary,
   };
-  return { preview, targets, automaticMatches };
+  return { preview, targets, automaticMatches: liveAutomaticMatches };
 }
 
 /** Read-only dry run used by the Maintainerr Control Center. */
@@ -984,13 +992,8 @@ export async function syncMaintainerr(selection?: MaintainerrSelection): Promise
   // successful live inventory checks advances or resets automatic-rule clocks.
   // Missing media is excluded so stale inventory cannot mature into a hand-off.
   if (preview.watchReady) {
-    const available = new Set(
-      preview.items
-        .filter((item) => item.reason !== 'missing_from_media_server')
-        .map((item) => item.ratingKey)
-    );
     reconcileMaintainerrRuleTracking(
-      automaticMatches.filter((match) => available.has(match.ratingKey)),
+      automaticMatches,
       preview.generatedAt
     );
   } else {
