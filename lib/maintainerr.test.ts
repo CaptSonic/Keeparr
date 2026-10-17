@@ -232,11 +232,26 @@ describe('Maintainerr safe hand-off', () => {
       rootFolder: null, arrSizeBytes: 15 * GB, tags: [],
     }]);
     const remote = mockMaintainerr({ showMembers: ['requester-show'] });
-    expect((await archiveDashboard()).targets).toEqual([]);
+    expect((await archiveDashboard()).targets).toContainEqual(expect.objectContaining({
+      ratingKey: 'requester-show', observationStatus: 'waiting_for_sync', dueAt: null,
+    }));
+    expect(await previewArchive('requester-show', 'admin')).toMatchObject({ ready: false });
+    expect(maintainerrRuleTracking()).toEqual([]);
     await syncMaintainerr();
     expect(remote.members.get(20)!.has('requester-show')).toBe(false);
     expect(maintainerrRuleTracking()).toContainEqual(expect.objectContaining({ ratingKey: 'requester-show' }));
     const firstEligibleAt = maintainerrRuleTracking().find((row) => row.ratingKey === 'requester-show')!.firstEligibleAt;
+    const dueAt = firstEligibleAt + getMaintainerrConfig().automaticRules.show.observationDays * 86400;
+    expect((await archiveDashboard()).targets).toContainEqual(expect.objectContaining({
+      ratingKey: 'requester-show', observationStatus: 'observing', firstEligibleAt, dueAt,
+    }));
+    expect(await previewArchive('requester-show', 'admin')).toMatchObject({ ready: false });
+    createArchiveRun({
+      id: 'too-early-preview', ratingKey: 'requester-show', requestedBy: 'admin',
+      releaseMode: 'archive_existing', status: 'previewed', instanceId: 'sonarr', arrId: 4,
+      planHash: 'previous-plan', preview: {},
+    });
+    expect(await executeArchive('too-early-preview', 'admin')).toMatchObject({ ok: false });
     // Subsequent jobs must preserve the clock after the remote removal. The
     // archive-only title no longer appears anywhere in the Maintainerr preview.
     vi.setSystemTime((BASE + 10 * 86400) * 1000);
@@ -245,7 +260,7 @@ describe('Maintainerr safe hand-off', () => {
     expect(maintainerrRuleTracking()).toContainEqual(expect.objectContaining({ ratingKey: 'requester-show', firstEligibleAt }));
     vi.setSystemTime((BASE + 30 * 86400) * 1000);
     expect((await archiveDashboard()).targets).toContainEqual(expect.objectContaining({
-      ratingKey: 'requester-show', effectiveMode: 'archive_existing', requestedModes: [],
+      ratingKey: 'requester-show', effectiveMode: 'archive_existing', requestedModes: [], observationStatus: 'ready', dueAt,
     }));
     createArchiveRun({
       id: 'automatic-preview', ratingKey: 'requester-show', requestedBy: 'admin',
@@ -285,7 +300,10 @@ describe('Maintainerr safe hand-off', () => {
     vi.setSystemTime((BASE + 30 * 86400) * 1000);
     await syncMaintainerr();
     expect(maintainerrRuleTracking()).not.toContainEqual(expect.objectContaining({ ratingKey: 'requester-show' }));
-    expect((await archiveDashboard()).targets).toEqual([]);
+    expect((await archiveDashboard()).targets).toContainEqual(expect.objectContaining({
+      ratingKey: 'requester-show', observationStatus: 'waiting_for_sync', dueAt: null,
+    }));
+    expect(await previewArchive('requester-show', 'admin')).toMatchObject({ ready: false });
   });
 
   function plexCollectionMedia(): void {

@@ -21,7 +21,10 @@ per-user. See README.md for the feature overview.
 
 - Running Sonarr series (`continuing`/`returning`/`returning series`) must never
   enter Maintainerr full-title removal. Track automatic observation normally,
-  then queue archive targets for admin preview/execution only. Revalidate current
+  then queue archive targets for admin preview/execution only. The archive dashboard
+  also shows observing candidates with due dates and candidates awaiting a successful
+  sync; these are display-only, never execution targets before maturity.
+  Revalidate current
   rules, trusted watch data, selected library, and Keep before automatic-source
   archive execution. Do not create requester releases on behalf of users.
 

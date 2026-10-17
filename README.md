@@ -3,6 +3,10 @@
 Running Sonarr series (`continuing`, `returning`, or `returning series`) are never
 handed to Maintainerr for full-title removal. Mature automatic watch rules queue
 them in the archive dashboard for explicit admin preview and confirmation instead.
+The archive dashboard also lists automatic candidates still under observation,
+with their due date, or awaiting the first successful sync. These rows cannot be
+previewed or executed until observation is complete; opening the dashboard does
+not start or advance observation clocks.
 Only existing episode files are archived; the series is retained. Keeps still veto
 archiving, and automatic archive eligibility is rechecked before execution.
 

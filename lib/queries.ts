@@ -2810,6 +2810,9 @@ export interface ArchiveTarget {
   instanceId: string | null;
   instanceName: string | null;
   arrId: number | null;
+  observationStatus?: 'waiting_for_sync' | 'observing' | 'ready';
+  firstEligibleAt?: number | null;
+  dueAt?: number | null;
 }
 
 /** Running series can only archive existing files. For other titles,
@@ -2889,7 +2892,7 @@ export function listArchiveTargets(): ArchiveTarget[] {
 /** Read-only queue: current rules AND their persisted observation clock must
  * still match. Callers must additionally require trusted watch data. */
 export function automaticArchiveTargets(
-  at: number, rules: MaintainerrAutomaticRules, sectionId: string
+  at: number, rules: MaintainerrAutomaticRules, sectionId: string, includeObserving = false
 ): ArchiveTarget[] {
   const returning = returningSeriesIds();
   const clocks = new Map(maintainerrRuleTracking().map((row) =>
@@ -2898,7 +2901,12 @@ export function automaticArchiveTargets(
   for (const item of maintainerrAutomaticRuleMatches(at, rules)) {
     if (!returning.has(item.rating_key) || item.section_id !== sectionId) continue;
     const first = clocks.get(`${item.rating_key}\0${item.rule}`);
-    if (first === undefined || first + rules.show.observationDays * 86400 > at) continue;
+    const dueAt = first === undefined ? null : first + rules.show.observationDays * 86400;
+    const observationStatus = dueAt === null ? 'waiting_for_sync' : dueAt > at ? 'observing' : 'ready';
+    if (!includeObserving && observationStatus !== 'ready') continue;
+    const previous = targets.get(item.rating_key);
+    if (previous && previous.dueAt !== null && previous.dueAt !== undefined &&
+        (dueAt === null || previous.dueAt <= dueAt)) continue;
     const arr = getDb().prepare(
       `SELECT instance_id, instance_name, arr_id FROM arr_items
         WHERE rating_key = ? AND source = 'sonarr'`
@@ -2909,6 +2917,7 @@ export function automaticArchiveTargets(
       guidImdb: null, keptByAnyone: false,
       effectiveMode: 'archive_existing', requestedModes: [],
       instanceId: arr.instance_id, instanceName: arr.instance_name, arrId: arr.arr_id,
+      observationStatus, firstEligibleAt: first ?? null, dueAt,
     });
   }
   return [...targets.values()];

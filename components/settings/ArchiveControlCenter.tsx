@@ -12,6 +12,8 @@ interface Target {
   keptByAnyone: boolean;
   effectiveMode: string;
   instanceName: string | null;
+  observationStatus?: 'waiting_for_sync' | 'observing' | 'ready';
+  dueAt?: number | null;
 }
 
 interface Preview {
@@ -353,6 +355,15 @@ export default function ArchiveControlCenter() {
                   <td className="p-2">
                     {target.keptByAnyone ? (
                       <span className="text-amber-300">Keep-Veto</span>
+                    ) : target.observationStatus === 'waiting_for_sync' ? (
+                      <span className="text-amber-300">{de ? 'Wartet auf erfolgreichen Sync' : 'Waiting for successful sync'}</span>
+                    ) : target.observationStatus === 'observing' ? (
+                      <span className="text-amber-300">
+                        {de ? 'In Beobachtung · fällig am ' : 'Observing · due '}
+                        {target.dueAt != null ? formatDate(target.dueAt * 1000, locale) : '—'}
+                      </span>
+                    ) : target.observationStatus === 'ready' ? (
+                      <span className="text-emerald-300">{de ? 'Bereit zur Vorschau' : 'Ready for preview'}</span>
                     ) : (
                       target.effectiveMode
                     )}
@@ -363,6 +374,7 @@ export default function ArchiveControlCenter() {
                       disabled={
                         !!busy ||
                         target.keptByAnyone ||
+                        (target.observationStatus !== undefined && target.observationStatus !== 'ready') ||
                         target.effectiveMode !== 'archive_existing'
                       }
                       onClick={() => createPreview(target.ratingKey)}
@@ -384,8 +396,8 @@ export default function ArchiveControlCenter() {
         {targets.length === 0 && (
           <p className="py-4 text-sm text-slate-500">
             {de
-              ? 'Keine Serien zur Archivierung freigegeben.'
-              : 'No series released for archiving.'}
+              ? 'Keine freigegebenen oder automatisch geeigneten Serien. Automatische Vorschläge benötigen aktivierte Serienregeln, eine ausgewählte Serienbibliothek und vertrauenswürdige Wiedergabedaten.'
+              : 'No released or automatically eligible series. Automatic suggestions require enabled series rules, a selected series library, and trusted watch data.'}
           </p>
         )}
       </Card>

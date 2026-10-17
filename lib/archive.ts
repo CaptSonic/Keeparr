@@ -219,7 +219,7 @@ function blocked(
   };
 }
 
-async function currentArchiveTargets() {
+async function currentArchiveTargets(includeObserving = false) {
   const targets = new Map(listArchiveTargets().map((target) => [target.ratingKey, target]));
   const config = getMaintainerrConfig();
   if (config.enabled && config.url && config.showCollectionId && getReclaimSignalReadiness().watch) {
@@ -227,7 +227,7 @@ async function currentArchiveTargets() {
     const selected = collections.find((collection) => collection.id === config.showCollectionId && collection.type === 'show');
     if (selected) {
       for (const target of automaticArchiveTargets(
-        Math.floor(Date.now() / 1000), config.automaticRules, selected.libraryId
+        Math.floor(Date.now() / 1000), config.automaticRules, selected.libraryId, includeObserving
       )) {
         if (!targets.has(target.ratingKey)) targets.set(target.ratingKey, target);
       }
@@ -243,7 +243,7 @@ async function currentArchiveTarget(ratingKey: string) {
 
 export async function archiveDashboard() {
   return {
-    targets: await currentArchiveTargets(),
+    targets: await currentArchiveTargets(true),
     runs: recentArchiveRuns(50),
     episodes: listArchiveEpisodes({ statuses: ['archived', 'restoring', 'failed'] }),
   };
