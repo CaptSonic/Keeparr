@@ -1698,7 +1698,8 @@ export function markedForDeleteItems(): MarkedForDeleteItem[] {
 
 /**
  * Titles whose current household decision is Sonarr archiving rather than full
- * title removal. A single remove_title decision wins, matching getArchiveTarget.
+ * title removal, plus running series regardless of individual release modes.
+ * For other titles a single remove_title decision wins, matching getArchiveTarget.
  * Maintainerr must never receive these titles because its collection action can
  * remove the complete series instead of only the archived episode files.
  */
@@ -1710,6 +1711,17 @@ export function maintainerrArchiveExclusions(): Set<string> {
      HAVING SUM(CASE WHEN release_mode = 'remove_title' THEN 1 ELSE 0 END) = 0
         AND SUM(CASE WHEN release_mode IN ('archive_existing', 'archive_completed')
                      THEN 1 ELSE 0 END) > 0`
+  ).all() as { rating_key: string }[];
+  return new Set([...rows.map((row) => row.rating_key), ...returningSeriesIds()]);
+}
+
+/** Running series must never enter a full-title removal collection. */
+export function returningSeriesIds(): Set<string> {
+  const rows = getDb().prepare(
+    `SELECT m.rating_key FROM media_items m
+       JOIN arr_items a ON a.rating_key = m.rating_key AND a.source = 'sonarr'
+      WHERE m.removed = 0 AND m.library_kind = 'show'
+        AND LOWER(TRIM(a.status)) IN ('returning', 'returning series', 'continuing')`
   ).all() as { rating_key: string }[];
   return new Set(rows.map((row) => row.rating_key));
 }
@@ -2800,8 +2812,8 @@ export interface ArchiveTarget {
   arrId: number | null;
 }
 
-/** Less destructive consent wins. remove_title is a hand-off signal only and
- * therefore blocks Keeparr from deleting files when users chose different modes. */
+/** Running series can only archive existing files. For other titles,
+ * remove_title blocks Keeparr from deleting files when users chose different modes. */
 export function getArchiveTarget(ratingKey: string): ArchiveTarget | null {
   const row = getDb()
     .prepare(
@@ -2833,11 +2845,13 @@ export function getArchiveTarget(ratingKey: string): ArchiveTarget | null {
     | undefined;
   if (!row) return null;
   const requestedModes = row.modes.split(',').filter(Boolean) as ReleaseMode[];
-  const effectiveMode: ReleaseMode = requestedModes.includes('remove_title')
-    ? 'remove_title'
-    : requestedModes.includes('archive_existing')
-      ? 'archive_existing'
-      : 'archive_completed';
+  const effectiveMode: ReleaseMode = returningSeriesIds().has(ratingKey)
+    ? 'archive_existing'
+    : requestedModes.includes('remove_title')
+      ? 'remove_title'
+      : requestedModes.includes('archive_existing')
+        ? 'archive_existing'
+        : 'archive_completed';
   return {
     ratingKey: row.rating_key,
     title: row.title,
@@ -2861,6 +2875,8 @@ export function listArchiveTargets(): ArchiveTarget[] {
       `SELECT rating_key, MAX(marked_at) AS latest
          FROM user_deletes
         WHERE release_mode IN ('archive_existing', 'archive_completed')
+           OR rating_key IN (SELECT rating_key FROM arr_items WHERE source = 'sonarr'
+                AND LOWER(TRIM(status)) IN ('returning', 'returning series', 'continuing'))
         GROUP BY rating_key
         ORDER BY latest DESC`
     )
@@ -2868,6 +2884,34 @@ export function listArchiveTargets(): ArchiveTarget[] {
   return keys
     .map((row) => getArchiveTarget(row.rating_key))
     .filter((value): value is ArchiveTarget => value !== null);
+}
+
+/** Read-only queue: current rules AND their persisted observation clock must
+ * still match. Callers must additionally require trusted watch data. */
+export function automaticArchiveTargets(
+  at: number, rules: MaintainerrAutomaticRules, sectionId: string
+): ArchiveTarget[] {
+  const returning = returningSeriesIds();
+  const clocks = new Map(maintainerrRuleTracking().map((row) =>
+    [`${row.ratingKey}\0${row.rule}`, row.firstEligibleAt]));
+  const targets = new Map<string, ArchiveTarget>();
+  for (const item of maintainerrAutomaticRuleMatches(at, rules)) {
+    if (!returning.has(item.rating_key) || item.section_id !== sectionId) continue;
+    const first = clocks.get(`${item.rating_key}\0${item.rule}`);
+    if (first === undefined || first + rules.show.observationDays * 86400 > at) continue;
+    const arr = getDb().prepare(
+      `SELECT instance_id, instance_name, arr_id FROM arr_items
+        WHERE rating_key = ? AND source = 'sonarr'`
+    ).get(item.rating_key) as { instance_id: string; instance_name: string; arr_id: number };
+    targets.set(item.rating_key, {
+      ratingKey: item.rating_key, title: item.title, sectionId: item.section_id,
+      year: item.year, libraryKind: 'show', guidTvdb: item.guid_tvdb,
+      guidImdb: null, keptByAnyone: false,
+      effectiveMode: 'archive_existing', requestedModes: [],
+      instanceId: arr.instance_id, instanceName: arr.instance_name, arrId: arr.arr_id,
+    });
+  }
+  return [...targets.values()];
 }
 
 export interface ArchiveRunRow {

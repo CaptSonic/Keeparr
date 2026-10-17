@@ -26,6 +26,7 @@ import {
   finishArchiveRun,
   getArchiveRun,
   getArchiveTarget,
+  automaticArchiveTargets,
   listArchiveEpisodes,
   listArchiveTargets,
   logEvent,
@@ -35,6 +36,7 @@ import {
 } from './queries';
 import {
   getArchivePlaceholderConfig,
+  getMaintainerrConfig,
   getMediaServerType,
   getPlexBaseUrl,
   getServerToken,
@@ -42,6 +44,8 @@ import {
   type ArrInstance,
 } from './settings';
 import { refreshPlexSection } from './plex';
+import { listMaintainerrCollections } from './maintainerr';
+import { getReclaimSignalReadiness } from './reclaim-readiness';
 
 export type ArchiveBlockReason =
   | 'not_found'
@@ -215,9 +219,31 @@ function blocked(
   };
 }
 
-export function archiveDashboard() {
+async function currentArchiveTargets() {
+  const targets = new Map(listArchiveTargets().map((target) => [target.ratingKey, target]));
+  const config = getMaintainerrConfig();
+  if (config.enabled && config.url && config.showCollectionId && getReclaimSignalReadiness().watch) {
+    const collections = await listMaintainerrCollections(config.url);
+    const selected = collections.find((collection) => collection.id === config.showCollectionId && collection.type === 'show');
+    if (selected) {
+      for (const target of automaticArchiveTargets(
+        Math.floor(Date.now() / 1000), config.automaticRules, selected.libraryId
+      )) {
+        if (!targets.has(target.ratingKey)) targets.set(target.ratingKey, target);
+      }
+    }
+  }
+  return [...targets.values()];
+}
+
+async function currentArchiveTarget(ratingKey: string) {
+  return getArchiveTarget(ratingKey) ??
+    (await currentArchiveTargets()).find((target) => target.ratingKey === ratingKey) ?? null;
+}
+
+export async function archiveDashboard() {
   return {
-    targets: listArchiveTargets(),
+    targets: await currentArchiveTargets(),
     runs: recentArchiveRuns(50),
     episodes: listArchiveEpisodes({ statuses: ['archived', 'restoring', 'failed'] }),
   };
@@ -227,7 +253,7 @@ export async function previewArchive(
   ratingKey: string,
   requestedBy: string
 ): Promise<ArchivePreview> {
-  const target = getArchiveTarget(ratingKey);
+  const target = await currentArchiveTarget(ratingKey);
   if (!target) return blocked(ratingKey, '', 'not_found');
   if (target.libraryKind !== 'show') return blocked(ratingKey, target.title, 'not_series');
   if (target.keptByAnyone) return blocked(ratingKey, target.title, 'keep_veto');
@@ -344,7 +370,7 @@ export async function executeArchive(runId: string, requestedBy: string) {
     return { ok: false, reason: 'already_executed' as ArchiveBlockReason };
   }
 
-  const target = getArchiveTarget(run.ratingKey);
+  const target = await currentArchiveTarget(run.ratingKey);
   if (!target || target.keptByAnyone || target.effectiveMode !== 'archive_existing') {
     const reason: ArchiveBlockReason = target?.keptByAnyone ? 'keep_veto' : 'stale_preview';
     finishArchiveRun(runId, 'blocked', { reason, requestedBy });

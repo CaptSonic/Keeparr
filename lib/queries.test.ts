@@ -1503,6 +1503,22 @@ describe('OK to delete (user_deletes)', () => {
     expect([...maintainerrArchiveExclusions()].sort()).toEqual(['archive', 'completed']);
   });
 
+  it('routes running series to archiving even when released for full removal, but not ended series', () => {
+    upsertMediaBatch(['running', 'ended'].map((id) => media(id, { libraryKind: 'show' })));
+    replaceArrItems(['running', 'ended'].map((id, index) => ({
+      ratingKey: id, source: 'sonarr', instanceId: 'sonarr', instanceName: 'Sonarr',
+      arrId: index + 1, monitored: true, status: id === 'running' ? 'continuing' : 'ended',
+      quality: null, qualityKind: 'profile', rootFolder: null, arrSizeBytes: GB, tags: [],
+    })));
+    addDelete('one', 'running', 'remove_title');
+    addDelete('one', 'ended', 'remove_title');
+    expect(getArchiveTarget('running')).toMatchObject({ effectiveMode: 'archive_existing' });
+    expect(getArchiveTarget('ended')).toMatchObject({ effectiveMode: 'remove_title' });
+    expect([...maintainerrArchiveExclusions()]).toEqual(['running']);
+    addKeep('protector', 'running');
+    expect(getArchiveTarget('running')).toMatchObject({ keptByAnyone: true });
+  });
+
   it('getFeed excludes the user\'s own delete-marked items only', () => {
     addDelete('userA', '2');
     const a = getFeed('userA', 10).map((r) => r.rating_key).sort();

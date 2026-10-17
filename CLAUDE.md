@@ -19,6 +19,12 @@ per-user. See README.md for the feature overview.
 
 ## Canonical rules
 
+- Running Sonarr series (`continuing`/`returning`/`returning series`) must never
+  enter Maintainerr full-title removal. Track automatic observation normally,
+  then queue archive targets for admin preview/execution only. Revalidate current
+  rules, trusted watch data, selected library, and Keep before automatic-source
+  archive execution. Do not create requester releases on behalf of users.
+
 - Automatic Maintainerr movie hand-off preserves live Plex collections, including
   smart collections. Ignore Agregarr-managed collections identified by collection
   labels starting with `agregarr` (case-insensitive), not by title or movie labels.

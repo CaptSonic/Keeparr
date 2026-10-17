@@ -11,6 +11,8 @@ import {
   recentMaintainerrHistory,
   maintainerrRuleTracking,
   replaceSeerrRequests,
+  replaceArrItems,
+  createArchiveRun,
   tombstoneStale,
   upsertWatchBatch,
   upsertMediaBatch,
@@ -32,6 +34,7 @@ import {
   testMaintainerr,
 } from './maintainerr';
 import type { MediaBackend } from './mediaserver';
+import { archiveDashboard, previewArchive, executeArchive } from './archive';
 
 let fakeBackend: MediaBackend;
 vi.mock('./mediaserver', () => ({ getBackend: () => fakeBackend }));
@@ -220,6 +223,45 @@ afterEach(() => {
 afterAll(() => __closeDb());
 
 describe('Maintainerr safe hand-off', () => {
+  it.each(['returning', 'continuing', 'Returning Series'])('queues %s series for reviewed archiving, never full-title removal', async (status) => {
+    requesterReleasedMedia();
+    removeDelete('requester', 'requester-show');
+    replaceArrItems([{
+      ratingKey: 'requester-show', source: 'sonarr', instanceId: 'sonarr', instanceName: 'Sonarr',
+      arrId: 4, monitored: true, status, quality: null, qualityKind: 'profile',
+      rootFolder: null, arrSizeBytes: 15 * GB, tags: [],
+    }]);
+    const remote = mockMaintainerr({ showMembers: ['requester-show'] });
+    expect((await archiveDashboard()).targets).toEqual([]);
+    await syncMaintainerr();
+    expect(remote.members.get(20)!.has('requester-show')).toBe(false);
+    expect(maintainerrRuleTracking()).toContainEqual(expect.objectContaining({ ratingKey: 'requester-show' }));
+    vi.setSystemTime((BASE + 30 * 86400) * 1000);
+    expect((await archiveDashboard()).targets).toContainEqual(expect.objectContaining({
+      ratingKey: 'requester-show', effectiveMode: 'archive_existing', requestedModes: [],
+    }));
+    createArchiveRun({
+      id: 'automatic-preview', ratingKey: 'requester-show', requestedBy: 'admin',
+      releaseMode: 'archive_existing', status: 'previewed', instanceId: 'sonarr', arrId: 4,
+      planHash: 'previous-plan', preview: {},
+    });
+    await syncMaintainerr();
+    expect(remote.members.get(20)!.has('requester-show')).toBe(false);
+    writeSetting('watch_source_fingerprint', 'untrusted');
+    expect((await archiveDashboard()).targets).toEqual([]);
+    writeSetting('watch_source_fingerprint', getWatchSourceFingerprint()!);
+    const config = getMaintainerrConfig();
+    setMaintainerrConfig({ ...config, automaticRules: {
+      ...config.automaticRules, show: { ...config.automaticRules.show, requesterEnabled: false, globalEnabled: false },
+    } });
+    expect((await archiveDashboard()).targets).toEqual([]);
+    setMaintainerrConfig(config);
+    addKeep('protector', 'requester-show');
+    expect((await archiveDashboard()).targets).toEqual([]);
+    expect(await previewArchive('requester-show', 'admin')).toMatchObject({ ready: false });
+    expect(await executeArchive('automatic-preview', 'admin')).toMatchObject({ ok: false });
+  });
+
   function plexCollectionMedia(): void {
     requesterReleasedMedia();
     removeDelete('requester', 'requester-movie');

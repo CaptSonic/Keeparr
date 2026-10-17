@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
 export async function GET() {
   try {
     await requireAdmin();
-    const response = NextResponse.json(archiveDashboard());
+    const response = NextResponse.json(await archiveDashboard());
     response.headers.set('Cache-Control', 'no-store');
     return response;
   } catch (error) {

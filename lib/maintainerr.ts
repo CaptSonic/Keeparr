@@ -6,6 +6,7 @@ import {
   latestWatchedAtByItem,
   listAutomationReleases,
   maintainerrArchiveExclusions,
+  returningSeriesIds,
   maintainerrAutomaticRuleMatches,
   maintainerrRuleTracking,
   markedForDeleteItems,
@@ -532,10 +533,11 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
   );
   const watchReady = getReclaimSignalReadiness().watch;
   const archiveExclusions = maintainerrArchiveExclusions();
+  const returning = returningSeriesIds();
   const automaticRuleMatches = watchReady
     ? maintainerrAutomaticRuleMatches(generatedAt, config.automaticRules).filter((item) =>
         selectedLibraries.has(`${item.library_kind}\0${item.section_id}`) &&
-        !archiveExclusions.has(item.rating_key)
+        (!archiveExclusions.has(item.rating_key) || returning.has(item.rating_key))
       )
     : [];
   const automaticMatches = automaticRuleMatches.map((item) => ({
@@ -543,7 +545,7 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
     rule: item.rule,
   }));
   const candidates = maintainerrCandidates(
-    automaticRuleMatches,
+    automaticRuleMatches.filter((item) => !archiveExclusions.has(item.rating_key)),
     archiveExclusions,
     config.automaticRules,
     generatedAt
