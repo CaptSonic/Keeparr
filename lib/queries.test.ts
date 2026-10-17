@@ -10,6 +10,7 @@ import {
   getActiveMediaItem,
   getArchiveTarget,
   getMediaItem,
+  maintainerrMemberDetails,
   getReleaseMode,
   addSkip,
   removeSkip,
@@ -120,6 +121,21 @@ function user(plexUserId: string, isAdmin = false) {
     isAdmin,
   });
 }
+
+describe('Maintainerr member details', () => {
+  it('loads only requested labels and Keep vetoes across chunk boundaries', () => {
+    const rows = Array.from({ length: 1001 }, (_, index) => media(String(index)));
+    upsertMediaBatch(rows);
+    addKeep('protector', '500');
+    const details = maintainerrMemberDetails([...rows.map((row) => row.ratingKey), '500', 'missing']);
+    expect(details.size).toBe(1001);
+    expect(details.get('500')).toMatchObject({ title: 'Title 500', year: 2020, kept: 1 });
+    expect(details.get('1000')).toMatchObject({ title: 'Title 1000', kept: 0 });
+    expect(details.has('missing')).toBe(false);
+    expect([...maintainerrMemberDetails(['500']).keys()]).toEqual(['500']);
+    expect(maintainerrMemberDetails([]).size).toBe(0);
+  });
+});
 
 describe('users: listUsers + setUserAdmin', () => {
   it('lists all users, admins first', () => {

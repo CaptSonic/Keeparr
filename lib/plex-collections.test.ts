@@ -4,6 +4,32 @@ import { getMovieCollections } from './plex';
 afterEach(() => vi.unstubAllGlobals());
 
 describe('live Plex collection membership', () => {
+  it('bounds collection reads at four and refills slots while a collection is slow', async () => {
+    let finishSlow!: () => void;
+    let active = 0;
+    let peak = 0;
+    const started: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const path = new URL(String(input)).pathname;
+      if (path.endsWith('/collections')) return new Response(JSON.stringify({ MediaContainer: {
+        Metadata: Array.from({ length: 7 }, (_, index) => ({ ratingKey: String(index), Label: [] })),
+      } }), { headers: { 'Content-Type': 'application/json' } });
+      started.push(path);
+      peak = Math.max(peak, ++active);
+      if (path === '/library/metadata/0/children') {
+        await new Promise<void>((resolve) => { finishSlow = resolve; });
+      }
+      active--;
+      return new Response(JSON.stringify({ MediaContainer: { Metadata: [{ ratingKey: path.split('/')[3] }] } }),
+        { headers: { 'Content-Type': 'application/json' } });
+    }));
+    const pending = getMovieCollections('http://plex', 'secret', 'movies');
+    await vi.waitFor(() => expect(started).toHaveLength(7));
+    expect(peak).toBeLessThanOrEqual(4);
+    finishSlow();
+    await expect(pending).resolves.toEqual(Array.from({ length: 7 }, (_, index) => [String(index)]));
+  });
+
   it('pages collections and their children, including smart collection results', async () => {
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const url = new URL(String(input));

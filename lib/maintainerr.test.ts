@@ -223,6 +223,58 @@ afterEach(() => {
 afterAll(() => __closeDb());
 
 describe('Maintainerr safe hand-off', () => {
+  it('freezes memberships and ownership when a pooled live check fails', async () => {
+    const ids = bulkRequesterReleases(12);
+    setMaintainerrManagedItems({ '10': [ids[0]] });
+    const remote = mockMaintainerr({ movieMembers: [ids[0]] });
+    let calls = 0;
+    fakeBackend.itemExists = vi.fn(async () => {
+      if (++calls === 2) throw new Error('Plex unavailable');
+      return true;
+    });
+    const result = await syncMaintainerr();
+    expect(result.message).toContain('paused');
+    expect(remote.writes).toEqual([]);
+    expect(getMaintainerrManagedItems()).toEqual({ '10': [ids[0]] });
+    expect(maintainerrRuleTracking()).toEqual([]);
+    expect(calls).toBeLessThan(12);
+  });
+
+  it('refills the eight live-check slots and overlaps independent read phases', async () => {
+    bulkRequesterReleases(12);
+    const remote = mockMaintainerr();
+    let finishSlow!: (exists: boolean) => void;
+    let finishCollections!: (groups: string[][]) => void;
+    let active = 0;
+    let peak = 0;
+    const check = vi.fn(async () => {
+      const index = check.mock.calls.length;
+      peak = Math.max(peak, ++active);
+      try {
+        return index === 1 ? await new Promise<boolean>((resolve) => { finishSlow = resolve; }) : true;
+      } finally { active--; }
+    });
+    fakeBackend.itemExists = check;
+    fakeBackend.movieCollections = vi.fn(() => new Promise<string[][]>((resolve) => {
+      finishCollections = resolve;
+    }));
+    const pending = previewMaintainerr();
+    await vi.waitFor(() => {
+      expect(check).toHaveBeenCalledTimes(12);
+      expect(fakeBackend.movieCollections).toHaveBeenCalledTimes(1);
+      expect(remote.fetchMock).toHaveBeenCalledTimes(5);
+    });
+    expect(active).toBe(1);
+    expect(peak).toBeLessThanOrEqual(8);
+    finishSlow(true);
+    finishCollections([]);
+    const preview = await pending;
+    expect(preview.paused).toBe(false);
+    expect(preview.diagnostics).toMatchObject({ candidatesChecked: 12, plexCollectionsRead: 0 });
+    expect(preview.diagnostics!.totalMs).toBeGreaterThanOrEqual(0);
+    expect(remote.writes).toEqual([]);
+  });
+
   it.each(['returning', 'continuing', 'Returning Series'])('queues %s series for reviewed archiving, never full-title removal', async (status) => {
     requesterReleasedMedia();
     removeDelete('requester', 'requester-show');
@@ -741,8 +793,14 @@ describe('Maintainerr safe hand-off', () => {
     expect(recentMaintainerrHistory().filter((row) => row.eventType === 'mass_blocked'))
       .toHaveLength(1);
 
+    const check = vi.fn(async () => true);
+    fakeBackend.itemExists = check;
+    remote.fetchMock.mockClear();
     const approved = await approveCurrentMaintainerrPlan();
+    expect(check).toHaveBeenCalledTimes(10);
+    expect(remote.fetchMock).toHaveBeenCalledTimes(5);
     expect(approved).toMatchObject({ massBlocked: true, massApproved: true });
+    expect(approved.history[0].eventType).toBe('mass_approved');
     const result = await syncMaintainerr();
     expect(result.result).toBe(10);
     expect([...remote.members.get(10)!].sort()).toEqual(ids.sort());
@@ -790,7 +848,15 @@ describe('Maintainerr safe hand-off', () => {
     expect(remote.writes).toEqual([]);
     expect(getMaintainerrManagedItems()['10']).toEqual(['requester-movie']);
 
+    const check = vi.fn(async () => true);
+    fakeBackend.itemExists = check;
+    remote.fetchMock.mockClear();
     const approved = await approveCurrentMaintainerrReadd(10, 'requester-movie');
+    expect(check).toHaveBeenCalledTimes(2);
+    expect(remote.fetchMock).toHaveBeenCalledTimes(5);
+    expect(approved.summary.readd_blocked).toBe(0);
+    expect(approved.summary.add).toBe(1);
+    expect(approved.collections.find((row) => row.id === 10)?.add).toBe(1);
     expect(approved.items).toEqual(expect.arrayContaining([
       expect.objectContaining({
         ratingKey: 'requester-movie', status: 'add', reason: 'readd_approved',

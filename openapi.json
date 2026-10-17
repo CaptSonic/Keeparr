@@ -864,7 +864,7 @@
         "description": "Returns the exact current add/remove/unchanged plan with per-title reason codes and automaticRules configuration. Automatic requester and household inactivity rules have independent movie/show enable flags, inactivity thresholds (1–3650 days; defaults 180/540), and observation periods (1–365 days; default 30). Historical reason IDs remain stable regardless of configured thresholds. Reads Maintainerr and the media server but never writes memberships, Keeparr ownership, or observation state.",
         "security": [{ "cookieAuth": [] }],
         "responses": {
-          "200": { "description": "Maintainerr preview with collection counters, item decisions, and pause state" },
+          "200": { "description": "Maintainerr preview with collection counters, item decisions, pause state, and optional diagnostics: totalMs, inventoryMs, plexCollectionsMs, maintainerrMs, candidatesChecked, plexCollectionsRead. Timings use milliseconds; phases overlap and must not be summed. plexCollectionsRead counts included non-Agregarr collections." },
           "401": { "description": "Authentication required" },
           "403": { "description": "Admin required" }
         }
@@ -872,7 +872,7 @@
       "post": {
         "tags": ["admin"],
         "summary": "Approve one current Maintainerr safety block",
-        "description": "Admin-session-only. `{action:'approve-mass'}` recomputes and approves exactly the current mass-change plan once; no client hash is trusted. `{action:'approve-readd', collectionId, ratingKey}` recomputes and approves one currently blocked re-add once. Returns a refreshed no-store preview and does not itself write Maintainerr membership.",
+        "description": "Admin-session-only. `{action:'approve-mass'}` recomputes and approves exactly the current mass-change plan once; no client hash is trusted. `{action:'approve-readd', collectionId, ratingKey}` recomputes and approves one currently blocked re-add once. Returns the freshly validated no-store preview with local approval state updated, without repeating remote reads or writing Maintainerr membership. Execution always rebuilds and validates a live plan.",
         "security": [{ "cookieAuth": [] }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "properties": { "action": { "type": "string", "enum": ["approve-mass", "approve-readd"] }, "collectionId": { "type": "integer" }, "ratingKey": { "type": "string" } }, "required": ["action"] } } } },
         "responses": {

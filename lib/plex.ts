@@ -1,4 +1,5 @@
 import { fetchJson } from './http';
+import { mapConcurrent } from './concurrency';
 import { getPlexClientId } from './settings';
 
 /**
@@ -575,8 +576,7 @@ export async function getMovieCollections(
     }
   }
   const collections = await pages(`/library/sections/${encodeURIComponent(sectionId)}/collections`);
-  const result: string[][] = [];
-  for (const collection of collections) {
+  const result = await mapConcurrent(collections, 4, async (collection) => {
     // Collection listings do not always include labels. Read the collection
     // metadata in that case, rather than guessing ownership from its title.
     let labels = collection.Label;
@@ -590,16 +590,16 @@ export async function getMovieCollections(
     if (!Array.isArray(labels) || labels.some((label) => !label || typeof label.tag !== 'string')) {
       throw new Error('Plex returned invalid collection labels.');
     }
-    if (labels.some((label) => label.tag.toLowerCase().startsWith('agregarr'))) continue;
+    if (labels.some((label) => label.tag.toLowerCase().startsWith('agregarr'))) return null;
     const key = collection.key?.replace(/\/children$/, '') ??
       `/library/metadata/${encodeURIComponent(String(collection.ratingKey))}`;
     if (!/^\/library\/(?:collections|metadata)\/[^/?#]+$/.test(key)) {
       throw new Error('Plex returned an invalid collection key.');
     }
     const members = await pages(`${key}/children`);
-    result.push(members.map((member) => String(member.ratingKey)));
-  }
-  return result;
+    return members.map((member) => String(member.ratingKey));
+  });
+  return result.filter((group): group is string[] => group !== null);
 }
 
 /**

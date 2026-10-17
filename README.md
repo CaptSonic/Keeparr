@@ -575,6 +575,15 @@ missing media, or an unavailable live check. Refreshing the dry run never writes
 membership, ownership, or observation state; the explicit **Run hand-off now**
 button uses the normal single-flight job runner and reloads the plan afterwards.
 
+For large libraries, availability checks use a continuously refilled pool of up
+to eight reads; Plex collection reads use up to four. Independent availability,
+collection-protection and Maintainerr reads overlap. The Control Center reports
+total and per-phase milliseconds, checked candidates and included non-Agregarr
+Plex collections. Phase timings overlap and should not be added together.
+Approvals reuse their freshly validated read-only plan for the response; execution
+always rebuilds and validates a live plan. Failed collection reads still pause
+reconciliation, and observation clocks are never advanced by previews.
+
 Three additional safeguards protect Maintainerr's grace periods and large plans:
 
 - **Mass-change stop:** a plan is blocked when one collection has at least 10

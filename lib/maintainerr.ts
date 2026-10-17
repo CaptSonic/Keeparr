@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
+import { performance } from 'node:perf_hooks';
+import { mapConcurrent } from './concurrency';
 import type { MaintainerrAutomaticRules } from './maintainerr-rules';
 import {
-  getMediaItem,
-  isKept,
+  maintainerrMemberDetails,
   latestWatchedAtByItem,
   listAutomationReleases,
   maintainerrArchiveExclusions,
@@ -274,6 +275,14 @@ export interface MaintainerrPreviewCollection {
 }
 
 export interface MaintainerrPreview {
+  diagnostics?: {
+    totalMs: number;
+    inventoryMs: number;
+    plexCollectionsMs: number;
+    maintainerrMs: number;
+    candidatesChecked: number;
+    plexCollectionsRead: number;
+  };
   generatedAt: number;
   paused: boolean;
   pauseReason: 'not_configured' | 'inventory_unavailable' | null;
@@ -405,16 +414,9 @@ async function liveInventoryCandidates(
   }
   try {
     const backend = getBackend();
-    const items: MaintainerrCandidate[] = [];
-    for (let offset = 0; offset < candidates.length; offset += 8) {
-      const batch = candidates.slice(offset, offset + 8);
-      const availability = await Promise.all(
-        batch.map((item) => backend.itemExists(item.ratingKey, item.libraryKind))
-      );
-      for (let index = 0; index < batch.length; index++) {
-        if (availability[index]) items.push(batch[index]);
-      }
-    }
+    const availability = await mapConcurrent(candidates, 8,
+      (item) => backend.itemExists(item.ratingKey, item.libraryKind));
+    const items = candidates.filter((_, index) => availability[index]);
     return {
       items,
       missing: candidates.length - items.length,
@@ -464,21 +466,20 @@ function isMassChange(targets: Target[]): boolean {
   });
 }
 
-function mediaLabel(ratingKey: string): {
-  title: string;
-  year: number | null;
-  libraryKind: 'movie' | 'show';
-} {
-  const media = getMediaItem(ratingKey);
-  return {
-    title: media?.title ?? `Media ${ratingKey}`,
-    year: media?.year ?? null,
-    libraryKind: media?.library_kind ?? 'movie',
-  };
-}
-
 /** Build the exact reconciliation plan without mutating Maintainerr or ownership. */
 async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
+  const started = performance.now();
+  const diagnostics = {
+    totalMs: 0, inventoryMs: 0, plexCollectionsMs: 0, maintainerrMs: 0,
+    candidatesChecked: 0, plexCollectionsRead: 0,
+  };
+  async function timed<T>(
+    phase: 'inventoryMs' | 'plexCollectionsMs' | 'maintainerrMs', read: () => Promise<T>
+  ): Promise<T> {
+    const start = performance.now();
+    try { return await read(); }
+    finally { diagnostics[phase] += Math.round(performance.now() - start); }
+  }
   const config = getMaintainerrConfig();
   const managedState = getMaintainerrManagedItems();
   const generatedAt = Math.floor(Date.now() / 1000);
@@ -523,7 +524,8 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
       ].filter((v): v is { id: number; kind: 'movie' | 'show' } => v !== null)
     : [];
   const collections = new Map(
-    (await listMaintainerrCollections(config.url)).map((collection) => [collection.id, collection])
+    (await timed('maintainerrMs', () => listMaintainerrCollections(config.url)))
+      .map((collection) => [collection.id, collection])
   );
   const selectedLibraries = new Set(
     selected.flatMap(({ id, kind }) => {
@@ -560,7 +562,72 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
     selectedLibraries.has(`${item.libraryKind}\0${item.sectionId}`)
   );
   const eligibleCandidates = selectedCandidates.filter((item) => !item.kept);
-  const inventory = await liveInventoryCandidates(eligibleCandidates);
+  const selectedById = new Map(selected.map((value) => [value.id, value.kind]));
+  const targetIds = new Set([
+    ...selected.map((value) => value.id),
+    ...Object.keys(managedState)
+      .map(Number)
+      .filter((id) => Number.isSafeInteger(id) && id > 0),
+  ]);
+  async function readTargets(): Promise<Target[]> {
+    return mapConcurrent([...targetIds], 2, async (collectionId): Promise<Target> => {
+      const collection = collections.get(collectionId);
+      if (!collection) throw new Error(`Maintainerr collection #${collectionId} was not found.`);
+      if (collection.type !== 'movie' && collection.type !== 'show') {
+        throw new Error(`Maintainerr collection “${collection.title}” has an unsupported media type.`);
+      }
+      const targetCollection = collection as MaintainerrCollection & { type: 'movie' | 'show' };
+      const selectedKind = selectedById.get(collectionId);
+      if (selectedKind && collection.type !== selectedKind) {
+        throw new Error(`Maintainerr collection “${collection.title}” must contain ${selectedKind} items.`);
+      }
+      if (!collection.isActive) {
+        throw new Error(`Maintainerr collection “${collection.title}” is inactive.`);
+      }
+      if (collection.tagInArr) {
+        throw new Error(`Maintainerr sync blocked: disable *arr tagging for collection “${collection.title}”.`);
+      }
+      const [ruleGroup, current] = await Promise.all([
+        ruleGroupForCollection(config.url, collection.id),
+        collectionMembers(config.url, collection.id),
+      ]);
+      if (ruleGroup.useRules !== false) {
+        throw new Error(`Maintainerr sync blocked: disable Use rules for collection “${collection.title}”.`);
+      }
+      return {
+        collection: targetCollection, current, desired: new Set(),
+        managed: new Set(managedState[String(collection.id)] ?? []),
+        add: new Set(), remove: new Set(), approvedReadds: new Set(),
+      };
+    });
+  }
+  diagnostics.candidatesChecked = eligibleCandidates.length;
+  // Collection protection and availability are independent reads. A failed
+  // collection read is still uncertainty and freezes reconciliation below.
+  const [inventory, collectionInventory, targets] = await Promise.all([
+    timed('inventoryMs', () => liveInventoryCandidates(eligibleCandidates)),
+    timed('plexCollectionsMs', async () => {
+      try {
+        const backend = getBackend();
+        const groups: string[][] = [];
+        if (backend.movieCollections) {
+          const movieLibraries = new Set(selected.filter((item) => item.kind === 'movie')
+            .map((item) => collections.get(item.id)?.libraryId)
+            .filter((id): id is string => id !== undefined));
+          // Collection reads already have a bounded per-library pool; do not
+          // multiply that concurrency across libraries.
+          for (const sectionId of movieLibraries) {
+            groups.push(...await backend.movieCollections(sectionId));
+          }
+        }
+        diagnostics.plexCollectionsRead = groups.length;
+        return { groups, ready: true };
+      } catch {
+        return { groups: [], ready: false };
+      }
+    }),
+    timed('maintainerrMs', readTargets),
+  ]);
   const inventoryIds = new Set(inventory.items.map((item) => item.ratingKey));
   const liveAutomaticMatches = automaticMatches.filter((item) => inventoryIds.has(item.ratingKey));
   const latest = latestWatchedAtByItem();
@@ -574,84 +641,38 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
     return watchReady && (explicitEligible || automaticEligible);
   });
   const collectionBlocked = new Set<string>();
-  try {
-    const backend = getBackend();
-    if (backend.movieCollections) {
-      const movieLibraries = new Set(selected.filter((item) => item.kind === 'movie')
-        .map((item) => collections.get(item.id)?.libraryId)
-        .filter((id): id is string => id !== undefined));
-      const groups: string[][] = [];
-      for (const sectionId of movieLibraries) groups.push(...await backend.movieCollections(sectionId));
-      const eligible = new Set(eligibleBeforeCollection.map((item) => item.ratingKey));
-      const explicit = new Set(eligibleBeforeCollection.filter((item) => {
-        const watchedAt = latest.get(item.ratingKey);
-        return item.explicitRelease && (watchedAt == null || watchedAt <= cutoff);
-      }).map((item) => item.ratingKey));
-      // A film can be in several collections. Propagate protection through
-      // overlaps so every automatic member of a protected collection stays safe.
-      let changed: boolean;
-      do {
-        changed = false;
-        for (const group of groups) {
-          if (group.every((id) => eligible.has(id))) continue;
-          for (const id of group) {
-            collectionBlocked.add(id);
-            if (!explicit.has(id) && eligible.delete(id)) changed = true;
-          }
+  {
+    const groups = collectionInventory.groups;
+    const eligible = new Set(eligibleBeforeCollection.map((item) => item.ratingKey));
+    const explicit = new Set(eligibleBeforeCollection.filter((item) => {
+      const watchedAt = latest.get(item.ratingKey);
+      return item.explicitRelease && (watchedAt == null || watchedAt <= cutoff);
+    }).map((item) => item.ratingKey));
+    // A film can be in several collections. Propagate protection through
+    // overlaps so every automatic member of a protected collection stays safe.
+    let changed: boolean;
+    do {
+      changed = false;
+      for (const group of groups) {
+        if (group.every((id) => eligible.has(id))) continue;
+        for (const id of group) {
+          collectionBlocked.add(id);
+          if (!explicit.has(id) && eligible.delete(id)) changed = true;
         }
-      } while (changed);
-    }
-  } catch {
-    // Unknown collection membership must not cause additions OR withdrawals.
-    inventory.inventoryReady = false;
+      }
+    } while (changed);
   }
+  if (!collectionInventory.ready) inventory.inventoryReady = false;
   const desiredCandidates = eligibleBeforeCollection.filter((item) => {
     const watchedAt = latest.get(item.ratingKey);
     const explicitEligible = item.explicitRelease && (watchedAt == null || watchedAt <= cutoff);
     return explicitEligible || !collectionBlocked.has(item.ratingKey);
   });
   const desiredIds = new Set(desiredCandidates.map((item) => item.ratingKey));
-  const targets: Target[] = [];
-  const selectedById = new Map(selected.map((value) => [value.id, value.kind]));
-  const targetIds = new Set([
-    ...selected.map((value) => value.id),
-    ...Object.keys(managedState)
-      .map(Number)
-      .filter((id) => Number.isSafeInteger(id) && id > 0),
-  ]);
-
-  // Validate every target and read every membership before changing anything.
-  for (const collectionId of targetIds) {
-    const collection = collections.get(collectionId);
-    if (!collection) throw new Error(`Maintainerr collection #${collectionId} was not found.`);
-    if (collection.type !== 'movie' && collection.type !== 'show') {
-      throw new Error(`Maintainerr collection “${collection.title}” has an unsupported media type.`);
-    }
-    const targetCollection = collection as MaintainerrCollection & {
-      type: 'movie' | 'show';
-    };
-    const selectedKind = selectedById.get(collectionId);
-    if (selectedKind && collection.type !== selectedKind) {
-      throw new Error(
-        `Maintainerr collection “${collection.title}” must contain ${selectedKind} items.`
-      );
-    }
-    if (!collection.isActive) {
-      throw new Error(`Maintainerr collection “${collection.title}” is inactive.`);
-    }
-    if (collection.tagInArr) {
-      throw new Error(
-        `Maintainerr sync blocked: disable *arr tagging for collection “${collection.title}”.`
-      );
-    }
-    const ruleGroup = await ruleGroupForCollection(config.url, collection.id);
-    if (ruleGroup.useRules !== false) {
-      throw new Error(
-        `Maintainerr sync blocked: disable Use rules for collection “${collection.title}”.`
-      );
-    }
-    const current = await collectionMembers(config.url, collection.id);
-    const desired = new Set(
+  for (const target of targets) {
+    const collection = target.collection;
+    const selectedKind = selectedById.get(collection.id);
+    target.desired = new Set(
       selectedKind
         ? desiredCandidates
             .filter((item) =>
@@ -660,15 +681,6 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
             .map((item) => item.ratingKey)
         : []
     );
-    targets.push({
-      collection: targetCollection,
-      current,
-      desired,
-      managed: new Set(managedState[String(collection.id)] ?? []),
-      add: new Set(),
-      remove: new Set(),
-      approvedReadds: new Set(),
-    });
   }
 
   for (const target of targets) {
@@ -805,18 +817,20 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
   // explains foreign/manual rows and planned removals. Stale local ownership with
   // no remote member needs no decision or remote write; a successful real run
   // retires it silently below instead of cluttering the Control Center.
+  const memberDetails = maintainerrMemberDetails(targets.flatMap((target) =>
+    [...target.current].filter((id) => !candidateById.has(id))));
   for (const target of targets) {
     for (const ratingKey of new Set([...target.current, ...target.managed])) {
       if (candidateById.has(ratingKey)) continue;
-      const label = mediaLabel(ratingKey);
       const managed = target.managed.has(ratingKey);
       const current = target.current.has(ratingKey);
       if (managed && !current) continue;
-      const kept = isKept(ratingKey);
+      const label = memberDetails.get(ratingKey);
+      const kept = !!label?.kept;
       items.push({
         ratingKey,
-        title: label.title,
-        year: label.year,
+        title: label?.title ?? `Media ${ratingKey}`,
+        year: label?.year ?? null,
         libraryKind: target.collection.type,
         collectionId: target.collection.id,
         collectionTitle: target.collection.title,
@@ -851,6 +865,7 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
   const massBlocked = !paused && isMassChange(targets);
   const massApproved = massBlocked && getMaintainerrApprovedPlanHash() === hash;
   const preview: MaintainerrPreview = {
+    diagnostics,
     generatedAt,
     paused,
     pauseReason,
@@ -887,6 +902,7 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
     ),
     summary,
   };
+  diagnostics.totalMs = Math.round(performance.now() - started);
   return { preview, targets, automaticMatches: liveAutomaticMatches };
 }
 
@@ -895,16 +911,39 @@ export async function previewMaintainerr(): Promise<MaintainerrPreview> {
   return (await buildMaintainerrPlan()).preview;
 }
 
+/** Approval changes only local authorization, not the observed remote state.
+ * Recompute the operation hash and thresholds from that same validated plan.
+ * Execution always builds a new live plan, never trusts this response. */
+function approvedPreview({ preview, targets }: MaintainerrPlan): MaintainerrPreview {
+  preview.planHash = planHash(targets, getMaintainerrConfig().url);
+  preview.totalChanges = targets.reduce((sum, target) => sum + target.add.size + target.remove.size, 0);
+  preview.massBlocked = !preview.paused && isMassChange(targets);
+  preview.massApproved = preview.massBlocked && getMaintainerrApprovedPlanHash() === preview.planHash;
+  for (const collection of preview.collections) {
+    const target = targets.find((row) => row.collection.id === collection.id)!;
+    collection.add = target.add.size;
+  }
+  preview.summary = Object.fromEntries(
+    previewStatuses.map((status) => [status, 0])
+  ) as Record<MaintainerrPreviewStatus, number>;
+  for (const item of preview.items) preview.summary[item.status]++;
+  preview.items.sort((a, b) => previewStatuses.indexOf(a.status) - previewStatuses.indexOf(b.status) ||
+    a.title.localeCompare(b.title));
+  preview.history = recentMaintainerrHistory(100);
+  return preview;
+}
+
 /** Approve only the currently recomputed mass-change plan. */
 export async function approveCurrentMaintainerrPlan(): Promise<MaintainerrPreview> {
-  const { preview } = await buildMaintainerrPlan();
+  const plan = await buildMaintainerrPlan();
+  const { preview } = plan;
   if (!preview.massBlocked) throw new Error('Maintainerr plan is not mass-blocked.');
   approveMaintainerrPlan(preview.planHash);
   recordMaintainerrHistory({
     eventType: 'mass_approved', action: 'approve', reason: 'mass_change',
     planHash: preview.planHash,
   });
-  return (await buildMaintainerrPlan()).preview;
+  return approvedPreview(plan);
 }
 
 /** Approve one currently blocked re-add after recomputing and validating it. */
@@ -912,7 +951,8 @@ export async function approveCurrentMaintainerrReadd(
   collectionId: number,
   ratingKey: string
 ): Promise<MaintainerrPreview> {
-  const { preview } = await buildMaintainerrPlan();
+  const plan = await buildMaintainerrPlan();
+  const { preview } = plan;
   const item = preview.items.find((row) =>
     row.collectionId === collectionId && row.ratingKey === ratingKey &&
     row.status === 'readd_blocked'
@@ -925,7 +965,12 @@ export async function approveCurrentMaintainerrReadd(
     collectionTitle: item.collectionTitle, action: 'approve',
     reason: 'unexpected_remote_removal', planHash: preview.planHash,
   });
-  return (await buildMaintainerrPlan()).preview;
+  const target = plan.targets.find((row) => row.collection.id === collectionId)!;
+  target.add.add(ratingKey);
+  target.approvedReadds.add(ratingKey);
+  item.status = 'add';
+  item.reason = 'readd_approved';
+  return approvedPreview(plan);
 }
 
 /**
@@ -1057,6 +1102,8 @@ export async function syncMaintainerr(selection?: MaintainerrSelection): Promise
 
   let added = 0;
   let removed = 0;
+  const previewByMember = new Map(preview.items.map((item) =>
+    [`${item.collectionId}\0${item.ratingKey}`, item]));
   // Keep vetoes first: only remove memberships previously managed by Keeparr.
   for (const target of targets) {
     const remove = [...target.remove];
@@ -1067,9 +1114,7 @@ export async function syncMaintainerr(selection?: MaintainerrSelection): Promise
       Object.fromEntries(targets.map((t) => [String(t.collection.id), [...t.managed].sort()]))
     );
     for (const id of remove) {
-      const item = preview.items.find((row) =>
-        row.collectionId === target.collection.id && row.ratingKey === id
-      );
+      const item = previewByMember.get(`${target.collection.id}\0${id}`);
       recordMaintainerrHistory({
         eventType: 'membership_removed', ratingKey: id, title: item?.title,
         year: item?.year, libraryKind: item?.libraryKind ?? target.collection.type,
@@ -1089,9 +1134,7 @@ export async function syncMaintainerr(selection?: MaintainerrSelection): Promise
       Object.fromEntries(targets.map((t) => [String(t.collection.id), [...t.managed].sort()]))
     );
     for (const id of add) {
-      const item = preview.items.find((row) =>
-        row.collectionId === target.collection.id && row.ratingKey === id
-      );
+      const item = previewByMember.get(`${target.collection.id}\0${id}`);
       recordMaintainerrHistory({
         eventType: 'membership_added', ratingKey: id, title: item?.title,
         year: item?.year, libraryKind: item?.libraryKind ?? target.collection.type,

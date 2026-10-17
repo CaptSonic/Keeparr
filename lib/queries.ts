@@ -310,6 +310,25 @@ export function getMediaItem(ratingKey: string): MediaItem | null {
   );
 }
 
+/** Read labels and Keep vetoes only for the requested remote members. Chunked
+ * to avoid SQLite parameter limits without loading the entire media library. */
+export function maintainerrMemberDetails(ratingKeys: string[]): Map<string, {
+  title: string; year: number | null; kept: number;
+}> {
+  const result = new Map<string, { title: string; year: number | null; kept: number }>();
+  const keys = [...new Set(ratingKeys)];
+  for (let offset = 0; offset < keys.length; offset += 500) {
+    const batch = keys.slice(offset, offset + 500);
+    const rows = getDb().prepare(
+      `SELECT m.rating_key, m.title, m.year,
+              EXISTS (SELECT 1 FROM keeps k WHERE k.rating_key = m.rating_key) AS kept
+         FROM media_items m WHERE m.rating_key IN (${batch.map(() => '?').join(',')})`
+    ).all(...batch) as { rating_key: string; title: string; year: number | null; kept: number }[];
+    for (const row of rows) result.set(row.rating_key, row);
+  }
+  return result;
+}
+
 /** Like getMediaItem but excludes tombstoned rows — the existence gate for
  *  mutations (keeping/skipping an item that's gone from the server is a 404). */
 export function getActiveMediaItem(ratingKey: string): MediaItem | null {

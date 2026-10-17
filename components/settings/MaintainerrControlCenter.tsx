@@ -241,6 +241,12 @@ export default function MaintainerrControlCenter() {
       {data?.massBlocked && !data.massApproved && <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-red-700 bg-red-950/30 p-3 text-sm text-red-300"><span className="min-w-0 flex-1">{text.massBlocked.replace('{count}', formatNumber(data.totalChanges, locale))}</span><button type="button" className={btnGhost} disabled={approving} onClick={() => approve('approve-mass')}>{approving ? text.approving : text.approveMass}</button></div>}
       {data && <p className="mb-4 text-xs text-slate-500">{text.generated}: {formatDate(data.generatedAt * 1000, locale, { dateStyle: 'medium', timeStyle: 'medium' })} · Watch age: {formatNumber(data.watchAgeDays, locale)} days</p>}
 
+      {data?.diagnostics && <p className="mb-4 text-xs text-slate-500">
+        {locale === 'de' ? 'Prüfzeiten' : 'Check timings'}: {data.diagnostics.totalMs} ms ·
+        {' '}{locale === 'de' ? 'Verfügbarkeit' : 'Availability'}: {data.diagnostics.inventoryMs} ms
+        {' '}({data.diagnostics.candidatesChecked}) · Plex collections: {data.diagnostics.plexCollectionsMs} ms
+        {' '}({data.diagnostics.plexCollectionsRead}) · Maintainerr: {data.diagnostics.maintainerrMs} ms
+      </p>}
       <div className="grid gap-4 lg:grid-cols-2">
         {(data?.collections ?? []).map((collection) => <Card key={collection.id} title={`${collection.title} · ${collection.type}`}>
           <div className="grid grid-cols-5 gap-2 text-center">
