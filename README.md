@@ -282,7 +282,7 @@ npm run verify    # test + build (the same checks CI runs before publishing an i
 
 ## Install
 
-Prebuilt multi-arch images (amd64 + arm64) are published to
+Prebuilt **AMD64/x86-64-only** images are published to
 **`ghcr.io/<your-github-user-or-org>/keeparr`** on every push to `main`: `latest`
 (the stable channel) plus immutable version tags (`0.3`, `0.3.6`, …). In the
 upstream repository this is `ghcr.io/drohack/keeparr`; in a fork the release
@@ -298,7 +298,7 @@ secrets (see Notes below). Updates appear in the **Docker** tab like any other
 container — pair with the *CA Auto Update Applications* plugin for hands-off
 updates.
 
-### Docker (any host)
+### Docker (AMD64/x86-64 host)
 
 Not on Unraid? Run the same published image directly:
 
@@ -576,7 +576,7 @@ membership, ownership, or observation state; the explicit **Run hand-off now**
 button uses the normal single-flight job runner and reloads the plan afterwards.
 
 For large libraries, availability checks use a continuously refilled pool of up
-to eight reads; Plex collection reads use up to four. Independent availability,
+to eight reads; Plex collection reads use up to eight. Independent availability,
 collection-protection and Maintainerr reads overlap. The Control Center reports
 total and per-phase milliseconds, checked candidates and included non-Agregarr
 Plex collections. Phase timings overlap and should not be added together.
@@ -601,7 +601,15 @@ the same validated live metadata fallback; this is a hint, not a guarantee of
 fewer requests on every server. Request durations are reported separately as
 `listingMs`, `metadataMs` and `memberMs`, with metadata/member times also shown
 for the slowest collections. These are summed request times (including response
-bodies), not wall-clock runtime: parallel requests overlap. Concurrency stays at four.
+bodies), not wall-clock runtime: parallel requests overlap.
+The collection pool defaults to eight; set `PLEX_COLLECTION_CONCURRENCY=4` and
+restart/recreate the container to compare with the previous limit or reduce Plex
+load (`8` restores the default; other values also use eight). The Control Center
+shows the configured limit, peak active requests and the member endpoint path of
+the slowest collections (without credentials). The server-provided collection key
+and `/children` membership endpoint remain unchanged, including smart collections.
+Compare several fresh previews at each limit; more concurrency is not a guarantee
+of faster Plex responses. No live execution checks are skipped or cached.
 
 Three additional safeguards protect Maintainerr's grace periods and large plans:
 

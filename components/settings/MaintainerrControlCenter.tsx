@@ -272,6 +272,10 @@ export default function MaintainerrControlCenter() {
       </p>}
       {data?.diagnostics?.collectionReads && <details className="mb-4 rounded border border-slate-800 p-3 text-xs text-slate-400">
         <summary className="cursor-pointer">{locale === 'de' ? 'Plex-Collection-Abfragen' : 'Plex collection requests'}: {data.diagnostics.collectionReads.requests}</summary>
+        {data.diagnostics.collectionReads.concurrency !== undefined && <p className="mt-2">
+          {locale === 'de' ? 'Parallelität: Limit / maximal aktive Abfragen' : 'Concurrency: limit / peak active requests'}:
+          {' '}{data.diagnostics.collectionReads.concurrency} / {data.diagnostics.collectionReads.peakRequests}
+        </p>}
         <p className="mt-2">
           {locale === 'de' ? 'Übersicht / Metadaten / Mitglieder-Seiten' : 'Listing / metadata / member pages'}:
           {' '}{data.diagnostics.collectionReads.listingRequests} / {data.diagnostics.collectionReads.metadataRequests} / {data.diagnostics.collectionReads.memberRequests}
@@ -287,6 +291,7 @@ export default function MaintainerrControlCenter() {
         <ul className="mt-1 space-y-1">{data.diagnostics.collectionReads.slowest.map((row, index) => <li key={`${row.ratingKey}:${index}`}>
           {row.title}: {row.durationMs} ms · {row.requests} {locale === 'de' ? 'Abfragen' : 'requests'} · {row.members} {locale === 'de' ? 'Mitglieder' : 'members'}{row.ignored ? ' · Agregarr' : ''}
           {row.metadataMs !== undefined && <span className="ml-1">({locale === 'de' ? 'Metadaten' : 'Metadata'}: {row.metadataMs} ms · {locale === 'de' ? 'Mitglieder' : 'Members'}: {row.memberMs} ms)</span>}
+          {row.memberPath && <code className="ml-1 break-all text-slate-500">{row.memberPath}</code>}
         </li>)}</ul>
       </details>}
       <div className="grid gap-4 lg:grid-cols-2">

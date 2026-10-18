@@ -3,6 +3,7 @@ import { mapConcurrent } from './concurrency';
 import { performance } from 'node:perf_hooks';
 import type { CollectionReadDiagnostics } from './collection-diagnostics';
 import { getPlexClientId } from './settings';
+import { getPlexCollectionConcurrency } from './config';
 
 /**
  * Plex client: the plex.tv PIN OAuth flow (login + identity + server-access
@@ -548,6 +549,12 @@ export async function getSectionItems(
 export async function getMovieCollections(
   baseUrl: string, token: string, sectionId: string, diagnostics?: CollectionReadDiagnostics
 ): Promise<string[][]> {
+  const concurrency = getPlexCollectionConcurrency();
+  let activeRequests = 0;
+  if (diagnostics) {
+    diagnostics.concurrency = concurrency;
+    diagnostics.peakRequests ??= 0;
+  }
   type CollectionRow = {
     ratingKey: string | number;
     key?: string;
@@ -573,10 +580,13 @@ export async function getMovieCollections(
       const optional = category === 'listingRequests' ? '&includeOptionalElements=Label' : '';
       const started = performance.now();
       let data: Page;
+      activeRequests++;
+      if (diagnostics) diagnostics.peakRequests = Math.max(diagnostics.peakRequests ?? 0, activeRequests);
       try {
         data = await pmsGet<Page>(baseUrl,
           `${path}?X-Plex-Container-Start=${rows.length}&X-Plex-Container-Size=200${optional}`, token);
       } finally {
+        activeRequests--;
         const durationMs = Math.round(performance.now() - started);
         const timing = category === 'listingRequests' ? 'listingMs' :
           category === 'metadataRequests' ? 'metadataMs' : 'memberMs';
@@ -603,9 +613,10 @@ export async function getMovieCollections(
   }
   const collections = await pages(`/library/sections/${encodeURIComponent(sectionId)}/collections`, 'listingRequests');
   if (diagnostics) diagnostics.collections += collections.length;
-  const result = await mapConcurrent(collections, 4, async (collection) => {
+  const result = await mapConcurrent(collections, concurrency, async (collection) => {
     const started = performance.now();
     const count = { requests: 0, metadataMs: 0, memberMs: 0 };
+    let memberPath: string | undefined;
     function record(members: number, ignored: boolean) {
       if (!diagnostics) return;
       diagnostics.members += members;
@@ -614,6 +625,7 @@ export async function getMovieCollections(
         ratingKey: String(collection.ratingKey), title: collection.title ?? String(collection.ratingKey),
         durationMs: Math.round(performance.now() - started), requests: count.requests, members, ignored,
         metadataMs: count.metadataMs, memberMs: count.memberMs,
+        memberPath,
       });
       diagnostics.slowest.sort((a, b) => b.durationMs - a.durationMs);
       diagnostics.slowest = diagnostics.slowest.slice(0, 5);
@@ -640,7 +652,8 @@ export async function getMovieCollections(
     if (!/^\/library\/(?:collections|metadata)\/[^/?#]+$/.test(key)) {
       throw new Error('Plex returned an invalid collection key.');
     }
-    const members = await pages(`${key}/children`, 'memberRequests', count);
+    memberPath = `${key}/children`;
+    const members = await pages(memberPath, 'memberRequests', count);
     record(members.length, false);
     return members.map((member) => String(member.ratingKey));
   });

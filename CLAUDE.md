@@ -496,7 +496,10 @@ when it has no tvdb/tmdb **and** no imdb.
   It also reports summed listingMs/metadataMs/memberMs (overlapping requests,
   not elapsed runtime), plus per-collection metadataMs/memberMs. Plex collection
   listings request includeOptionalElements=Label; absent labels still require
-  validated live metadata. The four-slot pool and fail-closed behavior are unchanged.
+  validated live metadata. Collection concurrency defaults to eight, with runtime
+  PLEX_COLLECTION_CONCURRENCY=4 rollback (only 4/8; others use 8). Diagnostics
+  include concurrency/peakRequests and slowest.memberPath (no tokens). The
+  server-provided key + /children path and fail-closed behavior are unchanged.
   Execution and approvals always build fresh plans, never cached previews.
   `POST {action:'approve-mass'|'approve-readd', collectionId?, ratingKey?}` (server
   recomputes the block; no client-provided plan hash is trusted),
@@ -743,7 +746,7 @@ A fuller source-verified reference is in the planning doc
   maintainerr 5 min; backup 08:00.
 - **Releases + images (continuous delivery)**: every push to `main` ships one
   release via `.github/workflows/release.yml`: test (tsc + vitest + `next
-  build`) → **version** → build (native amd64 + arm64, no QEMU) → publish
+  build`) → **version** → build (native amd64 only, no ARM build/QEMU) → publish
   `ghcr.io/CaptSonic/keeparr:{latest,X.Y.Z,X.Y}` + a GitHub release. The
   **version** job auto-increments the PATCH unless you bumped `package.json`
   yourself: if `v<package.json version>` is already a tag it bumps (patch by

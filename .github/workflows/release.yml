@@ -1,6 +1,6 @@
 # Continuous delivery: every push to main ships one release.
 #
-#   test → version → build (per-arch, native) → publish (image + GitHub release)
+#   test → version → build (native amd64) → publish (image + GitHub release)
 #
 # Versioning: auto-increments the PATCH unless you bumped package.json yourself.
 # The `version` job checks whether the current package.json version is already
@@ -85,14 +85,7 @@ jobs:
 
   build:
     needs: version
-    strategy:
-      matrix:
-        include:
-          - runner: ubuntu-24.04
-            platform: linux/amd64
-          - runner: ubuntu-24.04-arm
-            platform: linux/arm64
-    runs-on: ${{ matrix.runner }}
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
@@ -102,10 +95,10 @@ jobs:
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: .
-          platforms: ${{ matrix.platform }}
+          platforms: linux/amd64
           push: false
-          cache-from: type=gha,scope=${{ matrix.platform }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
+          cache-from: type=gha,scope=linux/amd64
+          cache-to: type=gha,mode=max,scope=linux/amd64
           provenance: false
 
   publish:
@@ -129,17 +122,15 @@ jobs:
             type=raw,value=latest
             type=semver,pattern={{version}},value=v${{ needs.version.outputs.version }}
             type=semver,pattern={{major}}.{{minor}},value=v${{ needs.version.outputs.version }}
-      - name: Build & push (assembled from the per-arch caches)
+      - name: Build & push (from the amd64 cache)
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: |
-            type=gha,scope=linux/amd64
-            type=gha,scope=linux/arm64
+          cache-from: type=gha,scope=linux/amd64
           provenance: false
       - name: GitHub release (tag created at the built commit only after the image is pushed)
         env:

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getMovieCollections } from './plex';
 import type { CollectionReadDiagnostics } from './collection-diagnostics';
+import { getPlexCollectionConcurrency } from './config';
 
 const diagnostics = (): CollectionReadDiagnostics => ({
   requests: 0, listingRequests: 0, metadataRequests: 0, memberRequests: 0,
@@ -8,7 +9,7 @@ const diagnostics = (): CollectionReadDiagnostics => ({
   collections: 0, ignoredCollections: 0, members: 0, slowest: [],
 });
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 describe('live Plex collection membership', () => {
   it('requests optional labels on every listing page and avoids redundant metadata reads', async () => {
@@ -68,30 +69,72 @@ describe('live Plex collection membership', () => {
     await expect(getMovieCollections('http://plex', 'secret', 'movies')).rejects.toThrow('invalid collection labels');
   });
 
-  it('bounds collection reads at four and refills slots while a collection is slow', async () => {
+  it.each([4, 8])('bounds collection reads at %i and refills slots while a collection is slow', async (limit) => {
+    vi.stubEnv('PLEX_COLLECTION_CONCURRENCY', String(limit));
     let finishSlow!: () => void;
+    let releaseFast!: () => void;
+    const fastGate = new Promise<void>((resolve) => { releaseFast = resolve; });
     let active = 0;
     let peak = 0;
     const started: string[] = [];
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
       const path = new URL(String(input)).pathname;
       if (path.endsWith('/collections')) return new Response(JSON.stringify({ MediaContainer: {
-        Metadata: Array.from({ length: 7 }, (_, index) => ({ ratingKey: String(index), Label: [] })),
+        Metadata: Array.from({ length: 17 }, (_, index) => ({ ratingKey: String(index), Label: [] })),
       } }), { headers: { 'Content-Type': 'application/json' } });
       started.push(path);
       peak = Math.max(peak, ++active);
       if (path === '/library/metadata/0/children') {
         await new Promise<void>((resolve) => { finishSlow = resolve; });
+      } else {
+        await fastGate;
       }
       active--;
       return new Response(JSON.stringify({ MediaContainer: { Metadata: [{ ratingKey: path.split('/')[3] }] } }),
         { headers: { 'Content-Type': 'application/json' } });
     }));
-    const pending = getMovieCollections('http://plex', 'secret', 'movies');
-    await vi.waitFor(() => expect(started).toHaveLength(7));
-    expect(peak).toBeLessThanOrEqual(4);
+    const stats = diagnostics();
+    const pending = getMovieCollections('http://plex', 'secret', 'movies', stats);
+    await vi.waitFor(() => expect(started).toHaveLength(limit));
+    expect(peak).toBe(limit);
+    releaseFast();
+    await vi.waitFor(() => expect(started).toHaveLength(17));
+    expect(peak).toBe(limit);
+    expect(stats).toMatchObject({ concurrency: limit, peakRequests: limit });
     finishSlow();
-    await expect(pending).resolves.toEqual(Array.from({ length: 7 }, (_, index) => [String(index)]));
+    await expect(pending).resolves.toEqual(Array.from({ length: 17 }, (_, index) => [String(index)]));
+  });
+
+  it.each([undefined, '', '0', '16', '4.5', 'invalid'])('defaults unsupported concurrency %s to eight', (value) => {
+    vi.stubEnv('PLEX_COLLECTION_CONCURRENCY', value);
+    expect(getPlexCollectionConcurrency()).toBe(8);
+  });
+
+  it.each([4, 8])('stops scheduling and drains active requests on failure at limit %i', async (limit) => {
+    vi.stubEnv('PLEX_COLLECTION_CONCURRENCY', String(limit));
+    const finish: Array<() => void> = [];
+    const paths: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const path = new URL(String(input)).pathname;
+      if (path.endsWith('/collections')) return Response.json({ MediaContainer: {
+        Metadata: Array.from({ length: 20 }, (_, index) => ({ ratingKey: String(index), Label: [] })),
+      } });
+      paths.push(path);
+      if (path === '/library/metadata/0/children') throw new Error('Plex offline');
+      await new Promise<void>((resolve) => finish.push(resolve));
+      return Response.json({ MediaContainer: { Metadata: [] } });
+    }));
+    let settled = false;
+    const pending = getMovieCollections('http://plex', 'secret', 'movies').catch((error) => {
+      settled = true;
+      return error;
+    });
+    await vi.waitFor(() => expect(finish).toHaveLength(limit - 1));
+    expect(paths).toHaveLength(limit);
+    expect(settled).toBe(false);
+    finish.forEach((resolve) => resolve());
+    expect(await pending).toEqual(new Error('Plex offline'));
+    expect(paths).toHaveLength(limit);
   });
 
   it('pages collections and their children, including smart collection results', async () => {
@@ -118,7 +161,8 @@ describe('live Plex collection membership', () => {
     expect(stats).toMatchObject({ requests: 4, listingRequests: 1, metadataRequests: 0,
       memberRequests: 3, collections: 2, ignoredCollections: 0, members: 202 });
     expect(stats.slowest).toEqual(expect.arrayContaining([
-      expect.objectContaining({ ratingKey: 'smart', requests: 2, members: 201, ignored: false }),
+      expect.objectContaining({ ratingKey: 'smart', requests: 2, members: 201, ignored: false,
+        memberPath: '/library/collections/smart/children' }),
     ]));
   });
 

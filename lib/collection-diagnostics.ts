@@ -1,4 +1,6 @@
 export interface CollectionReadDiagnostics {
+  concurrency?: number;
+  peakRequests?: number;
   requests: number;
   listingRequests: number;
   metadataRequests: number;
@@ -16,6 +18,7 @@ export interface CollectionReadDiagnostics {
     durationMs: number;
     metadataMs: number;
     memberMs: number;
+    memberPath?: string;
     requests: number;
     members: number;
     ignored: boolean;
