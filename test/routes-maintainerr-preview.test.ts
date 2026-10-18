@@ -1,8 +1,9 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { cookieJar, previewMock, approveMassMock, approveReaddMock, syncMock } = vi.hoisted(() => ({
+const { cookieJar, previewMock, savedMock, approveMassMock, approveReaddMock, syncMock } = vi.hoisted(() => ({
   cookieJar: new Map<string, string>(),
   previewMock: vi.fn(),
+  savedMock: vi.fn(),
   approveMassMock: vi.fn(),
   approveReaddMock: vi.fn(),
   syncMock: vi.fn(),
@@ -17,6 +18,7 @@ vi.mock('next/headers', () => ({
 }));
 vi.mock('@/lib/maintainerr', () => ({
   previewMaintainerr: previewMock,
+  savedMaintainerrPreview: savedMock,
   approveCurrentMaintainerrPlan: approveMassMock,
   approveCurrentMaintainerrReadd: approveReaddMock,
   syncMaintainerr: syncMock,
@@ -35,6 +37,7 @@ async function loginAs(id: string, admin: boolean) {
 beforeEach(() => {
   cookieJar.clear();
   previewMock.mockReset();
+  savedMock.mockReset();
   approveMassMock.mockReset();
   approveReaddMock.mockReset();
   syncMock.mockReset();
@@ -99,10 +102,26 @@ describe('POST /api/admin/maintainerr-preview', () => {
 afterAll(() => __closeDb());
 
 describe('GET /api/admin/maintainerr-preview', () => {
+  it('returns display-only snapshots without starting a live check, admin-only', async () => {
+    const request = () => new Request('http://localhost/api/admin/maintainerr-preview?snapshot=1');
+    expect((await GET(request())).status).toBe(401);
+    expect(savedMock).not.toHaveBeenCalled();
+    await loginAs('member', false);
+    expect((await GET(request())).status).toBe(403);
+    expect(savedMock).not.toHaveBeenCalled();
+    await loginAs('admin', true);
+    savedMock.mockReturnValue(null);
+    const empty = await GET(request());
+    expect(await empty.json()).toEqual({ preview: null });
+    expect(empty.headers.get('cache-control')).toBe('no-store');
+    savedMock.mockReturnValue({ generatedAt: 123, snapshot: true, massApproved: false });
+    expect(await (await GET(request())).json()).toMatchObject({ preview: { snapshot: true, massApproved: false } });
+    expect(previewMock).not.toHaveBeenCalled();
+  });
   it('rejects anonymous and non-admin users before planning', async () => {
-    expect((await GET()).status).toBe(401);
+    expect((await GET(new Request('http://localhost/api/admin/maintainerr-preview'))).status).toBe(401);
     await loginAs('user', false);
-    expect((await GET()).status).toBe(403);
+    expect((await GET(new Request('http://localhost/api/admin/maintainerr-preview'))).status).toBe(403);
     expect(previewMock).not.toHaveBeenCalled();
   });
 
@@ -114,7 +133,7 @@ describe('GET /api/admin/maintainerr-preview', () => {
       collections: [], items: [], summary: {},
     });
 
-    const response = await GET();
+    const response = await GET(new Request('http://localhost/api/admin/maintainerr-preview'));
 
     expect(response.status).toBe(200);
     expect(response.headers.get('cache-control')).toBe('no-store');

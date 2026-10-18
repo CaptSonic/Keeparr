@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getMovieCollections } from './plex';
+import type { CollectionReadDiagnostics } from './collection-diagnostics';
+
+const diagnostics = (): CollectionReadDiagnostics => ({
+  requests: 0, listingRequests: 0, metadataRequests: 0, memberRequests: 0,
+  collections: 0, ignoredCollections: 0, members: 0, slowest: [],
+});
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -45,11 +51,17 @@ describe('live Plex collection membership', () => {
       } }), { headers: { 'Content-Type': 'application/json' } });
     });
     vi.stubGlobal('fetch', fetchMock);
-    const result = await getMovieCollections('http://plex', 'secret', 'movies');
+    const stats = diagnostics();
+    const result = await getMovieCollections('http://plex', 'secret', 'movies', stats);
     expect(result[0]).toHaveLength(201);
     expect(result[0][200]).toBe('200');
     expect(result[1]).toEqual(['other']);
     expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(stats).toMatchObject({ requests: 4, listingRequests: 1, metadataRequests: 0,
+      memberRequests: 3, collections: 2, ignoredCollections: 0, members: 202 });
+    expect(stats.slowest).toEqual(expect.arrayContaining([
+      expect.objectContaining({ ratingKey: 'smart', requests: 2, members: 201, ignored: false }),
+    ]));
   });
 
   it('ignores Agregarr collections but preserves normal collections sharing their movies', async () => {
@@ -68,9 +80,13 @@ describe('live Plex collection membership', () => {
         { headers: { 'Content-Type': 'application/json' } });
     });
     vi.stubGlobal('fetch', fetchMock);
-    await expect(getMovieCollections('http://plex', 'secret', '1'))
+    const stats = diagnostics();
+    await expect(getMovieCollections('http://plex', 'secret', '1', stats))
       .resolves.toEqual([['shared-movie', 'protected-movie']]);
     expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(stats).toMatchObject({ requests: 3, listingRequests: 1, metadataRequests: 1,
+      memberRequests: 1, collections: 3, ignoredCollections: 2, members: 2 });
+    expect(stats.slowest).toHaveLength(3);
   });
 
   it('keeps unlabeled collections after loading their metadata', async () => {

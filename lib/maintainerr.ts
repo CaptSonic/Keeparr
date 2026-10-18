@@ -1,9 +1,13 @@
 import { createHash } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { mapConcurrent } from './concurrency';
+import { PreviewCache } from './preview-cache';
+import { getDb } from './db';
+import type { CollectionReadDiagnostics } from './collection-diagnostics';
 import type { MaintainerrAutomaticRules } from './maintainerr-rules';
 import {
   maintainerrMemberDetails,
+  getAllSettings,
   latestWatchedAtByItem,
   listAutomationReleases,
   maintainerrArchiveExclusions,
@@ -275,6 +279,8 @@ export interface MaintainerrPreviewCollection {
 }
 
 export interface MaintainerrPreview {
+  /** Display-only saved result; never accepted as execution authorization. */
+  snapshot?: boolean;
   diagnostics?: {
     totalMs: number;
     inventoryMs: number;
@@ -282,6 +288,7 @@ export interface MaintainerrPreview {
     maintainerrMs: number;
     candidatesChecked: number;
     plexCollectionsRead: number;
+    collectionReads?: CollectionReadDiagnostics;
   };
   generatedAt: number;
   paused: boolean;
@@ -472,6 +479,10 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
   const diagnostics = {
     totalMs: 0, inventoryMs: 0, plexCollectionsMs: 0, maintainerrMs: 0,
     candidatesChecked: 0, plexCollectionsRead: 0,
+    collectionReads: {
+      requests: 0, listingRequests: 0, metadataRequests: 0, memberRequests: 0,
+      collections: 0, ignoredCollections: 0, members: 0, slowest: [],
+    } as CollectionReadDiagnostics,
   };
   async function timed<T>(
     phase: 'inventoryMs' | 'plexCollectionsMs' | 'maintainerrMs', read: () => Promise<T>
@@ -617,7 +628,7 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
           // Collection reads already have a bounded per-library pool; do not
           // multiply that concurrency across libraries.
           for (const sectionId of movieLibraries) {
-            groups.push(...await backend.movieCollections(sectionId));
+            groups.push(...await backend.movieCollections(sectionId, diagnostics.collectionReads));
           }
         }
         diagnostics.plexCollectionsRead = groups.length;
@@ -907,8 +918,33 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
 }
 
 /** Read-only dry run used by the Maintainerr Control Center. */
+const previewCaches = new WeakMap<object, PreviewCache<MaintainerrPreview>>();
+
+function previewCache() {
+  const db = getDb();
+  let cache = previewCaches.get(db);
+  if (!cache) {
+    cache = new PreviewCache<MaintainerrPreview>();
+    previewCaches.set(db, cache);
+  }
+  // Includes credentials, source, rules and ownership without exposing them.
+  const key = createHash('sha256').update(JSON.stringify(
+    Object.entries(getAllSettings()).sort(([a], [b]) => a.localeCompare(b))
+  )).digest('hex');
+  return { cache, key };
+}
+
+export function savedMaintainerrPreview(): MaintainerrPreview | null {
+  const { cache, key } = previewCache();
+  const preview = cache.get(key);
+  if (!preview) return null;
+  return { ...preview, snapshot: true, massApproved: false };
+}
+
 export async function previewMaintainerr(): Promise<MaintainerrPreview> {
-  return (await buildMaintainerrPlan()).preview;
+  const { cache, key } = previewCache();
+  return cache.refresh(key, async () => (await buildMaintainerrPlan()).preview,
+    (preview) => !preview.paused && preview.watchReady);
 }
 
 /** Approval changes only local authorization, not the observed remote state.
@@ -935,6 +971,7 @@ function approvedPreview({ preview, targets }: MaintainerrPlan): MaintainerrPrev
 
 /** Approve only the currently recomputed mass-change plan. */
 export async function approveCurrentMaintainerrPlan(): Promise<MaintainerrPreview> {
+  previewCaches.delete(getDb());
   const plan = await buildMaintainerrPlan();
   const { preview } = plan;
   if (!preview.massBlocked) throw new Error('Maintainerr plan is not mass-blocked.');
@@ -951,6 +988,7 @@ export async function approveCurrentMaintainerrReadd(
   collectionId: number,
   ratingKey: string
 ): Promise<MaintainerrPreview> {
+  previewCaches.delete(getDb());
   const plan = await buildMaintainerrPlan();
   const { preview } = plan;
   const item = preview.items.find((row) =>
@@ -984,6 +1022,7 @@ export interface MaintainerrSelection {
 }
 
 export async function syncMaintainerr(selection?: MaintainerrSelection): Promise<JobResult> {
+  previewCaches.delete(getDb());
   const config = getMaintainerrConfig();
   const managedState = getMaintainerrManagedItems();
   if (!config.url || (!isMaintainerrConfigured() && Object.keys(managedState).length === 0)) {

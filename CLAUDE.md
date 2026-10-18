@@ -487,7 +487,13 @@ when it has no tvdb/tmdb **and** no imdb.
   `GET /api/admin/storage-check?path=`, `GET /api/admin/jobs` (status + recent runs)
   + `POST /api/admin/jobs {job}` (trigger one/`all`) — both also accept `X-Api-Key`,
   `GET /api/admin/maintainerr-preview` (admin session only; exact read-only hand-off
-  plan with collection counters/history and per-title status/reason; `no-store`) +
+  plan with collection counters/history and per-title status/reason; `no-store`;
+  `?snapshot=1` returns `{preview: ... | null}` from process memory without
+  external reads, marked `snapshot:true` and never executable in the UI).
+  Concurrent previews share only in-flight reads per configuration; snapshots
+  are invalidated by approvals/runs and configuration changes. Detailed
+  `diagnostics.collectionReads` counts requests and the five slowest collections.
+  Execution and approvals always build fresh plans, never cached previews.
   `POST {action:'approve-mass'|'approve-readd', collectionId?, ratingKey?}` (server
   recomputes the block; no client-provided plan hash is trusted),
   `GET /api/admin/logs?level=&q=&limit=` (keyword search over message+source;

@@ -4,6 +4,7 @@ import {
   approveCurrentMaintainerrPlan,
   approveCurrentMaintainerrReadd,
   previewMaintainerr,
+  savedMaintainerrPreview,
   syncMaintainerr,
   type MaintainerrSelection,
 } from '@/lib/maintainerr';
@@ -13,9 +14,14 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 /** Read-only Maintainerr reconciliation plan. Never writes membership or ownership. */
-export async function GET() {
+export async function GET(request: Request) {
   try {
     await requireAdmin();
+    if (new URL(request.url).searchParams.get('snapshot') === '1') {
+      return NextResponse.json({ preview: savedMaintainerrPreview() }, {
+        headers: { 'Cache-Control': 'no-store' },
+      });
+    }
     const response = NextResponse.json(await previewMaintainerr());
     response.headers.set('Cache-Control', 'no-store');
     return response;

@@ -861,10 +861,11 @@
       "get": {
         "tags": ["admin"],
         "summary": "Read-only Maintainerr reconciliation dry run",
+        "parameters": [{ "name": "snapshot", "in": "query", "required": false, "description": "Set to 1 to return {preview: savedPreview | null} immediately without external reads. Process-local, configuration-bound, successful previews only; marked snapshot:true and massApproved:false. Display-only, never execution authorization. Default live previews share only simultaneous reads, not cached results.", "schema": { "type": "string", "enum": ["1"] } }],
         "description": "Returns the exact current add/remove/unchanged plan with per-title reason codes and automaticRules configuration. Automatic requester and household inactivity rules have independent movie/show enable flags, inactivity thresholds (1–3650 days; defaults 180/540), and observation periods (1–365 days; default 30). Historical reason IDs remain stable regardless of configured thresholds. Reads Maintainerr and the media server but never writes memberships, Keeparr ownership, or observation state.",
         "security": [{ "cookieAuth": [] }],
         "responses": {
-          "200": { "description": "Maintainerr preview with collection counters, item decisions, pause state, and optional diagnostics: totalMs, inventoryMs, plexCollectionsMs, maintainerrMs, candidatesChecked, plexCollectionsRead. Timings use milliseconds; phases overlap and must not be summed. plexCollectionsRead counts included non-Agregarr collections." },
+          "200": { "description": "Live Maintainerr preview, or {preview: savedPreview | null} with snapshot=1. Preview includes collection counters, item decisions, pause state, and optional diagnostics: totalMs, inventoryMs, plexCollectionsMs, maintainerrMs, candidatesChecked, plexCollectionsRead. Optional diagnostics.collectionReads contains requests, listingRequests, metadataRequests, memberRequests, collections (including ignored ones), ignoredCollections, members (memberships, not distinct movies), and slowest (up to five entries with ratingKey, title, durationMs, requests, members, ignored). Timings use milliseconds; phases overlap and must not be summed. plexCollectionsRead counts included non-Agregarr collections." },
           "401": { "description": "Authentication required" },
           "403": { "description": "Admin required" }
         }

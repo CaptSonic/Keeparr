@@ -584,6 +584,18 @@ Approvals reuse their freshly validated read-only plan for the response; executi
 always rebuilds and validates a live plan. Failed collection reads still pause
 reconciliation, and observation clocks are never advanced by previews.
 
+The last successful preview is kept in process memory and displayed immediately
+while a fresh live check runs. Saved previews show their original timestamp and
+an explicit warning; all actions stay disabled until the live check succeeds.
+`GET /api/admin/maintainerr-preview?snapshot=1` returns `{preview: ... | null}`
+without external calls. Snapshots are admin-only, are not persisted across
+restarts, and are inaccessible after configuration changes. Approvals and runs
+invalidate them. Concurrent live preview requests share one in-flight read for
+the same configuration; execution and approvals never reuse that read or cache.
+The expandable Plex diagnostics count listing/metadata/member-page requests,
+ignored Agregarr collections and memberships, plus the five slowest collections.
+This exposes slow smart collections and pagination costs without weakening checks.
+
 Three additional safeguards protect Maintainerr's grace periods and large plans:
 
 - **Mass-change stop:** a plan is blocked when one collection has at least 10

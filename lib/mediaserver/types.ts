@@ -1,4 +1,5 @@
 import type { LibraryKind } from '../types';
+import type { CollectionReadDiagnostics } from '../collection-diagnostics';
 
 /**
  * The read seam every media-server backend implements for the sync engine. Auth
@@ -42,7 +43,7 @@ export interface WatchRow {
 
 export interface MediaBackend {
   /** Live Plex collection members in one movie library; absent on other backends. */
-  movieCollections?(sectionId: string): Promise<string[][]>;
+  movieCollections?(sectionId: string, diagnostics?: CollectionReadDiagnostics): Promise<string[][]>;
   /** All movie/show libraries on the server. */
   listSections(): Promise<BackendSection[]>;
   /** All items in a section. Movies include size; shows need `showSize()`. */

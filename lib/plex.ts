@@ -1,5 +1,7 @@
 import { fetchJson } from './http';
 import { mapConcurrent } from './concurrency';
+import { performance } from 'node:perf_hooks';
+import type { CollectionReadDiagnostics } from './collection-diagnostics';
 import { getPlexClientId } from './settings';
 
 /**
@@ -544,16 +546,25 @@ export async function getSectionItems(
 /** Read actual collection membership, including smart collections, without
  * relying on movie tags (which do not describe smart collection membership). */
 export async function getMovieCollections(
-  baseUrl: string, token: string, sectionId: string
+  baseUrl: string, token: string, sectionId: string, diagnostics?: CollectionReadDiagnostics
 ): Promise<string[][]> {
   type CollectionRow = {
     ratingKey: string | number;
     key?: string;
+    title?: string;
     Label?: { tag: string }[];
   };
-  async function pages(path: string): Promise<CollectionRow[]> {
+  async function pages(
+    path: string, category: 'listingRequests' | 'metadataRequests' | 'memberRequests',
+    count?: { requests: number }
+  ): Promise<CollectionRow[]> {
     const rows: CollectionRow[] = [];
     for (;;) {
+      if (diagnostics) {
+        diagnostics.requests++;
+        diagnostics[category]++;
+      }
+      if (count) count.requests++;
       const data = await pmsGet<{
         MediaContainer: { totalSize?: number; Metadata?: CollectionRow[]; Directory?: CollectionRow[] };
       }>(baseUrl, `${path}?X-Plex-Container-Start=${rows.length}&X-Plex-Container-Size=200`, token);
@@ -575,13 +586,27 @@ export async function getMovieCollections(
       }
     }
   }
-  const collections = await pages(`/library/sections/${encodeURIComponent(sectionId)}/collections`);
+  const collections = await pages(`/library/sections/${encodeURIComponent(sectionId)}/collections`, 'listingRequests');
+  if (diagnostics) diagnostics.collections += collections.length;
   const result = await mapConcurrent(collections, 4, async (collection) => {
+    const started = performance.now();
+    const count = { requests: 0 };
+    function record(members: number, ignored: boolean) {
+      if (!diagnostics) return;
+      diagnostics.members += members;
+      if (ignored) diagnostics.ignoredCollections++;
+      diagnostics.slowest.push({
+        ratingKey: String(collection.ratingKey), title: collection.title ?? String(collection.ratingKey),
+        durationMs: Math.round(performance.now() - started), requests: count.requests, members, ignored,
+      });
+      diagnostics.slowest.sort((a, b) => b.durationMs - a.durationMs);
+      diagnostics.slowest = diagnostics.slowest.slice(0, 5);
+    }
     // Collection listings do not always include labels. Read the collection
     // metadata in that case, rather than guessing ownership from its title.
     let labels = collection.Label;
     if (labels === undefined) {
-      const metadata = await pages(`/library/metadata/${encodeURIComponent(String(collection.ratingKey))}`);
+      const metadata = await pages(`/library/metadata/${encodeURIComponent(String(collection.ratingKey))}`, 'metadataRequests', count);
       if (metadata.length !== 1 || String(metadata[0].ratingKey) !== String(collection.ratingKey)) {
         throw new Error('Plex returned invalid collection metadata.');
       }
@@ -590,13 +615,17 @@ export async function getMovieCollections(
     if (!Array.isArray(labels) || labels.some((label) => !label || typeof label.tag !== 'string')) {
       throw new Error('Plex returned invalid collection labels.');
     }
-    if (labels.some((label) => label.tag.toLowerCase().startsWith('agregarr'))) return null;
+    if (labels.some((label) => label.tag.toLowerCase().startsWith('agregarr'))) {
+      record(0, true);
+      return null;
+    }
     const key = collection.key?.replace(/\/children$/, '') ??
       `/library/metadata/${encodeURIComponent(String(collection.ratingKey))}`;
     if (!/^\/library\/(?:collections|metadata)\/[^/?#]+$/.test(key)) {
       throw new Error('Plex returned an invalid collection key.');
     }
-    const members = await pages(`${key}/children`);
+    const members = await pages(`${key}/children`, 'memberRequests', count);
+    record(members.length, false);
     return members.map((member) => String(member.ratingKey));
   });
   return result.filter((group): group is string[] => group !== null);

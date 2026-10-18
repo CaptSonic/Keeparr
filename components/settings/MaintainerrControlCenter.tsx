@@ -94,28 +94,45 @@ export default function MaintainerrControlCenter() {
   const [historyFilter, setHistoryFilter] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const loadId = useRef(0);
 
   const load = useCallback(async () => {
+    const id = ++loadId.current;
+    let liveFinished = false;
     setLoading(true);
     setError('');
+    setSelected(new Set());
+    setData((previous) => previous ? { ...previous, snapshot: true, massApproved: false } : null);
+    // A separate lightweight request lets the last successful result render
+    // while the expensive live request is still running. Never overwrite it.
+    void fetch('/api/admin/maintainerr-preview?snapshot=1', { cache: 'no-store' })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const saved = await response.json();
+        if (!liveFinished && loadId.current === id && saved.preview) {
+          setData({ ...saved.preview, snapshot: true, massApproved: false });
+        }
+      }).catch(() => undefined);
     try {
       const response = await fetch('/api/admin/maintainerr-preview', { cache: 'no-store' });
       if (!response.ok) throw new Error('preview_failed');
-      setData(await response.json());
-      setSelected(new Set());
+      const preview = await response.json();
+      if (loadId.current === id) setData({ ...preview, snapshot: false });
     } catch {
-      setError(text.failed);
+      if (loadId.current === id) setError(text.failed);
     } finally {
-      setLoading(false);
+      liveFinished = true;
+      if (loadId.current === id) setLoading(false);
     }
   }, [text.failed]);
 
   useEffect(() => {
     load();
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+    return () => { loadId.current++; if (pollRef.current) clearInterval(pollRef.current); };
   }, [load]);
 
   async function runNow() {
+    if (!data || data.snapshot || loading || running || approving) return;
     setRunning(true);
     setError('');
     const response = await fetch('/api/admin/jobs', {
@@ -140,7 +157,7 @@ export default function MaintainerrControlCenter() {
   }
 
   async function executeSelection() {
-    if (!data || selected.size === 0) return;
+    if (!data || data.snapshot || loading || running || approving || selected.size === 0) return;
     const operations = data.items.filter((item) =>
       selected.has(`${item.collectionId}:${item.ratingKey}`) &&
       (item.status === 'add' || item.status === 'remove') && item.collectionId !== null
@@ -168,6 +185,7 @@ export default function MaintainerrControlCenter() {
   }
 
   async function approve(action: 'approve-mass' | 'approve-readd', item?: MaintainerrPreviewItem) {
+    if (!data || data.snapshot || loading || running || approving) return;
     setApproving(true);
     setError('');
     try {
@@ -231,14 +249,19 @@ export default function MaintainerrControlCenter() {
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div><h2 className="text-xl font-bold">{text.title}</h2><p className="mt-1 text-sm text-slate-400">{text.intro}</p></div>
         <div className="flex gap-2">
-          <button type="button" onClick={load} disabled={loading || running} className={btnGhost}>{loading ? text.refreshing : text.refresh}</button>
-          <button type="button" onClick={runNow} disabled={loading || running || approving || !data || data.paused || (data.massBlocked && !data.massApproved)} className={btnCls}>{running ? text.running : text.run}</button>
+          <button type="button" onClick={load} disabled={loading || running || approving} className={btnGhost}>{loading ? text.refreshing : text.refresh}</button>
+          <button type="button" onClick={runNow} disabled={loading || running || approving || !data || data.snapshot || data.paused || (data.massBlocked && !data.massApproved)} className={btnCls}>{running ? text.running : text.run}</button>
         </div>
       </div>
       {error && <div className="mb-4 rounded-lg border border-red-800 bg-red-950/30 p-3 text-sm text-red-300">{error}</div>}
+      {data?.snapshot && <div className="mb-4 rounded-lg border border-cyan-800 bg-cyan-950/30 p-3 text-sm text-cyan-300">
+        {locale === 'de'
+          ? `Gespeicherte Vorschau – keine aktuelle Freigabe.${loading ? ' Live-Prüfung läuft im Hintergrund.' : ' Live-Prüfung erneut starten, um Aktionen freizuschalten.'}`
+          : `Saved preview — not a current authorization.${loading ? ' Live check is running in the background.' : ' Retry the live check to enable actions.'}`}
+      </div>}
       {data?.paused && <div className="mb-4 rounded-lg border border-amber-700 bg-amber-950/30 p-3 text-sm text-amber-300">{data.pauseReason === 'not_configured' ? text.notConfigured : text.paused}</div>}
       {data && !data.paused && !data.watchReady && <div className="mb-4 rounded-lg border border-amber-700 bg-amber-950/30 p-3 text-sm text-amber-300">{text.watchWarning}</div>}
-      {data?.massBlocked && !data.massApproved && <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-red-700 bg-red-950/30 p-3 text-sm text-red-300"><span className="min-w-0 flex-1">{text.massBlocked.replace('{count}', formatNumber(data.totalChanges, locale))}</span><button type="button" className={btnGhost} disabled={approving} onClick={() => approve('approve-mass')}>{approving ? text.approving : text.approveMass}</button></div>}
+      {data?.massBlocked && !data.massApproved && <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-red-700 bg-red-950/30 p-3 text-sm text-red-300"><span className="min-w-0 flex-1">{text.massBlocked.replace('{count}', formatNumber(data.totalChanges, locale))}</span><button type="button" className={btnGhost} disabled={loading || running || approving || data.snapshot} onClick={() => approve('approve-mass')}>{approving ? text.approving : text.approveMass}</button></div>}
       {data && <p className="mb-4 text-xs text-slate-500">{text.generated}: {formatDate(data.generatedAt * 1000, locale, { dateStyle: 'medium', timeStyle: 'medium' })} · Watch age: {formatNumber(data.watchAgeDays, locale)} days</p>}
 
       {data?.diagnostics && <p className="mb-4 text-xs text-slate-500">
@@ -247,6 +270,19 @@ export default function MaintainerrControlCenter() {
         {' '}({data.diagnostics.candidatesChecked}) · Plex collections: {data.diagnostics.plexCollectionsMs} ms
         {' '}({data.diagnostics.plexCollectionsRead}) · Maintainerr: {data.diagnostics.maintainerrMs} ms
       </p>}
+      {data?.diagnostics?.collectionReads && <details className="mb-4 rounded border border-slate-800 p-3 text-xs text-slate-400">
+        <summary className="cursor-pointer">{locale === 'de' ? 'Plex-Collection-Abfragen' : 'Plex collection requests'}: {data.diagnostics.collectionReads.requests}</summary>
+        <p className="mt-2">
+          {locale === 'de' ? 'Übersicht / Metadaten / Mitglieder-Seiten' : 'Listing / metadata / member pages'}:
+          {' '}{data.diagnostics.collectionReads.listingRequests} / {data.diagnostics.collectionReads.metadataRequests} / {data.diagnostics.collectionReads.memberRequests}
+          {' · '}{locale === 'de' ? 'Collections / Agregarr ignoriert / Mitgliedschaften' : 'Collections / Agregarr ignored / memberships'}:
+          {' '}{data.diagnostics.collectionReads.collections} / {data.diagnostics.collectionReads.ignoredCollections} / {data.diagnostics.collectionReads.members}
+        </p>
+        <p className="mt-2">{locale === 'de' ? 'Langsamste Collections (inkl. Metadatenabruf)' : 'Slowest collections (including metadata reads)'}</p>
+        <ul className="mt-1 space-y-1">{data.diagnostics.collectionReads.slowest.map((row, index) => <li key={`${row.ratingKey}:${index}`}>
+          {row.title}: {row.durationMs} ms · {row.requests} {locale === 'de' ? 'Abfragen' : 'requests'} · {row.members} {locale === 'de' ? 'Mitglieder' : 'members'}{row.ignored ? ' · Agregarr' : ''}
+        </li>)}</ul>
+      </details>}
       <div className="grid gap-4 lg:grid-cols-2">
         {(data?.collections ?? []).map((collection) => <Card key={collection.id} title={`${collection.title} · ${collection.type}`}>
           <div className="grid grid-cols-5 gap-2 text-center">
@@ -262,7 +298,7 @@ export default function MaintainerrControlCenter() {
             ? 'Änderungen einzeln auswählen. Nicht ausgewählte Einträge werden nicht ausgeführt.'
             : 'Select individual changes. Unselected entries will not be executed.'}</span>
           <button type="button" className={btnCls}
-            disabled={loading || running || approving || !data || data.paused || selected.size === 0}
+            disabled={loading || running || approving || !data || data.snapshot || data.paused || selected.size === 0}
             onClick={executeSelection}>
             {locale === 'de' ? 'Auswahl einmalig ausführen' : 'Execute selection once'} ({selected.size})
           </button>
@@ -278,7 +314,7 @@ export default function MaintainerrControlCenter() {
               {rows.map((item) => <tr key={`${item.collectionId ?? 'none'}:${item.ratingKey}`}>
                 <td className="px-3 py-2 font-medium text-slate-200">
                   {(item.status === 'add' || item.status === 'remove') && item.collectionId !== null &&
-                    <input type="checkbox" className="mr-2" disabled={loading || running || approving}
+                    <input type="checkbox" className="mr-2" disabled={loading || running || approving || data?.snapshot}
                       aria-label={`${locale === 'de' ? 'Auswählen' : 'Select'}: ${item.title}`}
                       checked={selected.has(`${item.collectionId}:${item.ratingKey}`)}
                       onChange={(event) => {
@@ -294,7 +330,7 @@ export default function MaintainerrControlCenter() {
                 <td className="px-3 py-2 text-slate-400">{item.collectionTitle ?? '—'}</td>
                 <td className="px-3 py-2 text-slate-400">{sourceLabel(item.source, locale === 'de')}</td>
                 <td className="px-3 py-2"><span className={`rounded-full px-2 py-1 text-xs font-semibold ${colors[item.status]}`}>{text.statuses[item.status]}</span></td>
-                <td className="px-3 py-2 text-slate-400">{reasonLabel(item)}{item.status === 'tracking' && item.dueAt ? <span className="ml-1 text-xs text-cyan-400">({locale === 'de' ? 'bis' : 'until'} {formatDate(item.dueAt * 1000, locale, { dateStyle: 'medium' })})</span> : null}{item.status === 'readd_blocked' && item.collectionId !== null ? <button type="button" className="ml-2 rounded border border-rose-800 px-2 py-1 text-xs text-rose-300 hover:border-rose-500" disabled={approving} onClick={() => approve('approve-readd', item)}>{text.approveReadd}</button> : null}</td>
+                <td className="px-3 py-2 text-slate-400">{reasonLabel(item)}{item.status === 'tracking' && item.dueAt ? <span className="ml-1 text-xs text-cyan-400">({locale === 'de' ? 'bis' : 'until'} {formatDate(item.dueAt * 1000, locale, { dateStyle: 'medium' })})</span> : null}{item.status === 'readd_blocked' && item.collectionId !== null ? <button type="button" className="ml-2 rounded border border-rose-800 px-2 py-1 text-xs text-rose-300 hover:border-rose-500" disabled={loading || running || approving || data?.snapshot} onClick={() => approve('approve-readd', item)}>{text.approveReadd}</button> : null}</td>
                 <td className="px-3 py-2 text-slate-500">{item.lastWatched ? formatRelativeTime(item.lastWatched, locale) : text.never}</td>
               </tr>)}
             </tbody>

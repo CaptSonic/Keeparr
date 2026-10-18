@@ -30,6 +30,7 @@ import {
   approveCurrentMaintainerrPlan,
   approveCurrentMaintainerrReadd,
   previewMaintainerr,
+  savedMaintainerrPreview,
   syncMaintainerr,
   testMaintainerr,
 } from './maintainerr';
@@ -223,6 +224,30 @@ afterEach(() => {
 afterAll(() => __closeDb());
 
 describe('Maintainerr safe hand-off', () => {
+  it('shares preview reads, invalidates on settings changes and never executes a snapshot', async () => {
+    requesterReleasedMedia();
+    const remote = mockMaintainerr();
+    expect(savedMaintainerrPreview()).toBeNull();
+    const [first, second] = await Promise.all([previewMaintainerr(), previewMaintainerr()]);
+    expect(remote.fetchMock).toHaveBeenCalledTimes(5);
+    expect(first.planHash).toBe(second.planHash);
+    const saved = savedMaintainerrPreview()!;
+    expect(saved).toMatchObject({ snapshot: true, massApproved: false });
+    saved.items.length = 0;
+    expect(savedMaintainerrPreview()!.items.length).toBeGreaterThan(0);
+    writeSetting('test_config_change', 'changed');
+    expect(savedMaintainerrPreview()).toBeNull();
+    await previewMaintainerr();
+    expect(savedMaintainerrPreview()).not.toBeNull();
+    fakeBackend.itemExists = async () => { throw new Error('Plex offline'); };
+    expect((await previewMaintainerr()).paused).toBe(true);
+    expect(savedMaintainerrPreview()!.paused).toBe(false);
+    const run = await syncMaintainerr();
+    expect(run.message).toContain('paused');
+    expect(remote.writes).toEqual([]);
+    expect(savedMaintainerrPreview()).toBeNull();
+  });
+
   it('freezes memberships and ownership when a pooled live check fails', async () => {
     const ids = bulkRequesterReleases(12);
     setMaintainerrManagedItems({ '10': [ids[0]] });
