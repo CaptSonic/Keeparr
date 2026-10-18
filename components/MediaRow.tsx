@@ -4,6 +4,7 @@ import type { MediaCardData } from '@/lib/types';
 import { formatBytes } from '@/lib/i18n';
 import { useKeepState } from './useKeepState';
 import { useLocale } from './LocaleProvider';
+import ItemDecisionButton from './ItemDecisionButton';
 
 /** One row of Browse's List view — the dense, quality/tags-forward counterpart
  *  to MediaCard. Reuses `useKeepState` for keep / "I don't care" / "OK to delete". */
@@ -133,6 +134,7 @@ export default function MediaRow({
         {/* Fixed-width buttons so toggling a label never reflows the column /
             table. The "OK to delete" button only shows on items you requested. */}
         <div className="flex items-center justify-end gap-2">
+          <ItemDecisionButton ratingKey={item.ratingKey} title={item.title} />
           <button
             type="button"
             onClick={() => void toggleKeep()}

@@ -258,6 +258,54 @@
   },
   "security": [{ "cookieAuth": [] }],
   "paths": {
+    "/api/item-decision": {
+      "get": {
+        "tags": ["media"],
+        "summary": "Explain current Keep protection and the last saved Maintainerr plan",
+        "description": "Display only; no live network checks or mutations. Authenticated members receive current anonymous Keep protection. Admins additionally receive matching historical preview rows, never approvals, plan hashes or personal watch timestamps. Missing preview rows do not imply eligibility. Execution always rebuilds a live plan.",
+        "security": [{ "cookieAuth": [] }],
+        "parameters": [{ "name": "ratingKey", "in": "query", "required": true, "schema": { "type": "string", "minLength": 1, "maxLength": 512 } }],
+        "responses": {
+          "200": {
+            "description": "Local Keep state and optional historical admin preview. Cache-Control: no-store.",
+            "content": { "application/json": { "schema": {
+              "type": "object",
+              "required": ["ratingKey", "kept", "keptByMe", "checkedAt", "admin", "maintainerr"],
+              "properties": {
+                "ratingKey": { "type": "string" },
+                "kept": { "type": "boolean" },
+                "keptByMe": { "type": "boolean" },
+                "checkedAt": { "type": "integer", "description": "Local check time, Unix seconds" },
+                "admin": { "type": "boolean" },
+                "maintainerr": {
+                  "type": "object", "nullable": true,
+                  "properties": {
+                    "generatedAt": { "type": "integer", "description": "Historical preview time, Unix seconds" },
+                    "paused": { "type": "boolean" },
+                    "massBlocked": { "type": "boolean" },
+                    "watchReady": { "type": "boolean" },
+                    "automaticRules": { "type": "object", "description": "Movie/show rule settings used by this historical plan" },
+                    "items": { "type": "array", "items": {
+                      "type": "object",
+                      "properties": {
+                        "status": { "type": "string" }, "reason": { "type": "string" },
+                        "libraryKind": { "type": "string", "enum": ["movie", "show"] },
+                        "dueAt": { "type": "integer", "nullable": true },
+                        "collectionId": { "type": "integer", "nullable": true },
+                        "collectionTitle": { "type": "string", "nullable": true }
+                      }
+                    } }
+                  }
+                }
+              }
+            } } }
+          },
+          "400": { "description": "Missing or invalid ratingKey" },
+          "401": { "description": "Not signed in" },
+          "404": { "description": "Unknown or removed title" }
+        }
+      }
+    },
     "/api/health": {
       "get": {
         "tags": ["automation"],

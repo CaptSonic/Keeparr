@@ -91,6 +91,12 @@ Plex placeholder files.
   Keeps are per-user but protective: an item stays safe while anyone keeps it, and
   you only remove your own keep. Marking "I don't care" clears your keep (and
   vice-versa) and greys the card.
+- **Why?** — cards and list rows offer an on-demand, read-only explanation of
+  current household Keep protection, without exposing other users' identities.
+  Admins also see matching rows from the last saved Maintainerr preview, explicitly
+  marked as historical and never as current approval. Opening the explanation does
+  not start a Plex scan. Missing previews or absent rows do not imply eligibility;
+  execution always rebuilds a fresh live plan. Archive decisions are not shown yet.
 - **Smart Reclaim** — a ranked, transparent action list containing **only titles
   nobody keeps**. Every suggestion shows its deterministic score and point reasons:
   size (5–30), any requester's **OK to delete** (+30), never/stale watched (+5–25),

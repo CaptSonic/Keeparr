@@ -32,6 +32,7 @@ import { GET as sections } from '@/app/api/sections/route';
 import { GET as stats } from '@/app/api/stats/route';
 import { GET as overview } from '@/app/api/overview/route';
 import { GET as reclaimQueue } from '@/app/api/reclaim-queue/route';
+import { GET as itemDecision } from '@/app/api/item-decision/route';
 import { GET as campaigns } from '@/app/api/campaigns/route';
 import { POST as adminCampaigns } from '@/app/api/admin/campaigns/route';
 import { GET as facets } from '@/app/api/library/facets/route';
@@ -86,6 +87,7 @@ const USER_GUARDED: [string, Handler, string][] = [
   ['GET /api/stats', stats, 'GET'],
   ['GET /api/overview', overview, 'GET'],
   ['GET /api/reclaim-queue', reclaimQueue, 'GET'],
+  ['GET /api/item-decision', itemDecision, 'GET'],
   ['GET /api/campaigns', campaigns, 'GET'],
   ['GET /api/library/facets', facets, 'GET'],
   ['GET /api/openapi.json', openapi, 'GET'],

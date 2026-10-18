@@ -4,6 +4,7 @@ import type { MediaCardData } from '@/lib/types';
 import { formatBytes } from '@/lib/i18n';
 import { useKeepState } from './useKeepState';
 import { useLocale } from './LocaleProvider';
+import ItemDecisionButton from './ItemDecisionButton';
 
 // Shared so every page sizes its cards identically. CARD_MIN_W must match the
 // px in CARD_GRID_CLASS (kept as a literal so Tailwind's scanner sees it).
@@ -197,6 +198,7 @@ export default function MediaCard({
           <span>{item.year ?? ''}</span>
           <span className="font-mono">{formatBytes(item.sizeBytes, locale)}</span>
         </div>
+        <ItemDecisionButton ratingKey={item.ratingKey} title={item.title} />
         {skippable && (
           <button
             type="button"

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatDate, formatNumber, formatRelativeTime } from '@/lib/i18n';
+import { decisionReasonLabel } from '@/lib/decision-labels';
 import type {
   MaintainerrPreview,
   MaintainerrPreviewItem,
@@ -212,29 +213,7 @@ export default function MaintainerrControlCenter() {
   [data, filter]);
 
   function reasonLabel(item: MaintainerrPreviewItem): string {
-    if (item.reason === 'plex_collection_protected') {
-      return locale === 'de'
-        ? 'Plex-Collection geschützt: Nicht alle vorhandenen Filme sind freigegeben'
-        : 'Plex collection protected: not all present movies are eligible';
-    }
-    const rules = data?.automaticRules?.[item.libraryKind];
-    if (rules) {
-      const observing = item.reason.startsWith('observing_');
-      const rule = observing ? item.reason.slice('observing_'.length) : item.reason;
-      let description: string | undefined;
-      if (rule === 'requester_unwatched_180d') {
-        description = locale === 'de'
-          ? `Ein Anfragender hat seit ${rules.requesterDays} Tagen nicht angesehen`
-          : `A requester has not watched in ${rules.requesterDays} days`;
-      } else if (rule === 'global_unwatched_540d') {
-        description = locale === 'de'
-          ? `Seit ${rules.globalDays} Tagen von niemandem angesehen`
-          : `Not watched by anyone in ${rules.globalDays} days`;
-      }
-      if (description) return observing
-        ? `${locale === 'de' ? 'Beobachtung' : 'Tracking'}: ${description}` : description;
-    }
-    return text.reasons[item.reason as keyof typeof text.reasons] ?? item.reason;
+    return decisionReasonLabel(item, locale, data?.automaticRules);
   }
   const history = useMemo(() => {
     const query = historyFilter.trim().toLocaleLowerCase(locale);
