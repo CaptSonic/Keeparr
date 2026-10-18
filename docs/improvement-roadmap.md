@@ -9,7 +9,7 @@
 - No personal watch/request identities are exposed to household members.
 - Each package requires focused tests, the full suite, TypeScript and a production build.
 
-## 1. Per-title explanations — implemented locally
+## 1. Per-title explanations — pushed as 9c7b0e6
 
 - On-demand Why? dialog in cards and list rows.
 - Fresh local Keep state for signed-in users, without other users' identities.
@@ -20,7 +20,7 @@
 - Archive decisions and completed-action history are intentionally not included yet.
 - Browser interaction/accessibility still needs a manual smoke test.
 
-## 2. Data freshness and uncertainty — next
+## 2. Data freshness and uncertainty — implemented locally
 
 - Separate last attempt from last successful refresh for library/watch/arr sources.
 - Audit successful run history, retention and source fingerprint handling first.
@@ -28,6 +28,10 @@
 - Add compact freshness information to the explanation and settings overview.
 - Do not silently change existing trust or reconciliation rules in an informational package.
 - Test failed latest runs, changed sources, never-run jobs and legacy databases.
+- Durable source-scoped provenance is recorded separately from the 100-run log.
+- Partial/no-op refreshes never advance complete-success timestamps.
+- Watch and arr cache clears invalidate their provenance; interrupted runs are marked failed at boot.
+- Admin-only freshness display is shared by Why? and Jobs & Cache.
 
 ## 3. Job coordination — planned
 

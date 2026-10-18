@@ -6,6 +6,8 @@ import type { ItemDecision } from '@/lib/item-decision';
 import { decisionReasonLabel, decisionStatusLabel } from '@/lib/decision-labels';
 import { formatDate } from '@/lib/i18n';
 import { useLocale } from './LocaleProvider';
+import DataFreshness from './DataFreshness';
+import type { SourceFreshness } from '@/lib/data-freshness';
 
 /** Fetch only on demand; opening an explanation never triggers a live Plex scan. */
 export default function ItemDecisionButton({ ratingKey, title }: { ratingKey: string; title: string }) {
@@ -32,7 +34,7 @@ function DecisionDialog({ ratingKey, title, close }: { ratingKey: string; title:
   const { locale } = useLocale();
   const de = locale === 'de';
   const dialog = useRef<HTMLDialogElement>(null);
-  const [data, setData] = useState<(ItemDecision & { admin: boolean }) | null>(null);
+  const [data, setData] = useState<(ItemDecision & { admin: boolean; freshness: SourceFreshness[] | null }) | null>(null);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
@@ -110,6 +112,10 @@ function DecisionDialog({ ratingKey, title, close }: { ratingKey: string; title:
         </section> : <p className="text-slate-400">{de
           ? 'Automatisierungsdetails sind nur für Administratoren sichtbar. Kein Keep bedeutet nicht, dass ein Titel gelöscht werden darf.'
           : 'Automation details are visible to administrators only. No Keep does not mean a title may be deleted.'}</p>}
+        {data.admin && data.freshness && <section className="border-t border-slate-700 pt-3">
+          <h3 className="mb-2 font-semibold">{de ? 'Datenaktualität' : 'Data freshness'}</h3>
+          <DataFreshness sources={data.freshness} />
+        </section>}
       </div>}
     </dialog>
   );

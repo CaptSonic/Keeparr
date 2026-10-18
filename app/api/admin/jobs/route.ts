@@ -4,6 +4,7 @@ import { errorResponse } from '@/lib/route-helpers';
 import { JOBS, isJobId, jobStates, runJob } from '@/lib/jobs';
 import { recentJobRuns } from '@/lib/queries';
 import { isServerConfigured } from '@/lib/settings';
+import { dataFreshness } from '@/lib/data-freshness';
 
 export const runtime = 'nodejs';
 
@@ -11,7 +12,9 @@ export const runtime = 'nodejs';
 export async function GET(req: Request) {
   try {
     await requireAdminOrApiKey(req);
-    return NextResponse.json({ jobs: jobStates(), recent: recentJobRuns(50) });
+    return NextResponse.json({ jobs: jobStates(), recent: recentJobRuns(50), freshness: dataFreshness() }, {
+      headers: { 'Cache-Control': 'no-store' },
+    });
   } catch (e) {
     return errorResponse(e);
   }

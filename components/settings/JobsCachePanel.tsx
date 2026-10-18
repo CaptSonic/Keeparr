@@ -8,6 +8,8 @@ import BackupsCard from './BackupsCard';
 import HealthCard from './HealthCard';
 import { useLocale } from '../LocaleProvider';
 import { jobLabel, jobStatusLabel } from '@/lib/ui-labels';
+import DataFreshness from '../DataFreshness';
+import type { SourceFreshness } from '@/lib/data-freshness';
 
 type JobSchedule =
   | { type: 'interval'; minutes: number }
@@ -82,6 +84,7 @@ export default function JobsCachePanel() {
   const de = locale === 'de';
   const [jobs, setJobs] = useState<JobRow[]>([]);
   const [recent, setRecent] = useState<RunRow[]>([]);
+  const [freshness, setFreshness] = useState<SourceFreshness[] | null>(null);
   const [schedules, setSchedules] = useState<Record<string, JobSchedule>>({});
   const [images, setImages] = useState<{ count: number; bytes: number } | null>(null);
   const [saving, setSaving] = useState(false);
@@ -98,6 +101,7 @@ export default function JobsCachePanel() {
     const rows: JobRow[] = d.jobs ?? [];
     setJobs(rows);
     setRecent(d.recent ?? []);
+    setFreshness(d.freshness ?? null);
     setSchedules((prev) =>
       Object.keys(prev).length ? prev : Object.fromEntries(rows.map((j) => [j.jobId, j.schedule]))
     );
@@ -190,6 +194,7 @@ export default function JobsCachePanel() {
   return (
     <div className="space-y-5">
     <HealthCard />
+    {freshness && <Card title={de ? 'Datenaktualität' : 'Data freshness'}><DataFreshness sources={freshness} /></Card>}
     <div className="grid gap-5 lg:grid-cols-2">
       <div className="min-w-0">
       <Card title={de ? 'Geplante Jobs' : 'Scheduled jobs'}>

@@ -4,6 +4,7 @@ import { getActiveMediaItem, isKept, isKeptByUser } from '@/lib/queries';
 import { savedMaintainerrPreview } from '@/lib/maintainerr';
 import { projectItemDecision } from '@/lib/item-decision';
 import { errorResponse } from '@/lib/route-helpers';
+import { dataFreshness } from '@/lib/data-freshness';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -23,6 +24,7 @@ export async function GET(request: Request) {
       ...projectItemDecision(ratingKey, isKept(ratingKey), isKeptByUser(user.plexUserId, ratingKey),
         user.isAdmin ? savedMaintainerrPreview() : null),
       admin: user.isAdmin,
+      freshness: user.isAdmin ? dataFreshness() : null,
     }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     return errorResponse(error, 'api/item-decision');

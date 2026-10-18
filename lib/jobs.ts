@@ -20,6 +20,7 @@ import {
 import { getJobSchedules } from './settings';
 import type { JobSchedule } from './config';
 import type { JobState } from './types';
+import { beginFreshness, finishFreshness, freshnessFingerprint } from './data-freshness';
 
 export type JobId =
   | 'recentlyAdded'
@@ -72,9 +73,12 @@ export async function runWithState(
   if (isJobRunning(id)) return false;
   const started = clock();
   const startedSec = nowSec();
+  const fingerprint = freshnessFingerprint(id);
+  beginFreshness(id, fingerprint, startedSec);
   setJobState(id, { lastStatus: 'running', lastMessage: 'Running…' });
   try {
-    const { result, message } = await fn();
+    const { result, message, refreshComplete } = await fn();
+    finishFreshness(id, fingerprint, nowSec(), refreshComplete === true ? 'complete' : 'incomplete');
     const durationMs = clock() - started;
     setJobState(id, {
       lastStatus: 'ok',
@@ -95,6 +99,7 @@ export async function runWithState(
     logEvent('info', `job:${id}`, message);
     return true;
   } catch (e) {
+    finishFreshness(id, fingerprint, nowSec(), 'error');
     const durationMs = clock() - started;
     setJobState(id, {
       lastStatus: 'error',

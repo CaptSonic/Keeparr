@@ -50,7 +50,7 @@ describe('GET /api/item-decision', () => {
     await login('member');
     const response = await GET(request());
     expect(response.headers.get('cache-control')).toBe('no-store');
-    expect(await response.json()).toMatchObject({ kept: true, keptByMe: false, admin: false, maintainerr: null });
+    expect(await response.json()).toMatchObject({ kept: true, keptByMe: false, admin: false, maintainerr: null, freshness: null });
     expect(savedMock).not.toHaveBeenCalled();
     removeKeep('other', '1');
     expect(await (await GET(request())).json()).toMatchObject({ kept: false, keptByMe: false });
@@ -59,7 +59,9 @@ describe('GET /api/item-decision', () => {
   });
   it('returns no fabricated decision without a saved plan', async () => {
     await login('admin', true);
-    expect(await (await GET(request())).json()).toMatchObject({ admin: true, maintainerr: null });
+    const response = await (await GET(request())).json();
+    expect(response).toMatchObject({ admin: true, maintainerr: null });
+    expect(response.freshness).toHaveLength(3);
   });
   it('projects only matching historical rows, never approvals or personal watch data', async () => {
     await login('admin', true);

@@ -107,6 +107,7 @@ describe('GET /api/admin/jobs', () => {
     ]);
     expect(body.jobs[0]).toHaveProperty('label');
     expect(body.jobs[0]).toHaveProperty('schedule');
+    expect(body.freshness.map((source: { source: string }) => source.source)).toEqual(['library', 'watch', 'arr']);
   });
 });
 

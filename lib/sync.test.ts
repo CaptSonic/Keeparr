@@ -137,6 +137,7 @@ describe('syncLibrary tombstone guards', () => {
     });
     const res = await syncLibrary();
     expect(getMediaItem('1')?.removed).toBe(0);
+    expect(res.refreshComplete).toBe(false);
     expect(getMediaItem('2')?.removed).toBe(1); // real deletion still detected
     expect(getMediaItem('3')?.removed).toBe(0); // shielded by the empty-section guard
     expect(res.message).toContain('1 section(s) returned no items');
@@ -217,6 +218,7 @@ describe('syncArr per-instance replace', () => {
     vi.mocked(fetchRadarr).mockResolvedValue([rec({})]);
     const res = await syncArr();
     expect(arrSource('m1')).toBe('radarr'); // fresh
+    expect(res.refreshComplete).toBe(false);
     expect(arrSource('sh1')).toBe('sonarr'); // preserved despite the failure
     expect(getArrUnmatched().map((u) => u.title)).toEqual(['Orphan']); // preserved
     expect(res.message).toContain('1 instance error(s); their cached data kept');
@@ -227,6 +229,7 @@ describe('syncArr per-instance replace', () => {
     vi.mocked(fetchRadarr).mockRejectedValue(new Error('down'));
     const res = await syncArr();
     expect(res.message).toContain('kept existing cache');
+    expect(res.refreshComplete).toBe(false);
     expect(arrSource('sh1')).toBe('sonarr');
     expect(getArrUnmatched()).toHaveLength(1);
   });
@@ -234,7 +237,8 @@ describe('syncArr per-instance replace', () => {
   it('a fully successful run still replaces wholesale', async () => {
     vi.mocked(fetchSonarr).mockResolvedValue([]);
     vi.mocked(fetchRadarr).mockResolvedValue([rec({})]);
-    await syncArr();
+    const res = await syncArr();
+    expect(res.refreshComplete).toBe(true);
     expect(arrSource('m1')).toBe('radarr');
     expect(arrSource('sh1')).toBeNull(); // Sonarr reported nothing → row dropped
     expect(getArrUnmatched()).toEqual([]); // stale orphan swept
@@ -330,6 +334,7 @@ describe('syncWatchHistory', () => {
     };
     const res = await syncWatchHistory();
     expect(res.result).toBe(1);
+    expect(res.refreshComplete).toBe(true);
     expect(res.message).toContain('native');
     expect(watchedRatingKeys('u1').has('1')).toBe(true);
     expect(watchedRatingKeys('old-source').has('stale')).toBe(false);
@@ -339,6 +344,7 @@ describe('syncWatchHistory', () => {
     fakeBackend = backendWith([], {}); // getWatchData → null (the Plex case)
     const res = await syncWatchHistory();
     expect(res.result).toBe(0);
+    expect(res.refreshComplete).toBe(false);
     expect(res.message).toContain('No watch source');
   });
 });

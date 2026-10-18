@@ -46,6 +46,8 @@ const nowSec = () => Math.floor(Date.now() / 1000);
 export interface JobResult {
   result: number;
   message: string;
+  /** Informational provenance only; false for partial/no-op source refreshes. */
+  refreshComplete?: boolean;
 }
 
 function requireServer(): void {
@@ -125,6 +127,7 @@ export async function syncLibrary(): Promise<JobResult> {
   return {
     result: itemsSynced,
     message: `Synced ${itemsSynced} items${removed ? `, removed ${removed}` : ''}${emptyNote}.`,
+    refreshComplete: emptySections.length === 0 && scanned.length > 0,
   };
 }
 
@@ -204,17 +207,17 @@ export async function syncWatchHistory(): Promise<JobResult> {
       // persisted source configuration. Keep the refresh successful but leave
       // readiness neutral unless the source can be identified safely.
       if (fingerprint) writeSetting('watch_source_fingerprint', fingerprint);
-      return { result: n, message: `Refreshed ${n} watch-history rows (native).` };
+      return { result: n, message: `Refreshed ${n} watch-history rows (native).`, refreshComplete: true };
     }
   }
   if (!isTautulliConfigured()) {
-    return { result: 0, message: 'No watch source configured.' };
+    return { result: 0, message: 'No watch source configured.', refreshComplete: false };
   }
   const rows = await aggregatedWatchHistory(getTautulliUrl()!, getTautulliKey()!);
   const n = replaceWatchBatch(rows);
   const fingerprint = getWatchSourceFingerprint();
   if (fingerprint) writeSetting('watch_source_fingerprint', fingerprint);
-  return { result: n, message: `Refreshed ${n} watch-history rows.` };
+  return { result: n, message: `Refreshed ${n} watch-history rows.`, refreshComplete: true };
 }
 
 /**
@@ -307,7 +310,7 @@ function toArrInput(ratingKey: string, r: ArrRecord): ArrItemInput {
  */
 export async function syncArr(): Promise<JobResult> {
   if (!isArrConfigured()) {
-    return { result: 0, message: 'Sonarr/Radarr not configured.' };
+    return { result: 0, message: 'Sonarr/Radarr not configured.', refreshComplete: false };
   }
   const tvdbMap = ratingKeysByGuid('tvdb');
   const tmdbMap = ratingKeysByGuid('tmdb');
@@ -378,6 +381,7 @@ export async function syncArr(): Promise<JobResult> {
     return {
       result: 0,
       message: `No instances reachable (${errors} error(s)); kept existing cache.`,
+      refreshComplete: false,
     };
   }
 
@@ -390,6 +394,7 @@ export async function syncArr(): Promise<JobResult> {
   return {
     result: matched.length,
     message: `Matched ${matched.length} of ${total} titles (${unmatched} downloaded but not in Plex)${errNote}.`,
+    refreshComplete: errors === 0,
   };
 }
 

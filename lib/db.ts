@@ -233,6 +233,16 @@ export function applySchema(database: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_job_runs_time ON job_runs(started_at DESC);
 
+    -- Informational refresh provenance, independent of the pruned job log.
+    CREATE TABLE IF NOT EXISTS source_freshness (
+      source TEXT PRIMARY KEY,
+      attempt_at INTEGER NOT NULL,
+      attempt_fingerprint TEXT NOT NULL,
+      outcome TEXT NOT NULL,
+      success_at INTEGER,
+      success_fingerprint TEXT
+    );
+
     -- App event log (shown on the Settings → Logs page).
     CREATE TABLE IF NOT EXISTS logs (
       id      INTEGER PRIMARY KEY AUTOINCREMENT,

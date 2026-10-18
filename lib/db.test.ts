@@ -9,6 +9,18 @@ import { applySchema } from './db';
  */
 
 let d: Database.Database;
+describe('source freshness migration', () => {
+  it('adds an empty provenance table to a pre-feature database without inventing success', () => {
+    d = new Database(':memory:');
+    applySchema(d);
+    d.exec('DROP TABLE source_freshness');
+    d.exec("INSERT INTO job_state (job_id, last_run, last_status) VALUES ('library', 123, 'ok')");
+    applySchema(d);
+    applySchema(d);
+    expect(d.prepare('SELECT * FROM source_freshness').all()).toEqual([]);
+    expect(d.prepare("SELECT last_run FROM job_state WHERE job_id = 'library'").get()).toEqual({ last_run: 123 });
+  });
+});
 afterEach(() => {
   d?.close();
 });

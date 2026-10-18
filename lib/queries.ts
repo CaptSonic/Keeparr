@@ -2098,6 +2098,7 @@ export function isJobRunning(jobId: string): boolean {
  * last_run is untouched so the schedule re-fires the job normally.
  */
 export function resetInterruptedJobs(): number {
+  getDb().prepare("UPDATE source_freshness SET outcome = 'error' WHERE outcome = 'running'").run();
   return getDb()
     .prepare(
       `UPDATE job_state SET last_status = 'error',
@@ -2404,6 +2405,7 @@ export function clearWatchHistory(): number {
     const changes = db.prepare('DELETE FROM watch_history').run().changes;
     // A cleared cache must not be interpreted as a successful empty refresh.
     db.prepare("DELETE FROM settings WHERE key = 'watch_source_fingerprint'").run();
+    db.prepare("DELETE FROM source_freshness WHERE source = 'watch'").run();
     return changes;
   })();
 }
@@ -2430,6 +2432,7 @@ export function resetAllData(): void {
       'arr_items',
       'arr_unmatched',
       'job_runs',
+      'source_freshness',
       'maintainerr_history',
       'media_items',
     ]) {
@@ -2629,7 +2632,11 @@ export function replaceArrItems(
 
 /** Clear the Sonarr/Radarr cache (rebuilt by the 'arr' job). */
 export function clearArrItems(): number {
-  return getDb().prepare('DELETE FROM arr_items').run().changes;
+  const db = getDb();
+  return db.transaction(() => {
+    db.prepare("DELETE FROM source_freshness WHERE source = 'arr'").run();
+    return db.prepare('DELETE FROM arr_items').run().changes;
+  })();
 }
 
 /** Rating keys of non-removed media items by external id (for arr matching). The
@@ -2747,7 +2754,11 @@ export function replaceArrUnmatched(
 }
 
 export function clearArrUnmatched(): number {
-  return getDb().prepare('DELETE FROM arr_unmatched').run().changes;
+  const db = getDb();
+  return db.transaction(() => {
+    db.prepare("DELETE FROM source_freshness WHERE source = 'arr'").run();
+    return db.prepare('DELETE FROM arr_unmatched').run().changes;
+  })();
 }
 
 /** Unmatched titles, largest first (so the biggest orphaned downloads lead). */

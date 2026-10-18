@@ -29,6 +29,19 @@
       }
     },
     "schemas": {
+      "SourceFreshness": {
+        "type": "object",
+        "description": "Informational provenance for the current configured source. No credentials or fingerprints. Unknown legacy timestamps are not inferred from job status. Complete-success timestamps survive later failures and job-log pruning; cleared caches invalidate provenance. This does not change safety/trust rules.",
+        "required": ["source", "configured", "lastAttemptAt", "lastSuccessAt", "outcome", "watchTrusted"],
+        "properties": {
+          "source": { "type": "string", "enum": ["library", "watch", "arr"] },
+          "configured": { "type": "boolean" },
+          "lastAttemptAt": { "type": "integer", "nullable": true, "description": "Latest attempt start, Unix seconds; null for unknown/current source not yet recorded" },
+          "lastSuccessAt": { "type": "integer", "nullable": true, "description": "Last fully completed refresh end, Unix seconds, for the current source" },
+          "outcome": { "type": "string", "enum": ["unknown", "running", "complete", "incomplete", "error"] },
+          "watchTrusted": { "type": "boolean", "nullable": true, "description": "Existing watch-source trust gate; null for library and arr. Not a guarantee of recency." }
+        }
+      },
       "MediaCard": {
         "type": "object",
         "description": "One movie/series card. Arr fields are null/absent when the title isn't matched in Sonarr/Radarr.",
@@ -277,6 +290,7 @@
                 "keptByMe": { "type": "boolean" },
                 "checkedAt": { "type": "integer", "description": "Local check time, Unix seconds" },
                 "admin": { "type": "boolean" },
+                "freshness": { "type": "array", "nullable": true, "description": "Current source provenance, admin-only; null for members. Independent of historical preview time.", "items": { "$ref": "#/components/schemas/SourceFreshness" } },
                 "maintainerr": {
                   "type": "object", "nullable": true,
                   "properties": {
@@ -892,8 +906,8 @@
         "security": [{ "cookieAuth": [] }, { "apiKeyAuth": [] }],
         "responses": {
           "200": {
-            "description": "`{jobs: JobState[], recent}`",
-            "content": { "application/json": { "schema": { "type": "object", "properties": { "jobs": { "type": "array", "items": { "$ref": "#/components/schemas/JobState" } } } } } }
+            "description": "`{jobs: JobState[], recent, freshness: SourceFreshness[]}`; source-scoped refresh provenance independent of job-log retention. Cache-Control: no-store.",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "jobs": { "type": "array", "items": { "$ref": "#/components/schemas/JobState" } }, "freshness": { "type": "array", "items": { "$ref": "#/components/schemas/SourceFreshness" } } } } } }
           }
         }
       },

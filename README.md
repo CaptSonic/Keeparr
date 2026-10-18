@@ -171,6 +171,15 @@ Plex placeholder files.
   per-show recompute, daily 6 AM), *Sonarr / Radarr* (7 AM), and *Backup* (8 AM).
   Clear the poster / Seerr / watch caches from the same page, and view app events
   under **Settings → Logs**. A **Recent activity** list shows the last runs + errors.
+- **Data freshness** — admins see the last attempt start and last fully completed
+  refresh for library inventory, watch history, and Sonarr/Radarr under **Jobs &
+  Cache** and in the **Why?** dialog. These timestamps are source-specific and
+  independent of the pruned job history. Partial refreshes and failures preserve
+  the previous complete-success time; changed sources and cleared caches do not
+  inherit a current success. Existing installs show unknown until the next recorded
+  refresh. Watch-cache trust is shown separately: timestamps never grant approval
+  or change reconciliation rules. A full library refresh does not mean series sizes
+  were recomputed (that remains the separate size job).
 - **Sonarr / Radarr** (optional) — connect any number of Sonarr and Radarr instances
   to enrich **Browse**: each title gains its **quality** (movie file quality / series
   quality profile), **tags** (Anime, Bounty, whatever you use), and monitoring/status.
