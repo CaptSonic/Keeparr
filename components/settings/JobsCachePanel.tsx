@@ -118,12 +118,12 @@ export default function JobsCachePanel() {
     loadCache();
   }, [loadJobs, loadCache]);
 
-  const anyRunning = jobs.some((j) => j.lastStatus === 'running');
+  const anyRunning = jobs.some((j) => j.lastStatus === 'running' || j.lastStatus === 'queued');
   useEffect(() => {
     if (anyRunning && !pollRef.current) {
       pollRef.current = setInterval(async () => {
         const rows = await loadJobs();
-        if (!rows.some((j) => j.lastStatus === 'running') && pollRef.current) {
+        if (!rows.some((j) => j.lastStatus === 'running' || j.lastStatus === 'queued') && pollRef.current) {
           clearInterval(pollRef.current);
           pollRef.current = null;
         }
@@ -200,6 +200,7 @@ export default function JobsCachePanel() {
       <Card title={de ? 'Geplante Jobs' : 'Scheduled jobs'}>
         <p className="text-sm text-slate-400 mb-3">
           {de ? 'Jeder Job läuft in einem Intervall oder einmal täglich (lokale Serverzeit). Jeder kann sofort gestartet werden.' : 'Each job runs on an interval or once daily (server local time). Run any now.'}
+          {' '}{de ? 'Konkurrierende Hintergrundjobs warten auf gemeinsame Ressourcen; unabhängige Jobs dürfen parallel laufen.' : 'Competing background jobs wait for shared resources; independent jobs may run concurrently.'}
         </p>
         <div className="space-y-3">
           {jobs.map((j) => {
@@ -212,7 +213,9 @@ export default function JobsCachePanel() {
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-medium">{jobLabel(j.jobId, locale, j.label)}</div>
                   <div className="truncate text-xs text-slate-500">
-                    {j.lastStatus === 'running'
+                    {j.lastStatus === 'queued'
+                      ? (de ? 'Wartet auf gemeinsame Ressourcen…' : 'Waiting for shared resources…')
+                      : j.lastStatus === 'running'
                       ? (de ? 'Läuft…' : 'Running…')
                       : j.lastStatus === 'never'
                         ? (de ? 'Noch nie ausgeführt' : 'Never run')
@@ -318,10 +321,10 @@ export default function JobsCachePanel() {
 
                   <button
                     onClick={() => runJob(j.jobId)}
-                    disabled={j.lastStatus === 'running'}
+                    disabled={j.lastStatus === 'running' || j.lastStatus === 'queued'}
                     className={`${btnGhost} shrink-0 whitespace-nowrap`}
                   >
-                    {j.lastStatus === 'running' ? (de ? 'Läuft…' : 'Running…') : (de ? 'Jetzt starten' : 'Run now')}
+                    {j.lastStatus === 'queued' ? (de ? 'Wartet…' : 'Queued…') : j.lastStatus === 'running' ? (de ? 'Läuft…' : 'Running…') : (de ? 'Jetzt starten' : 'Run now')}
                   </button>
                 </div>
               </div>

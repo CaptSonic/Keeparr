@@ -21,6 +21,7 @@ export function jobStatusLabel(status: string | null, locale: Locale): string {
   if (!status) return locale === 'de' ? 'Unbekannt' : 'Unknown';
   const labels: Record<string, [string, string]> = {
     running: ['Running', 'Läuft'],
+    queued: ['Waiting for shared resources', 'Wartet auf gemeinsame Ressourcen'],
     never: ['Never run', 'Noch nie ausgeführt'],
     ok: ['OK', 'OK'],
     error: ['Error', 'Fehler'],

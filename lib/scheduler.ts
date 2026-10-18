@@ -6,7 +6,7 @@ let started = false;
 
 /**
  * Background scheduler. Every minute it asks which refresh jobs are due (per
- * their configured interval) and fires each one (single-flight, fire-and-forget).
+ * their configured interval) and queues each one (single-flight, fire-and-forget).
  * Idempotent: only one scheduler per process.
  */
 export function startScheduler(): void {
@@ -18,7 +18,7 @@ export function startScheduler(): void {
   try {
     const n = resetInterruptedJobs();
     if (n > 0) {
-      logEvent('warn', 'scheduler', `Reset ${n} job(s) stuck in 'running' after restart.`);
+      logEvent('warn', 'scheduler', `Reset ${n} running/queued job(s) interrupted by restart.`);
     }
   } catch {
     /* never block boot */

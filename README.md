@@ -180,6 +180,17 @@ Plex placeholder files.
   refresh. Watch-cache trust is shown separately: timestamps never grant approval
   or change reconciliation rules. A full library refresh does not mean series sizes
   were recomputed (that remains the separate size job).
+- **Coordinated background jobs** — scheduled and manual jobs share a resource-aware
+  queue. Library scans and Maintainerr hand-offs wait for competing refreshes;
+  recently-added, size and watch jobs share the media-server slot. Sonarr/Radarr
+  and Seerr can run alongside media reads when no earlier scan/hand-off is waiting.
+  Online backups remain independent. Run-all submits inventory before dependent
+  refreshes and hand-off last among data jobs. Queued jobs are visible and repeated
+  starts are deduplicated. Queue contents are process-local: after a restart,
+  interrupted queued/running jobs are marked failed, not automatically replayed;
+  scheduled jobs become eligible again normally and manual jobs can be resubmitted.
+  Interactive previews and other direct actions are outside this background queue;
+  execution still performs all existing live safety checks.
 - **Sonarr / Radarr** (optional) — connect any number of Sonarr and Radarr instances
   to enrich **Browse**: each title gains its **quality** (movie file quality / series
   quality profile), **tags** (Anime, Bounty, whatever you use), and monitoring/status.

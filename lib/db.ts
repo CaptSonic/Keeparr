@@ -169,7 +169,7 @@ export function applySchema(database: Database.Database): void {
     CREATE TABLE IF NOT EXISTS job_state (
       job_id           TEXT PRIMARY KEY,
       last_run         INTEGER,
-      last_status      TEXT,                    -- 'never' | 'running' | 'ok' | 'error'
+      last_status      TEXT,                    -- 'never' | 'queued' | 'running' | 'ok' | 'error'
       last_message     TEXT,
       last_duration_ms INTEGER,
       last_result      INTEGER

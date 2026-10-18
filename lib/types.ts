@@ -172,7 +172,7 @@ export interface SyncStatus {
   itemsSynced: number | null;
 }
 
-export type JobStatus = 'never' | 'running' | 'ok' | 'error';
+export type JobStatus = 'never' | 'queued' | 'running' | 'ok' | 'error';
 
 /** One app-event log line (Settings → Logs). */
 export interface LogRow {

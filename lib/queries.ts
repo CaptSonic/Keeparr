@@ -2103,7 +2103,7 @@ export function resetInterruptedJobs(): number {
     .prepare(
       `UPDATE job_state SET last_status = 'error',
          last_message = 'Interrupted by server restart'
-       WHERE last_status = 'running'`
+       WHERE last_status IN ('running', 'queued')`
     )
     .run().changes;
 }

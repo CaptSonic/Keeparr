@@ -211,7 +211,7 @@
         "properties": {
           "jobId": { "type": "string" },
           "label": { "type": "string" },
-          "lastStatus": { "type": "string", "enum": ["never", "running", "ok", "error"] },
+          "lastStatus": { "type": "string", "enum": ["never", "queued", "running", "ok", "error"] },
           "lastRun": { "type": "integer", "nullable": true },
           "lastMessage": { "type": "string", "nullable": true },
           "lastDurationMs": { "type": "integer", "nullable": true },
@@ -914,6 +914,7 @@
       "post": {
         "tags": ["admin", "automation"],
         "summary": "Trigger a job now (accepts X-Api-Key)",
+        "description": "Submits to the shared scheduled/manual resource queue. Conflicting jobs wait with lastStatus=queued; repeated submissions do not enqueue duplicates. Run-all submits library before dependent refreshes and Maintainerr after refreshes. Backups remain independent. The response acknowledges the request, not execution success. Queue is process-local; restart marks queued/running jobs interrupted without automatically replaying manual submissions. Interactive previews/direct actions are outside this queue.",
         "security": [{ "cookieAuth": [] }, { "apiKeyAuth": [] }],
         "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "job": { "type": "string", "description": "recentlyAdded | library | sizes | watch | requests | arr | maintainerr | backup | all" } }, "required": ["job"] } } } },
         "responses": { "200": { "description": "`{started:true}` (fire-and-forget)" } }

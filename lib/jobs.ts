@@ -21,6 +21,8 @@ import { getJobSchedules } from './settings';
 import type { JobSchedule } from './config';
 import type { JobState } from './types';
 import { beginFreshness, finishFreshness, freshnessFingerprint } from './data-freshness';
+import { getDb } from './db';
+import { JobQueue } from './job-queue';
 
 export type JobId =
   | 'recentlyAdded'
@@ -53,6 +55,9 @@ export const JOBS: JobDef[] = [
 ];
 
 export const JOB_IDS = JOBS.map((j) => j.id);
+
+/** Refresh inputs before hand-off when a batch is submitted together. */
+export const JOB_RUN_ORDER: JobId[] = ['library', 'recentlyAdded', 'sizes', 'watch', 'requests', 'arr', 'maintainerr', 'backup'];
 
 export function isJobId(id: string): id is JobId {
   return (JOB_IDS as string[]).includes(id);
@@ -121,11 +126,31 @@ export async function runWithState(
   }
 }
 
-/** Run a registered job by id (single-flight). Returns false if unknown/running. */
+const queues = new WeakMap<ReturnType<typeof getDb>, JobQueue>();
+
+/** Resource locks cover background jobs, not interactive live previews.
+ * Library and hand-off need a stable cache boundary across all refresh sources.
+ * Backup uses SQLite's online backup API and deliberately holds no locks. */
+export const JOB_RESOURCES: Record<JobId, readonly string[]> = {
+  library: ['media', 'arr', 'requests'],
+  maintainerr: ['media', 'arr', 'requests'],
+  recentlyAdded: ['media'], sizes: ['media'], watch: ['media'],
+  arr: ['arr'], requests: ['requests'], backup: [],
+};
+
+/** Shared scheduled/manual queue. Resolves after completion; duplicates return false. */
 export async function runJob(id: string): Promise<boolean> {
   const job = JOBS.find((j) => j.id === id);
   if (!job) return false;
-  return runWithState(job.id, job.run);
+  const db = getDb();
+  let queue = queues.get(db);
+  if (!queue) {
+    queue = new JobQueue();
+    queues.set(db, queue);
+  }
+  if (queue.has(id) || isJobRunning(id) || getJobState(id).lastStatus === 'queued') return false;
+  setJobState(id, { lastStatus: 'queued', lastMessage: 'Waiting for shared resources…' });
+  return queue.enqueue(id, JOB_RESOURCES[job.id], () => runWithState(job.id, job.run));
 }
 
 /**
@@ -158,8 +183,8 @@ export function isDue(
 export function dueJobs(nowMs: number = Date.now()): JobId[] {
   const schedules = getJobSchedules();
   const due: JobId[] = [];
-  for (const { id } of JOBS) {
-    if (isJobRunning(id)) continue;
+  for (const id of JOB_RUN_ORDER) {
+    if (isJobRunning(id) || getJobState(id).lastStatus === 'queued') continue;
     const lastRun = getJobState(id).lastRun ?? 0;
     if (isDue(schedules[id], lastRun, nowMs)) due.push(id);
   }

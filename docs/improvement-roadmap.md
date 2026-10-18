@@ -20,7 +20,7 @@
 - Archive decisions and completed-action history are intentionally not included yet.
 - Browser interaction/accessibility still needs a manual smoke test.
 
-## 2. Data freshness and uncertainty — implemented locally
+## 2. Data freshness and uncertainty — pushed as dfcfc87
 
 - Separate last attempt from last successful refresh for library/watch/arr sources.
 - Audit successful run history, retention and source fingerprint handling first.
@@ -33,12 +33,17 @@
 - Watch and arr cache clears invalidate their provenance; interrupted runs are marked failed at boot.
 - Admin-only freshness display is shared by Why? and Jobs & Cache.
 
-## 3. Job coordination — planned
+## 3. Job coordination — implemented locally
 
 - Audit shared resources and job dependencies before defining scheduling groups.
 - Apply coordination consistently to scheduled, individual manual and run-all starts.
 - Preserve useful concurrency and per-job single-flight.
 - Expose queued/running states; test duplicate starts, errors and restart recovery.
+- Shared resource-aware queue for scheduled, individual and run-all submissions.
+- Library/hand-off barriers, one media-read slot, independent arr/requests/online backups.
+- Fairness prevents later competing refreshes from starving an earlier barrier.
+- Queue is process-local; restart marks queued/running jobs interrupted, without replaying manual mutations.
+- Interactive live previews/direct actions are not covered by background-job locks.
 
 ## 4. Understandable change history — planned
 

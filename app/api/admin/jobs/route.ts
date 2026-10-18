@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { requireAdminOrApiKey } from '@/lib/auth';
 import { errorResponse } from '@/lib/route-helpers';
-import { JOBS, isJobId, jobStates, runJob } from '@/lib/jobs';
+import { JOB_RUN_ORDER, isJobId, jobStates, runJob } from '@/lib/jobs';
 import { recentJobRuns } from '@/lib/queries';
 import { isServerConfigured } from '@/lib/settings';
 import { dataFreshness } from '@/lib/data-freshness';
@@ -22,7 +22,7 @@ export async function GET(req: Request) {
 
 /**
  * Trigger a job. Body: { job: 'library'|'sizes'|'watch'|'requests'|'all' }.
- * Fire-and-forget; single-flight per job.
+ * Fire-and-forget; shared resource queue, single-flight including queued jobs.
  */
 export async function POST(req: Request) {
   try {
@@ -32,7 +32,7 @@ export async function POST(req: Request) {
     }
     const { job } = (await req.json()) as { job?: string };
     if (job === 'all') {
-      for (const j of JOBS) void runJob(j.id).catch(() => {});
+      for (const id of JOB_RUN_ORDER) void runJob(id).catch(() => {});
       return NextResponse.json({ started: true });
     }
     if (!job || !isJobId(job)) {

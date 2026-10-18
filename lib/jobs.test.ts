@@ -1,8 +1,8 @@
-import { beforeEach, afterAll, describe, expect, it } from 'vitest';
+import { beforeEach, afterAll, describe, expect, it, vi } from 'vitest';
 import { __setTestDbToMemory, __closeDb } from './db';
 import { getJobState, setJobState, resetInterruptedJobs } from './queries';
 import { setJobSchedules } from './settings';
-import { runWithState, dueJobs, isDue } from './jobs';
+import { JOBS, JOB_RESOURCES, JOB_RUN_ORDER, runJob, runWithState, dueJobs, isDue } from './jobs';
 import type { JobSchedule } from './config';
 
 // Turn every job off, so a test can enable just the one it cares about.
@@ -119,5 +119,67 @@ describe('dueJobs', () => {
     const due = dueJobs(120 * MIN);
     expect(due).not.toContain('library'); // disabled
     expect(due).not.toContain('sizes'); // running
+  });
+});
+
+describe('coordinated registered jobs', () => {
+  it('queues competing jobs without marking a refresh started, and skips repeated scheduler requests', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const library = JOBS.find((job) => job.id === 'library')!;
+    const watch = JOBS.find((job) => job.id === 'watch')!;
+    const libraryRun = vi.spyOn(library, 'run').mockImplementation(async () => {
+      await gate; return { result: 1, message: 'library done' };
+    });
+    const watchRun = vi.spyOn(watch, 'run').mockResolvedValue({ result: 1, message: 'watch done' });
+    const first = runJob('library');
+    const second = runJob('watch');
+    try {
+      await Promise.resolve();
+      expect(getJobState('library').lastStatus).toBe('running');
+      expect(getJobState('watch')).toMatchObject({ lastStatus: 'queued', lastRun: null });
+      expect(watchRun).not.toHaveBeenCalled();
+      expect(await runJob('watch')).toBe(false);
+      expect(await runJob('library')).toBe(false);
+      setJobSchedules({ ...ALL_OFF, watch: { type: 'interval', minutes: 1 } });
+      expect(dueJobs(Date.now())).not.toContain('watch');
+      release();
+      expect(await Promise.all([first, second])).toEqual([true, true]);
+      expect(getJobState('watch').lastStatus).toBe('ok');
+      expect(watchRun).toHaveBeenCalledOnce();
+    } finally {
+      release(); await Promise.all([first, second]);
+      libraryRun.mockRestore(); watchRun.mockRestore();
+    }
+  });
+
+  it('allows arr alongside a watch refresh and keeps backup independent', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const watch = vi.spyOn(JOBS.find((job) => job.id === 'watch')!, 'run')
+      .mockImplementation(async () => { await gate; return { result: 0, message: 'watch' }; });
+    const arr = vi.spyOn(JOBS.find((job) => job.id === 'arr')!, 'run')
+      .mockResolvedValue({ result: 0, message: 'arr' });
+    const backup = vi.spyOn(JOBS.find((job) => job.id === 'backup')!, 'run')
+      .mockResolvedValue({ result: 0, message: 'backup' });
+    const waiting = runJob('watch');
+    try {
+      expect(await runJob('arr')).toBe(true);
+      expect(await runJob('backup')).toBe(true);
+      expect(getJobState('watch').lastStatus).toBe('running');
+      expect(JOB_RESOURCES.backup).toEqual([]);
+    } finally {
+      release(); await waiting;
+      watch.mockRestore(); arr.mockRestore(); backup.mockRestore();
+    }
+  });
+
+  it('recovers queued jobs at boot without pretending they ran', () => {
+    setJobState('watch', { lastStatus: 'queued', lastRun: 123 });
+    expect(resetInterruptedJobs()).toBe(1);
+    expect(getJobState('watch')).toMatchObject({ lastStatus: 'error', lastRun: 123 });
+    expect(JOB_RUN_ORDER.indexOf('library')).toBeLessThan(JOB_RUN_ORDER.indexOf('arr'));
+    expect(JOB_RUN_ORDER.indexOf('watch')).toBeLessThan(JOB_RUN_ORDER.indexOf('maintainerr'));
+    expect(JOB_RUN_ORDER.indexOf('arr')).toBeLessThan(JOB_RUN_ORDER.indexOf('maintainerr'));
   });
 });
