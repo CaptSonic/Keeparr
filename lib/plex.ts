@@ -578,13 +578,19 @@ export async function getMovieCollections(
       // Plex treats optional elements as a request, not a guarantee. Never
       // interpret a missing Label element as an empty label list here.
       const optional = category === 'listingRequests' ? '&includeOptionalElements=Label' : '';
+      // Membership protection needs every ratingKey, not playback or display
+      // metadata. Reduce only child payloads, never rows, IDs, labels or totals.
+      // These are serialization hints: unsupported hints may be ignored by PMS.
+      const memberOptions = category === 'memberRequests'
+        ? '&excludeElements=Media,Genre,Country,Guid,Rating,Collection,Director,Writer,Role,Producer,Similar,Style,Mood,Format&excludeFields=summary,tagline'
+        : '';
       const started = performance.now();
       let data: Page;
       activeRequests++;
       if (diagnostics) diagnostics.peakRequests = Math.max(diagnostics.peakRequests ?? 0, activeRequests);
       try {
         data = await pmsGet<Page>(baseUrl,
-          `${path}?X-Plex-Container-Start=${rows.length}&X-Plex-Container-Size=200${optional}`, token);
+          `${path}?X-Plex-Container-Start=${rows.length}&X-Plex-Container-Size=200${optional}${memberOptions}`, token);
       } finally {
         activeRequests--;
         const durationMs = Math.round(performance.now() - started);

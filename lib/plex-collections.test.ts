@@ -69,7 +69,36 @@ describe('live Plex collection membership', () => {
     await expect(getMovieCollections('http://plex', 'secret', 'movies')).rejects.toThrow('invalid collection labels');
   });
 
-  it.each([4, 8])('bounds collection reads at %i and refills slots while a collection is slow', async (limit) => {
+  it('reduces only member payloads while preserving metadata labels and all member pages', async () => {
+    const starts: number[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      const member = url.pathname.endsWith('/children');
+      if (!member) {
+        expect(url.searchParams.has('excludeElements')).toBe(false);
+        expect(url.searchParams.has('excludeFields')).toBe(false);
+        return Response.json({ MediaContainer: { Metadata: [{ ratingKey: 'normal' }] } });
+      }
+      expect(url.searchParams.get('excludeFields')).toBe('summary,tagline');
+      const excluded = url.searchParams.get('excludeElements')!.split(',');
+      expect(excluded).toContain('Media');
+      expect(excluded).toContain('Role');
+      expect(excluded).not.toContain('Metadata');
+      expect(excluded).not.toContain('Directory');
+      expect(excluded).not.toContain('Label');
+      const start = Number(url.searchParams.get('X-Plex-Container-Start'));
+      starts.push(start);
+      // Minimal payload: no media/display metadata required for protection.
+      return Response.json({ MediaContainer: { totalSize: 201,
+        Metadata: Array.from({ length: start === 0 ? 200 : 1 }, (_, i) => ({ ratingKey: String(start + i) })),
+      } });
+    }));
+    const result = await getMovieCollections('http://plex', 'secret', 'movies');
+    expect(starts).toEqual([0, 200]);
+    expect(result).toEqual([Array.from({ length: 201 }, (_, i) => String(i))]);
+  });
+
+  it.each([4, 6, 8])('bounds collection reads at %i and refills slots while a collection is slow', async (limit) => {
     vi.stubEnv('PLEX_COLLECTION_CONCURRENCY', String(limit));
     let finishSlow!: () => void;
     let releaseFast!: () => void;
@@ -110,7 +139,7 @@ describe('live Plex collection membership', () => {
     expect(getPlexCollectionConcurrency()).toBe(8);
   });
 
-  it.each([4, 8])('stops scheduling and drains active requests on failure at limit %i', async (limit) => {
+  it.each([4, 6, 8])('stops scheduling and drains active requests on failure at limit %i', async (limit) => {
     vi.stubEnv('PLEX_COLLECTION_CONCURRENCY', String(limit));
     const finish: Array<() => void> = [];
     const paths: string[] = [];

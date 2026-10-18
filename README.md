@@ -604,12 +604,17 @@ for the slowest collections. These are summed request times (including response
 bodies), not wall-clock runtime: parallel requests overlap.
 The collection pool defaults to eight; set `PLEX_COLLECTION_CONCURRENCY=4` and
 restart/recreate the container to compare with the previous limit or reduce Plex
-load (`8` restores the default; other values also use eight). The Control Center
+load, or set it to `6` for an intermediate comparison (`8` restores the default;
+other values also use eight). The Control Center
 shows the configured limit, peak active requests and the member endpoint path of
 the slowest collections (without credentials). The server-provided collection key
 and `/children` membership endpoint remain unchanged, including smart collections.
 Compare several fresh previews at each limit; more concurrency is not a guarantee
 of faster Plex responses. No live execution checks are skipped or cached.
+Member pages request reduced payloads with `excludeElements`/`excludeFields`:
+unused playback and display metadata is omitted where Plex supports these hints.
+Every member ID and pagination total is still read and validated; collection
+labels are read separately without exclusions. Actual speedups depend on PMS.
 
 Three additional safeguards protect Maintainerr's grace periods and large plans:
 

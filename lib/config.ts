@@ -25,11 +25,11 @@ export const SESSION_SECRET =
  */
 export const APP_URL = process.env.APP_URL ?? '';
 
-/** Bounded collection-read experiment: rollback to four without a code change.
+/** Bounded collection-read experiment: compare four/six/eight without a code change.
  * Read at runtime so Docker deployments can override it without rebuilding. */
 export function getPlexCollectionConcurrency(): number {
   const value = process.env.PLEX_COLLECTION_CONCURRENCY;
-  return value === '4' ? 4 : 8;
+  return value === '4' ? 4 : value === '6' ? 6 : 8;
 }
 
 /** How many cards the home keep-loop serves per batch. */

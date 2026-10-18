@@ -497,9 +497,12 @@ when it has no tvdb/tmdb **and** no imdb.
   not elapsed runtime), plus per-collection metadataMs/memberMs. Plex collection
   listings request includeOptionalElements=Label; absent labels still require
   validated live metadata. Collection concurrency defaults to eight, with runtime
-  PLEX_COLLECTION_CONCURRENCY=4 rollback (only 4/8; others use 8). Diagnostics
+  PLEX_COLLECTION_CONCURRENCY=4/6 comparison (only 4/6/8; others use 8). Diagnostics
   include concurrency/peakRequests and slowest.memberPath (no tokens). The
   server-provided key + /children path and fail-closed behavior are unchanged.
+  Member pages use excludeElements/excludeFields serialization hints to omit
+  unused media/display metadata; row IDs, totals, pagination and label reads
+  remain unchanged. No cached membership or tag-derived shortcut is permitted.
   Execution and approvals always build fresh plans, never cached previews.
   `POST {action:'approve-mass'|'approve-readd', collectionId?, ratingKey?}` (server
   recomputes the block; no client-provided plan hash is trusted),

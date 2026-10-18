@@ -15,7 +15,7 @@ services:
       # the secret yourself; never change it once data exists — it encrypts
       # your stored service tokens).
       SESSION_SECRET: "${SESSION_SECRET:-}"
-      # Collection read pool: 8 by default; set 4 for comparison / lower Plex load.
+      # Collection read pool: 8 by default; set 4 or 6 for comparison / lower Plex load.
       PLEX_COLLECTION_CONCURRENCY: "${PLEX_COLLECTION_CONCURRENCY:-8}"
       # Optional: public URL of this app, used to build the Plex auth forwardUrl.
       # APP_URL: "https://keeparr.example.net"
