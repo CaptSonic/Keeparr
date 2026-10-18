@@ -1,12 +1,13 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { cookieJar, previewMock, savedMock, approveMassMock, approveReaddMock, syncMock } = vi.hoisted(() => ({
+const { cookieJar, previewMock, savedMock, approveMassMock, approveReaddMock, syncMock, adoptMock } = vi.hoisted(() => ({
   cookieJar: new Map<string, string>(),
   previewMock: vi.fn(),
   savedMock: vi.fn(),
   approveMassMock: vi.fn(),
   approveReaddMock: vi.fn(),
   syncMock: vi.fn(),
+  adoptMock: vi.fn(),
 }));
 
 vi.mock('next/headers', () => ({
@@ -22,6 +23,7 @@ vi.mock('@/lib/maintainerr', () => ({
   approveCurrentMaintainerrPlan: approveMassMock,
   approveCurrentMaintainerrReadd: approveReaddMock,
   syncMaintainerr: syncMock,
+  adoptMaintainerrMembers: adoptMock,
 }));
 
 import { __closeDb, __setTestDbToMemory } from '@/lib/db';
@@ -41,6 +43,7 @@ beforeEach(() => {
   approveMassMock.mockReset();
   approveReaddMock.mockReset();
   syncMock.mockReset();
+  adoptMock.mockReset();
   __setTestDbToMemory();
 });
 
@@ -48,6 +51,23 @@ describe('POST /api/admin/maintainerr-preview', () => {
   const request = (body: unknown) => new Request('http://localhost/api/admin/maintainerr-preview', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+  });
+
+  it('requires admin and a bounded valid explicit adoption selection', async () => {
+    const members = [{ collectionId: 10, ratingKey: 'movie-1' }];
+    expect((await POST(request({ action: 'adopt-members', members }))).status).toBe(401);
+    await loginAs('user', false);
+    expect((await POST(request({ action: 'adopt-members', members }))).status).toBe(403);
+    expect(adoptMock).not.toHaveBeenCalled();
+    await loginAs('admin', true);
+    for (const invalid of [[], [null], [{ collectionId: -1, ratingKey: 'x' }], members.map((m) => ({ ...m, ratingKey: '' }))]) {
+      expect((await POST(request({ action: 'adopt-members', members: invalid }))).status).toBe(400);
+    }
+    adoptMock.mockResolvedValue({ items: [] });
+    expect((await POST(request({ action: 'adopt-members', members }))).status).toBe(200);
+    expect(adoptMock).toHaveBeenCalledWith(members);
+    adoptMock.mockRejectedValue(new Error('Maintainerr adoption is stale.'));
+    expect((await POST(request({ action: 'adopt-members', members }))).status).toBe(409);
   });
 
   it('validates and executes only the explicit admin selection', async () => {

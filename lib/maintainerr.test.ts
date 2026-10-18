@@ -32,9 +32,11 @@ import {
   previewMaintainerr,
   savedMaintainerrPreview,
   syncMaintainerr,
+  adoptMaintainerrMembers,
   testMaintainerr,
 } from './maintainerr';
 import type { MediaBackend } from './mediaserver';
+import { journalMemberships, pendingMemberships } from './maintainerr-journal';
 import { archiveDashboard, previewArchive, executeArchive } from './archive';
 
 let fakeBackend: MediaBackend;
@@ -227,6 +229,168 @@ afterEach(() => {
 afterAll(() => __closeDb());
 
 describe('Maintainerr safe hand-off', () => {
+  it('sends bounded sequential batches and commits each confirmed batch', async () => {
+    bulkRequesterReleases(12);
+    const remote = mockMaintainerr();
+    await approveCurrentMaintainerrPlan();
+    expect((await syncMaintainerr()).result).toBe(12);
+    expect(remote.writes.map((write) => (write.body.media as unknown[]).length)).toEqual([5, 5, 2]);
+    expect(getMaintainerrManagedItems()['10']).toHaveLength(12);
+    expect(pendingMemberships('http://maintainerr:6246')).toEqual([]);
+  });
+
+  it('recovers an applied timed-out batch without claiming foreign members or retrying POST', async () => {
+    bulkRequesterReleases(8);
+    const remote = mockMaintainerr({ movieMembers: ['foreign'] });
+    const fetch = remote.fetchMock.getMockImplementation()!;
+    remote.fetchMock.mockImplementation(async (input, init) => {
+      const response = await fetch(input, init);
+      if (String(input).endsWith('/add')) throw new DOMException('late response', 'TimeoutError');
+      return response;
+    });
+    await expect(syncMaintainerr()).rejects.toThrow('timed out');
+    expect(remote.writes).toHaveLength(1);
+    expect(getMaintainerrManagedItems()['10']).toHaveLength(5);
+    expect(getMaintainerrManagedItems()['10']).not.toContain('foreign');
+    expect(pendingMemberships('http://maintainerr:6246')).toEqual([]);
+    remote.fetchMock.mockImplementation(fetch);
+    await syncMaintainerr();
+    expect(remote.writes.map((write) => (write.body.media as unknown[]).length)).toEqual([5, 3]);
+    expect(getMaintainerrManagedItems()['10']).toHaveLength(8);
+  });
+
+  it('keeps successful progress and durable uncertain intents across a failed read and later run', async () => {
+    const ids = bulkRequesterReleases(8);
+    const remote = mockMaintainerr();
+    const fetch = remote.fetchMock.getMockImplementation()!;
+    let adds = 0;
+    let failed = false;
+    remote.fetchMock.mockImplementation(async (input, init) => {
+      if (String(input).endsWith('/add') && ++adds === 2) {
+        failed = true;
+        throw new DOMException('timeout', 'TimeoutError');
+      }
+      if (failed && String(input).includes('/media/')) throw new Error('offline');
+      return fetch(input, init);
+    });
+    await expect(syncMaintainerr()).rejects.toThrow('timed out');
+    expect(getMaintainerrManagedItems()['10']).toHaveLength(5);
+    expect(pendingMemberships('http://maintainerr:6246')).toHaveLength(3);
+    remote.fetchMock.mockImplementation(fetch);
+    await expect(syncMaintainerr()).rejects.toThrow('unconfirmed outcome');
+    expect(remote.writes).toHaveLength(1);
+    // A late server completion becomes visible after process-local state is gone.
+    for (const id of ids.slice(5)) remote.members.get(10)!.add(id);
+    await syncMaintainerr();
+    expect(getMaintainerrManagedItems()['10']).toHaveLength(8);
+    expect(remote.writes).toHaveLength(1);
+    expect(pendingMemberships('http://maintainerr:6246')).toEqual([]);
+  });
+
+  it('previews do not recover intents and recovery cannot bypass a new Keep', async () => {
+    requesterReleasedMedia();
+    const remote = mockMaintainerr({ movieMembers: ['requester-movie', 'foreign'] });
+    journalMemberships('http://maintainerr:6246', 10, ['requester-movie'], 'add', 'old-plan');
+    addKeep('protector', 'requester-movie');
+    await previewMaintainerr();
+    expect(getMaintainerrManagedItems()).toEqual({});
+    expect(pendingMemberships('http://maintainerr:6246')).toHaveLength(1);
+    await syncMaintainerr();
+    expect(remote.members.get(10)).toEqual(new Set(['foreign']));
+    expect(getMaintainerrManagedItems()['10']).not.toContain('foreign');
+  });
+
+  it('adopts only explicit live members without remote writes, then withdraws a kept title', async () => {
+    requesterReleasedMedia();
+    const remote = mockMaintainerr({ movieMembers: ['requester-movie', 'foreign'] });
+    addKeep('protector', 'requester-movie');
+    const preview = await adoptMaintainerrMembers([{ collectionId: 10, ratingKey: 'requester-movie' }]);
+    expect(preview.items).toContainEqual(expect.objectContaining({
+      ratingKey: 'requester-movie', status: 'remove', reason: 'global_keep',
+    }));
+    expect(remote.writes).toEqual([]);
+    expect(getMaintainerrManagedItems()['10']).toEqual(['requester-movie']);
+    await syncMaintainerr();
+    expect(remote.members.get(10)).toEqual(new Set(['foreign']));
+    expect(recentMaintainerrHistory()).toContainEqual(expect.objectContaining({ eventType: 'membership_adopted' }));
+  });
+
+  it('validates the entire adoption selection before storing any ownership', async () => {
+    requesterReleasedMedia();
+    mockMaintainerr({ movieMembers: ['requester-movie'] });
+    await expect(adoptMaintainerrMembers([
+      { collectionId: 10, ratingKey: 'requester-movie' }, { collectionId: 20, ratingKey: 'absent' },
+    ])).rejects.toThrow('adoption is stale');
+    expect(getMaintainerrManagedItems()).toEqual({});
+  });
+
+  it('recovers a removal completed before interruption', async () => {
+    requesterReleasedMedia();
+    setMaintainerrManagedItems({ '10': ['requester-movie'] });
+    journalMemberships('http://maintainerr:6246', 10, ['requester-movie'], 'remove', 'old-plan');
+    addKeep('protector', 'requester-movie');
+    const remote = mockMaintainerr();
+    await syncMaintainerr();
+    expect(getMaintainerrManagedItems()['10']).not.toContain('requester-movie');
+    expect(remote.writes.some((write) => write.path.endsWith('/remove'))).toBe(false);
+    expect(pendingMemberships('http://maintainerr:6246')).toEqual([]);
+  });
+
+  it.each(['recent', 'live'] as const)('withdraws adopted members protected by %s playback', async (protection) => {
+    requesterReleasedMedia();
+    const remote = mockMaintainerr({ movieMembers: ['requester-movie'] });
+    if (protection === 'live') playbackMock.mockResolvedValue(new Set(['requester-movie']));
+    else upsertWatchBatch([{
+      plexUserId: 'protector', ratingKey: 'requester-movie', plays: 1,
+      lastWatched: Math.floor(Date.now() / 1000),
+    }]);
+    const preview = await adoptMaintainerrMembers([{ collectionId: 10, ratingKey: 'requester-movie' }]);
+    expect(preview.items).toContainEqual(expect.objectContaining({
+      ratingKey: 'requester-movie', status: 'remove', reason: 'watched_too_recently',
+    }));
+    await syncMaintainerr();
+    expect(remote.members.get(10)).toEqual(new Set());
+  });
+
+  it('refuses adoption with unavailable live playback and does not store ownership', async () => {
+    requesterReleasedMedia();
+    mockMaintainerr({ movieMembers: ['requester-movie'] });
+    playbackMock.mockRejectedValue(new Error('activity unavailable'));
+    await expect(adoptMaintainerrMembers([{ collectionId: 10, ratingKey: 'requester-movie' }]))
+      .rejects.toThrow('activity unavailable');
+    expect(getMaintainerrManagedItems()).toEqual({});
+  });
+
+  it('does not recover evidence belonging to another Maintainerr instance', async () => {
+    requesterReleasedMedia();
+    mockMaintainerr({ movieMembers: ['requester-movie'] });
+    journalMemberships('http://old-instance:6246', 10, ['requester-movie'], 'add', 'old-plan');
+    await syncMaintainerr();
+    expect(getMaintainerrManagedItems()['10']).not.toContain('requester-movie');
+    expect(pendingMemberships('http://old-instance:6246')).toHaveLength(1);
+  });
+
+  it('blocks a URL change while an uncertain write has no ownership yet', () => {
+    journalMemberships('http://maintainerr:6246', 10, ['uncertain'], 'add', 'old-plan');
+    expect(() => setMaintainerrConfig({ ...getMaintainerrConfig(), url: 'http://other:6246' }))
+      .toThrow('before changing the URL');
+  });
+
+  it('serializes direct selections, scheduled runs and adoption before remote reads', async () => {
+    requesterReleasedMedia();
+    const remote = mockMaintainerr({ movieMembers: ['requester-movie'] });
+    const fetch = remote.fetchMock.getMockImplementation()!;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    remote.fetchMock.mockImplementation(async (input, init) => { await gate; return fetch(input, init); });
+    const run = syncMaintainerr();
+    await expect(adoptMaintainerrMembers([{ collectionId: 10, ratingKey: 'requester-movie' }]))
+      .rejects.toThrow('mutation already running');
+    await expect(syncMaintainerr()).rejects.toThrow('mutation already running');
+    release();
+    await run;
+  });
+
   it.each(['movie', 'show'] as const)('withdraws a matured %s when another user watches, and restarts observation', async (kind) => {
     const ratingKey = 'shared-title';
     const collectionId = kind === 'movie' ? 10 : 20;

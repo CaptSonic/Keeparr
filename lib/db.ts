@@ -274,6 +274,18 @@ export function applySchema(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_maintainerr_history_item
       ON maintainerr_history(rating_key, ts DESC);
 
+    -- Write-ahead intent, never a grant of eligibility. Retained until a live
+    -- membership read confirms the outcome; scoped to the remote instance.
+    CREATE TABLE IF NOT EXISTS maintainerr_pending_writes (
+      instance_url TEXT NOT NULL,
+      collection_id INTEGER NOT NULL,
+      rating_key TEXT NOT NULL,
+      action TEXT NOT NULL CHECK (action IN ('add', 'remove')),
+      plan_hash TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (instance_url, collection_id, rating_key)
+    );
+
     -- Automatic Maintainerr rules must remain true for a Keeparr-owned
     -- observation period before membership is handed off. Each rule has its own
     -- clock so one condition can reset without erasing the other.

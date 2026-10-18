@@ -1,5 +1,36 @@
 # Keeparr
 
+### Maintainerr: interrupted hand-offs and ownership recovery
+
+Membership writes use sequential batches of at most five titles. Before each
+request, Keeparr persists the exact collection/title/action and plan hash in an
+instance-scoped SQLite journal. Confirmed batches save ownership and audit events
+transactionally. After errors and on the next run, a fresh membership read can
+confirm journaled additions/removals without sending the same request again.
+Previews remain read-only. Unconfirmed outcomes stop execution rather than
+blindly retrying; pending counts are shown in the Control Center. A changed
+Maintainerr URL is blocked while ownership or pending writes remain.
+
+For older timeouts without journal evidence, existing remote members are **not
+automatically claimed**. “Manual” means *without Keeparr ownership evidence*, not
+necessarily that somebody manually added the title. In the admin Maintainerr
+Control Center:
+
+1. Refresh the live preview and select only known affected existing members.
+2. Use **Adopt selected existing members** and explicitly confirm the selection.
+3. Review the freshly rebuilt preview, approve a mass-change stop if needed, then
+   run the hand-off job. Adoption itself makes no remote membership writes.
+
+Keeps, recent watches, live playback, inventory checks and normal eligibility
+still apply to adopted/recovered ownership. Protected members may therefore be
+scheduled for withdrawal from the Maintainerr collection, not file deletion.
+Unselected foreign members stay untouched. Do not remove everything and repeat
+the bulk add. A journaled request whose target state never becomes visible remains
+blocked for operator investigation; absence alone does not prove a delayed add
+cannot still complete. No automatic cancellation or unsafe force-retry is offered.
+Playback checks remain planning-time protection, not an atomic interlock with
+Maintainerr deletion. Do not run multiple Keeparr processes against one database.
+
 A self-hosted web app that makes it dead-simple for a household to decide **what
 media to keep** — and to find what can be safely deleted to reclaim disk space.
 

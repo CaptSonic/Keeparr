@@ -77,6 +77,7 @@ function actionLabel(action: string, de: boolean): string {
     add: ['Add', 'Hinzufügen'],
     remove: ['Remove', 'Entfernen'],
     approve: ['Approve', 'Freigeben'],
+    adopt: ['Adopt management', 'Verwaltung übernehmen'],
     none: ['Blocked', 'Blockiert'],
   };
   const value = labels[action];
@@ -94,6 +95,7 @@ export default function MaintainerrControlCenter() {
   const [error, setError] = useState('');
   const [historyFilter, setHistoryFilter] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [adoptSelected, setAdoptSelected] = useState<Set<string>>(new Set());
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const loadId = useRef(0);
 
@@ -103,6 +105,7 @@ export default function MaintainerrControlCenter() {
     setLoading(true);
     setError('');
     setSelected(new Set());
+    setAdoptSelected(new Set());
     setData((previous) => previous ? { ...previous, snapshot: true, massApproved: false } : null);
     // A separate lightweight request lets the last successful result render
     // while the expensive live request is still running. Never overwrite it.
@@ -148,7 +151,7 @@ export default function MaintainerrControlCenter() {
     pollRef.current = setInterval(async () => {
       const jobs = await fetch('/api/admin/jobs', { cache: 'no-store' }).then((r) => r.json());
       const job = (jobs.jobs ?? []).find((row: { jobId: string }) => row.jobId === 'maintainerr');
-      if (job && job.lastStatus !== 'running') {
+      if (job && job.lastStatus !== 'running' && job.lastStatus !== 'queued') {
         if (pollRef.current) clearInterval(pollRef.current);
         pollRef.current = null;
         setRunning(false);
@@ -183,6 +186,29 @@ export default function MaintainerrControlCenter() {
     } finally {
       setRunning(false);
     }
+  }
+
+  async function adoptSelection() {
+    if (!data || data.snapshot || data.paused || loading || running || approving) return;
+    const members = data.items.filter((item) => item.status === 'manual' && item.collectionId !== null &&
+      adoptSelected.has(`${item.collectionId}:${item.ratingKey}`))
+      .map((item) => ({ collectionId: item.collectionId!, ratingKey: item.ratingKey }));
+    if (!members.length || !window.confirm(locale === 'de'
+      ? `${members.length} bestehende Mitglieder ausdrücklich in Keeparrs Verwaltung übernehmen? Dies fügt keine Medien hinzu und löscht keine Dateien. Danach die neue Vorschau prüfen: geschützte oder nicht mehr berechtigte Titel können zur Entfernung aus der Maintainerr-Sammlung vorgesehen sein.`
+      : `Explicitly adopt ${members.length} existing members into Keeparr management? This adds no media and deletes no files. Review the new preview afterwards: protected or ineligible titles may be scheduled for removal from the Maintainerr collection.`)) return;
+    setApproving(true);
+    setError('');
+    try {
+      const response = await fetch('/api/admin/maintainerr-preview', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'adopt-members', members }),
+      });
+      if (!response.ok) throw new Error('adoption_failed');
+      setData(await response.json());
+      setSelected(new Set());
+      setAdoptSelected(new Set());
+    } catch { setError(text.failed); }
+    finally { setApproving(false); }
   }
 
   async function approve(action: 'approve-mass' | 'approve-readd', item?: MaintainerrPreviewItem) {
@@ -240,6 +266,9 @@ export default function MaintainerrControlCenter() {
       </div>}
       {data?.paused && <div className="mb-4 rounded-lg border border-amber-700 bg-amber-950/30 p-3 text-sm text-amber-300">{data.pauseReason === 'not_configured' ? text.notConfigured : text.paused}</div>}
       {data && !data.paused && !data.watchReady && <div className="mb-4 rounded-lg border border-amber-700 bg-amber-950/30 p-3 text-sm text-amber-300">{text.watchWarning}</div>}
+      {!!data?.pendingWrites && <div className="mb-4 rounded-lg border border-amber-700 bg-amber-950/30 p-3 text-sm text-amber-300">{locale === 'de'
+        ? `${data.pendingWrites} protokollierte Änderungen sind noch unbestätigt. Der nächste Übergabe-Job prüft Maintainerr erneut. Unklare Anfragen werden nicht automatisch wiederholt. Nicht alles entfernen und neu hinzufügen; bei dauerhaft unklarem Ergebnis zuerst Maintainerr prüfen.`
+        : `${data.pendingWrites} journaled changes remain unconfirmed. The next hand-off job reads Maintainerr again. Ambiguous requests are never automatically retried. Do not remove everything and re-add it; inspect Maintainerr first if the outcome remains unclear.`}</div>}
       {data?.massBlocked && !data.massApproved && <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-red-700 bg-red-950/30 p-3 text-sm text-red-300"><span className="min-w-0 flex-1">{text.massBlocked.replace('{count}', formatNumber(data.totalChanges, locale))}</span><button type="button" className={btnGhost} disabled={loading || running || approving || data.snapshot} onClick={() => approve('approve-mass')}>{approving ? text.approving : text.approveMass}</button></div>}
       {data && <p className="mb-4 text-xs text-slate-500">{text.generated}: {formatDate(data.generatedAt * 1000, locale, { dateStyle: 'medium', timeStyle: 'medium' })} · Watch age: {formatNumber(data.watchAgeDays, locale)} days</p>}
 
@@ -283,6 +312,14 @@ export default function MaintainerrControlCenter() {
       </div>
 
       <Card title={locale === 'de' ? 'Entscheidungen' : 'Decisions'}>
+        <p className="mb-3 text-sm text-slate-400">{locale === 'de'
+          ? '„Manuell“ bedeutet: bereits in Maintainerr vorhanden, aber ohne Keeparr-Verwaltungsnachweis (auch nach früheren Timeouts möglich). Nur bekannte Einträge ausdrücklich übernehmen; anschließend die neue Vorschau prüfen und den Übergabe-Job ausführen.'
+          : '“Manual” means already in Maintainerr without Keeparr ownership evidence (also possible after older timeouts). Explicitly adopt only known entries, then review the new preview and run the hand-off job.'}</p>
+        <button type="button" className={`${btnGhost} mb-3`}
+          disabled={loading || running || approving || !data || data.snapshot || data.paused || adoptSelected.size === 0}
+          onClick={adoptSelection}>
+          {locale === 'de' ? 'Ausgewählte bestehende Mitglieder übernehmen' : 'Adopt selected existing members'} ({adoptSelected.size})
+        </button>
         <div className="mb-3 flex flex-wrap items-center gap-3">
           <span className="text-sm text-slate-400">{locale === 'de'
             ? 'Änderungen einzeln auswählen. Nicht ausgewählte Einträge werden nicht ausgeführt.'
@@ -303,6 +340,19 @@ export default function MaintainerrControlCenter() {
             <tbody className="divide-y divide-slate-800">
               {rows.map((item) => <tr key={`${item.collectionId ?? 'none'}:${item.ratingKey}`}>
                 <td className="px-3 py-2 font-medium text-slate-200">
+                  {item.status === 'manual' && item.collectionId !== null &&
+                    <input type="checkbox" className="mr-2" disabled={loading || running || approving || data?.snapshot || data?.paused}
+                      aria-label={`${locale === 'de' ? 'Verwaltung übernehmen' : 'Adopt management'}: ${item.title}`}
+                      checked={adoptSelected.has(`${item.collectionId}:${item.ratingKey}`)}
+                      onChange={(event) => {
+                        const checked = event.target.checked;
+                        setAdoptSelected((previous) => {
+                          const next = new Set(previous);
+                          const key = `${item.collectionId}:${item.ratingKey}`;
+                          if (checked) next.add(key); else next.delete(key);
+                          return next;
+                        });
+                      }} />}
                   {(item.status === 'add' || item.status === 'remove') && item.collectionId !== null &&
                     <input type="checkbox" className="mr-2" disabled={loading || running || approving || data?.snapshot}
                       aria-label={`${locale === 'de' ? 'Auswählen' : 'Select'}: ${item.title}`}

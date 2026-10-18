@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { deleteSetting, getSetting, setSetting, resetMaintainerrRuleTracking } from './queries';
 import { defaultMaintainerrRules, mergeMaintainerrRules, type MaintainerrAutomaticRules } from './maintainerr-rules';
 import { decryptSecret, encryptSecret } from './crypto';
+import { pendingMemberships } from './maintainerr-journal';
 import {
   DEFAULT_BACKUP_RETENTION,
   DEFAULT_JOB_SCHEDULES,
@@ -450,7 +451,8 @@ export function setMaintainerrConfig(
   // remote memberships: disable + run the job once to remove them before moving.
   if (
     previousUrl && previousUrl !== url &&
-    Object.values(getMaintainerrManagedItems()).some((ids) => ids.length > 0)
+    (Object.values(getMaintainerrManagedItems()).some((ids) => ids.length > 0) ||
+      pendingMemberships(previousUrl).length > 0)
   ) {
     throw new Error(
       'Disable the Maintainerr hand-off and run its job once before changing the URL.'

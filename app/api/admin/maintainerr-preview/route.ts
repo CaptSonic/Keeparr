@@ -6,6 +6,7 @@ import {
   previewMaintainerr,
   savedMaintainerrPreview,
   syncMaintainerr,
+  adoptMaintainerrMembers,
   type MaintainerrSelection,
 } from '@/lib/maintainerr';
 import { errorResponse } from '@/lib/route-helpers';
@@ -39,7 +40,19 @@ export async function POST(request: Request) {
       ratingKey?: unknown;
       planHash?: unknown;
       operations?: unknown;
+      members?: unknown;
     };
+    if (body.action === 'adopt-members') {
+      if (!Array.isArray(body.members) || body.members.length === 0 || body.members.length > 10000 ||
+          !body.members.every((member) => member && Number.isSafeInteger(member.collectionId) &&
+            member.collectionId > 0 && typeof member.ratingKey === 'string' &&
+            member.ratingKey.length > 0 && member.ratingKey.length <= 256)) {
+        return NextResponse.json({ error: 'bad_request' }, { status: 400 });
+      }
+      return NextResponse.json(await adoptMaintainerrMembers(body.members), {
+        headers: { 'Cache-Control': 'no-store' },
+      });
+    }
     if (body.action === 'execute-selection') {
       if (typeof body.planHash !== 'string' || !/^[a-f0-9]{64}$/.test(body.planHash) ||
           !Array.isArray(body.operations) || body.operations.length === 0 ||
@@ -78,6 +91,8 @@ export async function POST(request: Request) {
   } catch (error) {
     if (error instanceof Error && (
       error.message === 'Maintainerr selection is stale.' ||
+      error.message === 'Maintainerr adoption is stale.' ||
+      error.message === 'Maintainerr mutation already running.' ||
       error.message === 'Maintainerr plan is not mass-blocked.' ||
       error.message === 'Maintainerr re-add is not currently blocked.'
     )) {

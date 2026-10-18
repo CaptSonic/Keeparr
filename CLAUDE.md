@@ -301,10 +301,19 @@ The chrome is a Sonarr/Radarr-style left rail (logo → Keep; Keep / Browse[expa
   members. Never add calls to `/handle` or media/Servarr/Seerr deletion here.
   `previewMaintainerr()` builds the same plan without calling add/remove or mutating
   ownership; `/settings/maintainerr` renders it through the admin-only no-store
-  `GET /api/admin/maintainerr-preview` endpoint; its POST approves only a freshly
-  server-recomputed mass plan or one currently blocked collection/id re-add.
+  `GET /api/admin/maintainerr-preview` endpoint; its POST supports live-plan
+  approvals, explicit execution selections and explicit existing-member adoption.
   Maintainerr API calls have a 60-second ceiling because membership reads can be
   slow for large visible collections; timeout errors must identify the endpoint.
+- Membership mutations are serialized per process/database, including explicit
+  adoption and direct selections. Sequential batches contain at most five ids.
+  `maintainerr_pending_writes` records instance URL, collection, id, action and
+  plan hash before requests. Ownership/history/journal completion is atomic.
+  Only journaled writes with live-confirmed target state recover automatically;
+  uncertain outcomes block retries and URL changes. GET never resolves journals.
+  Admin-only `adopt-members` takes an explicit bounded list of existing members,
+  rebuilds live protection checks, records adoption and returns a new preview;
+  it does not write remote membership or override mass-change safeguards.
 - Maintainerr safety is part of that same plan: SHA-256 over sorted add/remove ids;
   mass stop at >=10 changes and >=25% per collection or >=50 globally; exact-plan
   approval is consumed before writes. Owned-but-remotely-missing desired ids are

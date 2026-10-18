@@ -2442,6 +2442,7 @@ export function resetAllData(): void {
       'job_runs',
       'source_freshness',
       'maintainerr_history',
+      'maintainerr_pending_writes',
       'media_items',
     ]) {
       db.prepare(`DELETE FROM ${t}`).run();

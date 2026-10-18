@@ -39,12 +39,25 @@ import type { MaintainerrHistoryEvent } from './types';
 import { getReclaimSignalReadiness } from './reclaim-readiness';
 import { getBackend } from './mediaserver';
 import { activePlaybackTitles } from './tautulli';
+import { pendingMemberships, journalMemberships, clearPendingMembership } from './maintainerr-journal';
 
 // Maintainerr's membership endpoint can take noticeably longer for large visible
 // collections than its lightweight health endpoints. Keep a finite ceiling, but
 // do not abort healthy local instances at the generic connector default of 15s.
 const REQUEST_TIMEOUT_MS = 60_000;
 const HISTORY_DEDUPE_SECONDS = 6 * 3600;
+const MEMBERSHIP_BATCH_SIZE = 5;
+// Interactive execution, adoption and scheduled execution share one mutation
+// lock. Previews remain read-only and never reconcile the durable journal.
+const mutationLocks = new WeakSet<ReturnType<typeof getDb>>();
+
+async function withMembershipLock<T>(run: () => Promise<T>): Promise<T> {
+  const db = getDb();
+  if (mutationLocks.has(db)) throw new Error('Maintainerr mutation already running.');
+  mutationLocks.add(db);
+  try { return await run(); }
+  finally { mutationLocks.delete(db); }
+}
 const MASS_CHANGE_MIN = 10;
 const MASS_CHANGE_RATIO = 0.25;
 const MASS_CHANGE_HARD_LIMIT = 50;
@@ -282,6 +295,8 @@ export interface MaintainerrPreviewCollection {
 export interface MaintainerrPreview {
   /** Display-only saved result; never accepted as execution authorization. */
   snapshot?: boolean;
+  /** Open durable intents; informational only, GET never resolves these. */
+  pendingWrites?: number;
   diagnostics?: {
     totalMs: number;
     inventoryMs: number;
@@ -502,6 +517,7 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
       automaticMatches: [],
       preview: {
         generatedAt,
+        pendingWrites: pendingMemberships(config.url).length,
         paused: true,
         pauseReason: 'not_configured',
         watchReady: getReclaimSignalReadiness().watch,
@@ -889,6 +905,7 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
   const massBlocked = !paused && isMassChange(targets);
   const massApproved = massBlocked && getMaintainerrApprovedPlanHash() === hash;
   const preview: MaintainerrPreview = {
+    pendingWrites: pendingMemberships(config.url).length,
     diagnostics,
     generatedAt,
     paused,
@@ -1035,8 +1052,89 @@ export interface MaintainerrSelection {
 }
 
 export async function syncMaintainerr(selection?: MaintainerrSelection): Promise<JobResult> {
+  return withMembershipLock(() => executeMaintainerr(selection));
+}
+
+/** Reconcile only writes Keeparr actually journaled. Never claim arbitrary
+ * remote members. An unconfirmed outcome remains blocked, not blindly retried. */
+async function reconcilePendingMemberships(url: string): Promise<void> {
+  const pending = pendingMemberships(url);
+  const members = new Map<number, Set<string>>();
+  for (const entry of pending) {
+    if (!members.has(entry.collectionId)) {
+      members.set(entry.collectionId, await collectionMembers(url, entry.collectionId));
+    }
+  }
+  const unresolved: PendingMembershipSummary[] = [];
+  for (const entry of pending) {
+    const present = members.get(entry.collectionId)!.has(entry.ratingKey);
+    if (present !== (entry.action === 'add')) {
+      unresolved.push(entry);
+      continue;
+    }
+    getDb().transaction(() => {
+      const state = getMaintainerrManagedItems();
+      const owned = new Set(state[String(entry.collectionId)] ?? []);
+      if (entry.action === 'add') owned.add(entry.ratingKey); else owned.delete(entry.ratingKey);
+      state[String(entry.collectionId)] = [...owned].sort();
+      setMaintainerrManagedItems(state);
+      const item = maintainerrMemberDetails([entry.ratingKey]).get(entry.ratingKey);
+      recordMaintainerrHistory({ eventType: 'membership_recovered', action: entry.action,
+        ratingKey: entry.ratingKey, title: item?.title, collectionId: entry.collectionId,
+        reason: 'write_confirmed_after_interruption', planHash: entry.planHash });
+      clearPendingMembership(url, entry.collectionId, entry.ratingKey);
+    })();
+  }
+  if (unresolved.length) throw new Error(
+    `Maintainerr: ${unresolved.length} pending write(s) have an unconfirmed outcome. No automatic retry; inspect Maintainerr and refresh before retrying.`
+  );
+}
+
+type PendingMembershipSummary = { collectionId: number; ratingKey: string };
+
+/** Explicitly selected legacy members only. Adoption never adds/removes media;
+ * the returned live preview applies Keeps/watch/inventory and normal mass stops. */
+export async function adoptMaintainerrMembers(members: PendingMembershipSummary[]): Promise<MaintainerrPreview> {
+  return withMembershipLock(async () => {
+    previewCaches.delete(getDb());
+    const url = getMaintainerrConfig().url;
+    if (!url) throw new Error('Maintainerr adoption is stale.');
+    await reconcilePendingMemberships(url);
+    const { preview, targets } = await buildMaintainerrPlan();
+    if (preview.paused || !preview.watchReady || members.length === 0) {
+      throw new Error('Maintainerr adoption is stale.');
+    }
+    const seen = new Set<string>();
+    for (const member of members) {
+      const target = targets.find((row) => row.collection.id === member.collectionId);
+      const key = `${member.collectionId}\0${member.ratingKey}`;
+      if (!target || !preview.collections.some((row) => row.id === member.collectionId && row.selected) ||
+          !target.current.has(member.ratingKey) || target.managed.has(member.ratingKey) || seen.has(key)) {
+        throw new Error('Maintainerr adoption is stale.');
+      }
+      seen.add(key);
+    }
+    getDb().transaction(() => {
+      const state = getMaintainerrManagedItems();
+      for (const member of members) {
+        state[String(member.collectionId)] = [...new Set([
+          ...(state[String(member.collectionId)] ?? []), member.ratingKey,
+        ])].sort();
+        const item = preview.items.find((row) => row.collectionId === member.collectionId && row.ratingKey === member.ratingKey);
+        recordMaintainerrHistory({ eventType: 'membership_adopted', action: 'adopt',
+          ratingKey: member.ratingKey, title: item?.title, collectionId: member.collectionId,
+          collectionTitle: item?.collectionTitle, reason: 'admin_adopted_existing_member' });
+      }
+      setMaintainerrManagedItems(state);
+    })();
+    return (await buildMaintainerrPlan()).preview;
+  });
+}
+
+async function executeMaintainerr(selection?: MaintainerrSelection): Promise<JobResult> {
   previewCaches.delete(getDb());
   const config = getMaintainerrConfig();
+  if (config.url) await reconcilePendingMemberships(config.url);
   const managedState = getMaintainerrManagedItems();
   if (!config.url || (!isMaintainerrConfigured() && Object.keys(managedState).length === 0)) {
     return { result: 0, message: 'Maintainerr hand-off is not configured.' };
@@ -1159,40 +1257,63 @@ export async function syncMaintainerr(selection?: MaintainerrSelection): Promise
   // Keep vetoes first: only remove memberships previously managed by Keeparr.
   for (const target of targets) {
     const remove = [...target.remove];
-    await changeMembership(config.url, target.collection.id, remove, 'remove');
-    removed += remove.length;
-    for (const id of remove) target.managed.delete(id);
-    setMaintainerrManagedItems(
-      Object.fromEntries(targets.map((t) => [String(t.collection.id), [...t.managed].sort()]))
-    );
-    for (const id of remove) {
-      const item = previewByMember.get(`${target.collection.id}\0${id}`);
-      recordMaintainerrHistory({
-        eventType: 'membership_removed', ratingKey: id, title: item?.title,
-        year: item?.year, libraryKind: item?.libraryKind ?? target.collection.type,
-        collectionId: target.collection.id, collectionTitle: target.collection.title,
-        action: 'remove', reason: item?.reason ?? 'release_revoked',
-        planHash: preview.planHash,
-      });
+    for (let offset = 0; offset < remove.length; offset += MEMBERSHIP_BATCH_SIZE) {
+      const batch = remove.slice(offset, offset + MEMBERSHIP_BATCH_SIZE);
+      journalMemberships(config.url, target.collection.id, batch, 'remove', preview.planHash);
+      try { await changeMembership(config.url, target.collection.id, batch, 'remove'); }
+      catch (error) {
+        // Preserve the original request error if the follow-up read also fails.
+        try { await reconcilePendingMemberships(config.url); } catch { /* journal retained */ }
+        throw error;
+      }
+      getDb().transaction(() => {
+        removed += batch.length;
+        for (const id of batch) target.managed.delete(id);
+        setMaintainerrManagedItems(
+          Object.fromEntries(targets.map((t) => [String(t.collection.id), [...t.managed].sort()]))
+        );
+        for (const id of batch) {
+          const item = previewByMember.get(`${target.collection.id}\0${id}`);
+          recordMaintainerrHistory({
+            eventType: 'membership_removed', ratingKey: id, title: item?.title,
+            year: item?.year, libraryKind: item?.libraryKind ?? target.collection.type,
+            collectionId: target.collection.id, collectionTitle: target.collection.title,
+            action: 'remove', reason: item?.reason ?? 'release_revoked',
+            planHash: preview.planHash,
+          });
+          clearPendingMembership(config.url, target.collection.id, id);
+        }
+      })();
     }
   }
   // Only after every removal succeeded, add new desired memberships.
   for (const target of targets) {
     const add = [...target.add];
-    await changeMembership(config.url, target.collection.id, add, 'add');
-    added += add.length;
-    for (const id of add) target.managed.add(id);
-    setMaintainerrManagedItems(
-      Object.fromEntries(targets.map((t) => [String(t.collection.id), [...t.managed].sort()]))
-    );
-    for (const id of add) {
-      const item = previewByMember.get(`${target.collection.id}\0${id}`);
-      recordMaintainerrHistory({
-        eventType: 'membership_added', ratingKey: id, title: item?.title,
-        year: item?.year, libraryKind: item?.libraryKind ?? target.collection.type,
-        collectionId: target.collection.id, collectionTitle: target.collection.title,
-        action: 'add', reason: item?.reason ?? 'eligible', planHash: preview.planHash,
-      });
+    for (let offset = 0; offset < add.length; offset += MEMBERSHIP_BATCH_SIZE) {
+      const batch = add.slice(offset, offset + MEMBERSHIP_BATCH_SIZE);
+      journalMemberships(config.url, target.collection.id, batch, 'add', preview.planHash);
+      try { await changeMembership(config.url, target.collection.id, batch, 'add'); }
+      catch (error) {
+        try { await reconcilePendingMemberships(config.url); } catch { /* journal retained */ }
+        throw error;
+      }
+      getDb().transaction(() => {
+        added += batch.length;
+        for (const id of batch) target.managed.add(id);
+        setMaintainerrManagedItems(
+          Object.fromEntries(targets.map((t) => [String(t.collection.id), [...t.managed].sort()]))
+        );
+        for (const id of batch) {
+          const item = previewByMember.get(`${target.collection.id}\0${id}`);
+          recordMaintainerrHistory({
+            eventType: 'membership_added', ratingKey: id, title: item?.title,
+            year: item?.year, libraryKind: item?.libraryKind ?? target.collection.type,
+            collectionId: target.collection.id, collectionTitle: target.collection.title,
+            action: 'add', reason: item?.reason ?? 'eligible', planHash: preview.planHash,
+          });
+          clearPendingMembership(config.url, target.collection.id, id);
+        }
+      })();
     }
   }
 
