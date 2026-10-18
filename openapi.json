@@ -923,7 +923,7 @@
     "/api/admin/maintainerr-preview": {
       "get": {
         "tags": ["admin"],
-        "summary": "Read-only Maintainerr reconciliation dry run",
+        "summary": "Read-only Maintainerr reconciliation dry run with server-wide playback veto",
         "parameters": [{ "name": "snapshot", "in": "query", "required": false, "description": "Set to 1 to return {preview: savedPreview | null} immediately without external reads. Process-local, configuration-bound, successful previews only; marked snapshot:true and massApproved:false. Display-only, never execution authorization. Default live previews share only simultaneous reads, not cached results.", "schema": { "type": "string", "enum": ["1"] } }],
         "description": "Returns the exact current add/remove/unchanged plan with per-title reason codes and automaticRules configuration. Automatic requester and household inactivity rules have independent movie/show enable flags, inactivity thresholds (1–3650 days; defaults 180/540), and observation periods (1–365 days; default 30). Historical reason IDs remain stable regardless of configured thresholds. Reads Maintainerr and the media server but never writes memberships, Keeparr ownership, or observation state.",
         "security": [{ "cookieAuth": [] }],

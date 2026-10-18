@@ -215,6 +215,11 @@ The chrome is a Sonarr/Radarr-style left rail (logo → Keep; Keep / Browse[expa
   rules remain disabled; Maintainerr owns
   only collection visibility, grace period, handling, and deletion.
 - Automatic Maintainerr candidates are separate from Smart Reclaim scoring:
+  Every automatic match additionally vetoes ANY user's watch newer than
+  `maintainerr_watch_age_days` (default 180), including requester-rule matches
+  and automatic archive targets. Plex plans also read Tautulli `get_activity`:
+  episodes map to their series; paused/buffering sessions also veto. Live-read
+  errors abort before writes; previews never advance/reset observation clocks.
   `requester_unwatched_180d` matches when at least one cached Seerr requester has
   no watch newer than the configured requester threshold (default 180 days);
   `global_unwatched_540d` matches when no user has a watch newer than the household

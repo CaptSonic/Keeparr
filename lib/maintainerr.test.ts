@@ -39,6 +39,8 @@ import { archiveDashboard, previewArchive, executeArchive } from './archive';
 
 let fakeBackend: MediaBackend;
 vi.mock('./mediaserver', () => ({ getBackend: () => fakeBackend }));
+const { playbackMock } = vi.hoisted(() => ({ playbackMock: vi.fn() }));
+vi.mock('./tautulli', () => ({ activePlaybackTitles: playbackMock }));
 
 const GB = 1024 ** 3;
 const BASE = 1_800_000_000;
@@ -178,6 +180,7 @@ function mockMaintainerr(opts: {
 }
 
 beforeEach(() => {
+  playbackMock.mockReset().mockResolvedValue(new Set());
   __setTestDbToMemory();
   vi.useFakeTimers();
   vi.setSystemTime(BASE * 1000);
@@ -224,6 +227,65 @@ afterEach(() => {
 afterAll(() => __closeDb());
 
 describe('Maintainerr safe hand-off', () => {
+  it.each(['movie', 'show'] as const)('withdraws a matured %s when another user watches, and restarts observation', async (kind) => {
+    const ratingKey = 'shared-title';
+    const collectionId = kind === 'movie' ? 10 : 20;
+    upsertMediaBatch([{
+      ratingKey, sectionId: kind === 'movie' ? 'movies' : 'shows', libraryKind: kind,
+      title: 'Shared title', year: 2020, thumb: null, sizeBytes: GB, addedAt: 1,
+      guidTmdb: null, guidTvdb: null,
+    }]);
+    replaceSeerrRequests('inactive-requester', [ratingKey]);
+    const remote = mockMaintainerr();
+    await syncMaintainerr();
+    vi.setSystemTime((BASE + 30 * 86400) * 1000);
+    await syncMaintainerr();
+    expect(remote.members.get(collectionId)!.has(ratingKey)).toBe(true);
+    upsertWatchBatch([{ plexUserId: 'other-viewer', ratingKey, plays: 1,
+      lastWatched: BASE + 30 * 86400 }]);
+    const preview = await previewMaintainerr();
+    expect(preview.items).toContainEqual(expect.objectContaining({
+      ratingKey, status: 'remove', reason: 'watched_too_recently',
+    }));
+    await syncMaintainerr();
+    expect(remote.members.get(collectionId)!.has(ratingKey)).toBe(false);
+    expect(maintainerrRuleTracking()).toEqual([]);
+    vi.setSystemTime((BASE + 210 * 86400) * 1000);
+    await syncMaintainerr();
+    expect(remote.members.get(collectionId)!.has(ratingKey)).toBe(false);
+    expect(maintainerrRuleTracking()).toEqual([expect.objectContaining({
+      ratingKey, firstEligibleAt: BASE + 210 * 86400,
+    })]);
+  });
+
+  it('vetoes live playback for explicit releases and resets automatic observation without cached history', async () => {
+    requesterReleasedMedia();
+    replaceSeerrRequests('inactive-requester', ['requester-show']);
+    const remote = mockMaintainerr();
+    await syncMaintainerr();
+    playbackMock.mockResolvedValue(new Set(['requester-show']));
+    expect((await previewMaintainerr()).items).toContainEqual(expect.objectContaining({
+      ratingKey: 'requester-show', status: 'remove', reason: 'watched_too_recently',
+    }));
+    await syncMaintainerr();
+    expect(remote.members.get(20)!.size).toBe(0);
+    expect(maintainerrRuleTracking().filter((row) => row.ratingKey === 'requester-show')).toEqual([]);
+    await syncMaintainerr();
+    expect(remote.members.get(20)!.size).toBe(0);
+  });
+
+  it('never writes membership or resets ownership when live playback is unavailable', async () => {
+    requesterReleasedMedia();
+    const remote = mockMaintainerr();
+    await syncMaintainerr();
+    const ownership = getMaintainerrManagedItems();
+    remote.writes.length = 0;
+    playbackMock.mockRejectedValue(new Error('activity unavailable'));
+    await expect(syncMaintainerr()).rejects.toThrow('activity unavailable');
+    expect(remote.writes).toEqual([]);
+    expect(getMaintainerrManagedItems()).toEqual(ownership);
+  });
+
   it('shares preview reads, invalidates on settings changes and never executes a snapshot', async () => {
     requesterReleasedMedia();
     const remote = mockMaintainerr();

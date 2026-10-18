@@ -5,6 +5,34 @@
  * NOTE: get_history rows are at response.data.data[] (data is an object).
  */
 import { fetchJson } from './http';
+import { getMediaServerType, getTautulliUrl, getTautulliKey } from './settings';
+
+/** Live title-level veto; never expose household/session details to callers.
+ * Paused/buffering sessions also protect the title. Invalid data fails closed. */
+export async function activePlaybackTitles(): Promise<Set<string>> {
+  if (getMediaServerType() !== 'plex') return new Set();
+  const url = getTautulliUrl();
+  const key = getTautulliKey();
+  if (!url || !key) throw new Error('Live playback protection requires Tautulli.');
+  const data = await call<{ sessions?: unknown }>(url, key, 'get_activity');
+  if (!data || !Array.isArray(data.sessions)) throw new Error('Invalid Tautulli activity.');
+  const titles = new Set<string>();
+  for (const session of data.sessions) {
+    if (!session || typeof session !== 'object') throw new Error('Invalid Tautulli session.');
+    const row = session as Record<string, unknown>;
+    if (row.media_type === 'track') continue;
+    if (row.media_type !== 'movie' && row.media_type !== 'episode') {
+      throw new Error('Invalid Tautulli session media type.');
+    }
+    const id = row.media_type === 'episode' ? row.grandparent_rating_key : row.rating_key;
+    if (!((typeof id === 'string' && /^\d+$/.test(id)) ||
+          (typeof id === 'number' && Number.isSafeInteger(id) && id > 0)) || String(id) === '0') {
+      throw new Error('Invalid Tautulli playback title.');
+    }
+    titles.add(String(id));
+  }
+  return titles;
+}
 
 function buildUrl(
   base: string,

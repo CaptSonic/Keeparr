@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { aggregatedWatchHistory, type HistoryRow } from './tautulli';
+import { aggregatedWatchHistory, activePlaybackTitles, type HistoryRow } from './tautulli';
+import { __setTestDbToMemory, __closeDb } from './db';
+import { writeSetting } from './settings';
 
 function fakeRes(body: unknown): Response {
   return {
@@ -35,6 +37,38 @@ function row(over: Partial<HistoryRow>): HistoryRow {
 }
 
 afterEach(() => vi.restoreAllMocks());
+
+describe('live playback protection', () => {
+  async function activity(data: unknown) {
+    __setTestDbToMemory();
+    writeSetting('tautulli_url', 'http://taut:8181');
+    writeSetting('tautulli_api_key', 'key');
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(fakeRes({ response: { result: 'success', data } }));
+    try { return await activePlaybackTitles(); }
+    finally { __closeDb(); }
+  }
+
+  it('protects entire series, movies and paused streams without returning identities', async () => {
+    expect(await activity({ sessions: [
+      { media_type: 'episode', rating_key: '901', grandparent_rating_key: '77', state: 'paused', user: 'private' },
+      { media_type: 'episode', rating_key: '902', grandparent_rating_key: '77' },
+      { media_type: 'movie', rating_key: 88 },
+      { media_type: 'track', rating_key: '99' },
+    ] })).toEqual(new Set(['77', '88']));
+  });
+
+  it.each([{}, { sessions: null }, { sessions: [null] },
+    { sessions: [{}] },
+    { sessions: [{ media_type: 'episode', rating_key: '901' }] },
+    { sessions: [{ media_type: 'movie', rating_key: '0' }] },
+  ])('fails closed on invalid activity %j', async (data) => {
+    await expect(activity(data)).rejects.toThrow(/Invalid Tautulli/);
+  });
+
+  it('accepts a valid empty activity list', async () => {
+    expect(await activity({ sessions: [] })).toEqual(new Set());
+  });
+});
 
 describe('aggregatedWatchHistory (paged get_history)', () => {
   it('a short first page means exactly one fetch', async () => {

@@ -38,6 +38,7 @@ import type { JobResult } from './sync';
 import type { MaintainerrHistoryEvent } from './types';
 import { getReclaimSignalReadiness } from './reclaim-readiness';
 import { getBackend } from './mediaserver';
+import { activePlaybackTitles } from './tautulli';
 
 // Maintainerr's membership endpoint can take noticeably longer for large visible
 // collections than its lightweight health endpoints. Keep a finite ceiling, but
@@ -546,10 +547,14 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
     })
   );
   const watchReady = getReclaimSignalReadiness().watch;
+  // A cached history cannot prove that nobody started watching since its sync.
+  // A failed live check aborts planning before membership/ownership writes.
+  const activeTitles = watchReady ? await activePlaybackTitles() : new Set<string>();
   const archiveExclusions = maintainerrArchiveExclusions();
   const returning = returningSeriesIds();
   const automaticRuleMatches = watchReady
-    ? maintainerrAutomaticRuleMatches(generatedAt, config.automaticRules).filter((item) =>
+    ? maintainerrAutomaticRuleMatches(generatedAt, config.automaticRules, config.watchAgeDays).filter((item) =>
+        !activeTitles.has(item.rating_key) &&
         selectedLibraries.has(`${item.library_kind}\0${item.section_id}`) &&
         (!archiveExclusions.has(item.rating_key) || returning.has(item.rating_key))
       )
@@ -643,10 +648,12 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
   const inventoryIds = new Set(inventory.items.map((item) => item.ratingKey));
   const liveAutomaticMatches = automaticMatches.filter((item) => inventoryIds.has(item.ratingKey));
   const latest = latestWatchedAtByItem();
+  for (const id of activeTitles) latest.set(id, generatedAt);
   const cutoff = generatedAt - config.watchAgeDays * 86400;
   const eligibleBeforeCollection = inventory.items.filter((item) => {
     if (archiveExclusions.has(item.ratingKey)) return false;
     const watchedAt = latest.get(item.ratingKey);
+    if (watchedAt != null && watchedAt > cutoff) return false;
     const explicitEligible = item.explicitRelease &&
       (watchedAt == null || watchedAt <= cutoff);
     const automaticEligible = item.dueAt !== null && item.dueAt <= generatedAt;
@@ -780,6 +787,9 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
     } else if (!watchReady) {
       status = 'paused';
       reason = 'watch_cache_untrusted';
+    } else if (lastWatched !== null && lastWatched > cutoff) {
+      status = 'blocked_recent';
+      reason = 'watched_too_recently';
     } else if (!explicitEligible && collectionBlocked.has(item.ratingKey)) {
       status = 'blocked_keep';
       reason = 'plex_collection_protected';
@@ -859,6 +869,8 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
               ? 'sonarr_archive_workflow'
               : kept
                 ? 'global_keep'
+                : (latest.get(ratingKey) ?? 0) > cutoff
+                  ? 'watched_too_recently'
                 : 'release_revoked'
             : 'existing_foreign_member',
         lastWatched: latest.get(ratingKey) ?? null,

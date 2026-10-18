@@ -46,6 +46,7 @@ import {
 import { refreshPlexSection } from './plex';
 import { listMaintainerrCollections } from './maintainerr';
 import { getReclaimSignalReadiness } from './reclaim-readiness';
+import { activePlaybackTitles } from './tautulli';
 
 export type ArchiveBlockReason =
   | 'not_found'
@@ -223,12 +224,15 @@ async function currentArchiveTargets(includeObserving = false) {
   const targets = new Map(listArchiveTargets().map((target) => [target.ratingKey, target]));
   const config = getMaintainerrConfig();
   if (config.enabled && config.url && config.showCollectionId && getReclaimSignalReadiness().watch) {
+    const activeTitles = await activePlaybackTitles();
     const collections = await listMaintainerrCollections(config.url);
     const selected = collections.find((collection) => collection.id === config.showCollectionId && collection.type === 'show');
     if (selected) {
       for (const target of automaticArchiveTargets(
-        Math.floor(Date.now() / 1000), config.automaticRules, selected.libraryId, includeObserving
+        Math.floor(Date.now() / 1000), config.automaticRules, selected.libraryId, includeObserving,
+        config.watchAgeDays
       )) {
+        if (activeTitles.has(target.ratingKey)) continue;
         if (!targets.has(target.ratingKey)) targets.set(target.ratingKey, target);
       }
     }

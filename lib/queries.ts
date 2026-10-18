@@ -2287,17 +2287,23 @@ export interface MaintainerrRuleTracking {
  * Current automatic Maintainerr rule matches. The global Keep veto is part of
  * the query, not a caller convention. Call only while the watch cache is trusted:
  * an empty trusted cache means never watched, while an untrusted cache is unknown.
+ * ANY user's recent watch vetoes both rules, independently of requester identity
+ * and of the household-rule enable switch. Live sessions are checked by callers.
  */
 export function maintainerrAutomaticRuleMatches(
-  at = now(), rules: MaintainerrAutomaticRules = defaultMaintainerrRules()
+  at = now(), rules: MaintainerrAutomaticRules = defaultMaintainerrRules(), watchAgeDays = 180
 ): MaintainerrRuleMatch[] {
   return getDb().prepare(
-    `SELECT m.*, 'requester_unwatched_180d' AS rule
+    `WITH protected AS (
+       SELECT DISTINCT rating_key FROM watch_history WHERE last_watched > @watchCutoff
+     )
+     SELECT m.*, 'requester_unwatched_180d' AS rule
        FROM media_items m
       WHERE m.removed = 0
         AND ((m.library_kind = 'movie' AND @movieRequesterEnabled = 1)
           OR (m.library_kind = 'show' AND @showRequesterEnabled = 1))
         AND NOT EXISTS (SELECT 1 FROM keeps k WHERE k.rating_key = m.rating_key)
+        AND NOT EXISTS (SELECT 1 FROM protected p WHERE p.rating_key = m.rating_key)
         AND EXISTS (
           SELECT 1 FROM seerr_requests sr
            WHERE sr.rating_key = m.rating_key
@@ -2316,6 +2322,7 @@ export function maintainerrAutomaticRuleMatches(
         AND ((m.library_kind = 'movie' AND @movieGlobalEnabled = 1)
           OR (m.library_kind = 'show' AND @showGlobalEnabled = 1))
         AND NOT EXISTS (SELECT 1 FROM keeps k WHERE k.rating_key = m.rating_key)
+        AND NOT EXISTS (SELECT 1 FROM protected p WHERE p.rating_key = m.rating_key)
         AND NOT EXISTS (
           SELECT 1 FROM watch_history w
            WHERE w.rating_key = m.rating_key
@@ -2323,6 +2330,7 @@ export function maintainerrAutomaticRuleMatches(
                WHEN 'movie' THEN @movieGlobalCutoff ELSE @showGlobalCutoff END
         )`
   ).all({
+    watchCutoff: at - watchAgeDays * 86400,
     movieRequesterEnabled: Number(rules.movie.requesterEnabled),
     showRequesterEnabled: Number(rules.show.requesterEnabled),
     movieGlobalEnabled: Number(rules.movie.globalEnabled),
@@ -2922,13 +2930,14 @@ export function listArchiveTargets(): ArchiveTarget[] {
 /** Read-only queue: current rules AND their persisted observation clock must
  * still match. Callers must additionally require trusted watch data. */
 export function automaticArchiveTargets(
-  at: number, rules: MaintainerrAutomaticRules, sectionId: string, includeObserving = false
+  at: number, rules: MaintainerrAutomaticRules, sectionId: string, includeObserving = false,
+  watchAgeDays = 180
 ): ArchiveTarget[] {
   const returning = returningSeriesIds();
   const clocks = new Map(maintainerrRuleTracking().map((row) =>
     [`${row.ratingKey}\0${row.rule}`, row.firstEligibleAt]));
   const targets = new Map<string, ArchiveTarget>();
-  for (const item of maintainerrAutomaticRuleMatches(at, rules)) {
+  for (const item of maintainerrAutomaticRuleMatches(at, rules, watchAgeDays)) {
     if (!returning.has(item.rating_key) || item.section_id !== sectionId) continue;
     const first = clocks.get(`${item.rating_key}\0${item.rule}`);
     const dueAt = first === undefined ? null : first + rules.show.observationDays * 86400;

@@ -858,7 +858,7 @@ describe('automatic Maintainerr rule tracking', () => {
     rules.movie.globalEnabled = false;
     rules.show.requesterEnabled = false;
     rules.show.globalDays = 91;
-    const matches = () => maintainerrAutomaticRuleMatches(BASE, rules).map((row) => `${row.rating_key}:${row.rule}`);
+    const matches = () => maintainerrAutomaticRuleMatches(BASE, rules, 90).map((row) => `${row.rating_key}:${row.rule}`);
     expect(matches()).toEqual(['movie:requester_unwatched_180d']);
     rules.show.globalDays = 90;
     expect(matches()).toEqual(['movie:requester_unwatched_180d', 'show:global_unwatched_540d']);
@@ -868,7 +868,7 @@ describe('automatic Maintainerr rule tracking', () => {
     expect(matches()).toEqual([]);
   });
 
-  it('matches requester inactivity and global inactivity independently', () => {
+  it('vetoes requester inactivity when any requester or other viewer watched recently', () => {
     upsertMediaBatch([media('both'), media('requester-only'), media('recent')]);
     replaceSeerrRequests('requester-a', ['both', 'requester-only', 'recent']);
     replaceSeerrRequests('requester-b', ['requester-only']);
@@ -886,12 +886,24 @@ describe('automatic Maintainerr rule tracking', () => {
     const matches = maintainerrAutomaticRuleMatches(BASE).map((row) =>
       `${row.rating_key}:${row.rule}`
     );
-    expect(matches).toHaveLength(3);
+    expect(matches).toHaveLength(2);
     expect(matches).toEqual(expect.arrayContaining([
-      'requester-only:requester_unwatched_180d',
       'both:requester_unwatched_180d',
       'both:global_unwatched_540d',
     ]));
+  });
+
+  it('applies configurable server-wide protection even with the household rule disabled', () => {
+    upsertMediaBatch([media('shared')]);
+    replaceSeerrRequests('inactive-requester', ['shared']);
+    upsertWatchBatch([{ plexUserId: 'other', ratingKey: 'shared', plays: 1,
+      lastWatched: BASE - 60 * 86400 }]);
+    const rules = defaultMaintainerrRules();
+    rules.movie.globalEnabled = false;
+    expect(maintainerrAutomaticRuleMatches(BASE, rules, 61)).toEqual([]);
+    expect(maintainerrAutomaticRuleMatches(BASE, rules, 60)).toEqual([
+      expect.objectContaining({ rating_key: 'shared', rule: 'requester_unwatched_180d' }),
+    ]);
   });
 
   it('treats the owner fallback as requester while Keep remains a hard veto', () => {

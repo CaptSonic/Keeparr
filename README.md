@@ -601,6 +601,21 @@ missing media, or an unavailable live check. Refreshing the dry run never writes
 membership, ownership, or observation state; the explicit **Run hand-off now**
 button uses the normal single-flight job runner and reloads the plan afterwards.
 
+An inactive requester is never sufficient to bypass another viewer's recent
+playback: every automatic rule additionally requires no server-wide watch within
+the configured hand-off watch-age window (default 180 days), even if the household
+inactivity rule is disabled. A recent watch resets automatic observation on the
+next successful hand-off job. This protection also applies to automatic archive
+targets. On Plex, plans additionally check Tautulli's live activity; playing,
+paused and buffering episodes protect the whole series, regardless of requester.
+An unavailable or malformed activity response aborts planning without membership
+writes. Existing Keeparr-owned hand-offs are withdrawn on a successful check when
+another viewer is watching; foreign/manual Maintainerr membership is not claimed.
+This is a check at planning time, not an atomic interlock with Maintainerr's later
+deletion: Keep and a sufficient Maintainerr grace period remain important.
+Live playback protection currently covers Plex/Tautulli; Jellyfin/Emby continue
+to use their synchronized watch history.
+
 For large libraries, availability checks use a continuously refilled pool of up
 to eight reads; Plex collection reads use up to eight. Independent availability,
 collection-protection and Maintainerr reads overlap. The Control Center reports
