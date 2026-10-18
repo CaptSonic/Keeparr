@@ -556,7 +556,7 @@ export async function getMovieCollections(
   };
   async function pages(
     path: string, category: 'listingRequests' | 'metadataRequests' | 'memberRequests',
-    count?: { requests: number }
+    count?: { requests: number; metadataMs: number; memberMs: number }
   ): Promise<CollectionRow[]> {
     const rows: CollectionRow[] = [];
     for (;;) {
@@ -565,9 +565,24 @@ export async function getMovieCollections(
         diagnostics[category]++;
       }
       if (count) count.requests++;
-      const data = await pmsGet<{
+      type Page = {
         MediaContainer: { totalSize?: number; Metadata?: CollectionRow[]; Directory?: CollectionRow[] };
-      }>(baseUrl, `${path}?X-Plex-Container-Start=${rows.length}&X-Plex-Container-Size=200`, token);
+      };
+      // Plex treats optional elements as a request, not a guarantee. Never
+      // interpret a missing Label element as an empty label list here.
+      const optional = category === 'listingRequests' ? '&includeOptionalElements=Label' : '';
+      const started = performance.now();
+      let data: Page;
+      try {
+        data = await pmsGet<Page>(baseUrl,
+          `${path}?X-Plex-Container-Start=${rows.length}&X-Plex-Container-Size=200${optional}`, token);
+      } finally {
+        const durationMs = Math.round(performance.now() - started);
+        const timing = category === 'listingRequests' ? 'listingMs' :
+          category === 'metadataRequests' ? 'metadataMs' : 'memberMs';
+        if (diagnostics) diagnostics[timing] += durationMs;
+        if (count && timing !== 'listingMs') count[timing] += durationMs;
+      }
       const container = data.MediaContainer;
       if (!container || (container.Metadata !== undefined && !Array.isArray(container.Metadata)) ||
           (container.Directory !== undefined && !Array.isArray(container.Directory))) {
@@ -590,7 +605,7 @@ export async function getMovieCollections(
   if (diagnostics) diagnostics.collections += collections.length;
   const result = await mapConcurrent(collections, 4, async (collection) => {
     const started = performance.now();
-    const count = { requests: 0 };
+    const count = { requests: 0, metadataMs: 0, memberMs: 0 };
     function record(members: number, ignored: boolean) {
       if (!diagnostics) return;
       diagnostics.members += members;
@@ -598,6 +613,7 @@ export async function getMovieCollections(
       diagnostics.slowest.push({
         ratingKey: String(collection.ratingKey), title: collection.title ?? String(collection.ratingKey),
         durationMs: Math.round(performance.now() - started), requests: count.requests, members, ignored,
+        metadataMs: count.metadataMs, memberMs: count.memberMs,
       });
       diagnostics.slowest.sort((a, b) => b.durationMs - a.durationMs);
       diagnostics.slowest = diagnostics.slowest.slice(0, 5);

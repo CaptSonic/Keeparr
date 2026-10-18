@@ -278,9 +278,15 @@ export default function MaintainerrControlCenter() {
           {' · '}{locale === 'de' ? 'Collections / Agregarr ignoriert / Mitgliedschaften' : 'Collections / Agregarr ignored / memberships'}:
           {' '}{data.diagnostics.collectionReads.collections} / {data.diagnostics.collectionReads.ignoredCollections} / {data.diagnostics.collectionReads.members}
         </p>
+        {data.diagnostics.collectionReads.listingMs !== undefined && <p className="mt-2">
+          {locale === 'de' ? 'Summierte Anfragezeiten – Übersicht / Metadaten / Mitglieder' : 'Summed request times — listing / metadata / members'}:
+          {' '}{data.diagnostics.collectionReads.listingMs} / {data.diagnostics.collectionReads.metadataMs} / {data.diagnostics.collectionReads.memberMs} ms.
+          {' '}{locale === 'de' ? 'Parallele Abfragen überlappen; keine Gesamtlaufzeit.' : 'Concurrent requests overlap; not elapsed runtime.'}
+        </p>}
         <p className="mt-2">{locale === 'de' ? 'Langsamste Collections (inkl. Metadatenabruf)' : 'Slowest collections (including metadata reads)'}</p>
         <ul className="mt-1 space-y-1">{data.diagnostics.collectionReads.slowest.map((row, index) => <li key={`${row.ratingKey}:${index}`}>
           {row.title}: {row.durationMs} ms · {row.requests} {locale === 'de' ? 'Abfragen' : 'requests'} · {row.members} {locale === 'de' ? 'Mitglieder' : 'members'}{row.ignored ? ' · Agregarr' : ''}
+          {row.metadataMs !== undefined && <span className="ml-1">({locale === 'de' ? 'Metadaten' : 'Metadata'}: {row.metadataMs} ms · {locale === 'de' ? 'Mitglieder' : 'Members'}: {row.memberMs} ms)</span>}
         </li>)}</ul>
       </details>}
       <div className="grid gap-4 lg:grid-cols-2">

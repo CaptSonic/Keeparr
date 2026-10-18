@@ -493,6 +493,10 @@ when it has no tvdb/tmdb **and** no imdb.
   Concurrent previews share only in-flight reads per configuration; snapshots
   are invalidated by approvals/runs and configuration changes. Detailed
   `diagnostics.collectionReads` counts requests and the five slowest collections.
+  It also reports summed listingMs/metadataMs/memberMs (overlapping requests,
+  not elapsed runtime), plus per-collection metadataMs/memberMs. Plex collection
+  listings request includeOptionalElements=Label; absent labels still require
+  validated live metadata. The four-slot pool and fail-closed behavior are unchanged.
   Execution and approvals always build fresh plans, never cached previews.
   `POST {action:'approve-mass'|'approve-readd', collectionId?, ratingKey?}` (server
   recomputes the block; no client-provided plan hash is trusted),

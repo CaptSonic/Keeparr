@@ -4,12 +4,70 @@ import type { CollectionReadDiagnostics } from './collection-diagnostics';
 
 const diagnostics = (): CollectionReadDiagnostics => ({
   requests: 0, listingRequests: 0, metadataRequests: 0, memberRequests: 0,
+  listingMs: 0, metadataMs: 0, memberMs: 0,
   collections: 0, ignoredCollections: 0, members: 0, slowest: [],
 });
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe('live Plex collection membership', () => {
+  it('requests optional labels on every listing page and avoids redundant metadata reads', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith('/collections')) {
+        expect(url.searchParams.get('includeOptionalElements')).toBe('Label');
+        const start = Number(url.searchParams.get('X-Plex-Container-Start'));
+        const rows = Array.from({ length: 201 }, (_, index) => ({
+          ratingKey: String(index), Label: index === 200 ? [] : [{ tag: 'aGrEgArR-generated' }],
+        }));
+        return Response.json({ MediaContainer: { totalSize: rows.length, Metadata: rows.slice(start, start + 200) } });
+      }
+      expect(url.pathname).toBe('/library/metadata/200/children');
+      expect(url.searchParams.has('includeOptionalElements')).toBe(false);
+      return Response.json({ MediaContainer: { Metadata: [{ ratingKey: 'protected' }] } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const stats = diagnostics();
+    await expect(getMovieCollections('http://plex', 'secret', 'movies', stats)).resolves.toEqual([['protected']]);
+    expect(stats).toMatchObject({ requests: 3, listingRequests: 2, metadataRequests: 0,
+      memberRequests: 1, ignoredCollections: 200 });
+    expect(stats.slowest).toHaveLength(5);
+  });
+
+  it('falls back when optional labels are omitted and measures request categories separately', async () => {
+    vi.spyOn(performance, 'now').mockReturnValue(0);
+    let clock = 0;
+    vi.mocked(performance.now).mockImplementation(() => clock);
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const path = new URL(String(input)).pathname;
+      if (path.endsWith('/collections')) {
+        clock += 10;
+        return Response.json({ MediaContainer: { Metadata: [{ ratingKey: 'normal' }] } });
+      }
+      if (path === '/library/metadata/normal') {
+        clock += 20;
+        return Response.json({ MediaContainer: { Metadata: [{ ratingKey: 'normal', Label: [] }] } });
+      }
+      clock += 30;
+      return Response.json({ MediaContainer: { Metadata: [{ ratingKey: 'protected' }] } });
+    }));
+    try {
+      const stats = diagnostics();
+      await expect(getMovieCollections('http://plex', 'secret', 'movies', stats)).resolves.toEqual([['protected']]);
+      expect(stats).toMatchObject({ listingMs: 10, metadataMs: 20, memberMs: 30, requests: 3 });
+      expect(stats.slowest[0]).toMatchObject({ durationMs: 50, metadataMs: 20, memberMs: 30 });
+    } finally {
+      vi.mocked(performance.now).mockRestore();
+    }
+  });
+
+  it('rejects malformed inline labels instead of skipping collection protection', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ MediaContainer: {
+      Metadata: [{ ratingKey: 'normal', Label: [{ tag: null }] }],
+    } })));
+    await expect(getMovieCollections('http://plex', 'secret', 'movies')).rejects.toThrow('invalid collection labels');
+  });
+
   it('bounds collection reads at four and refills slots while a collection is slow', async () => {
     let finishSlow!: () => void;
     let active = 0;

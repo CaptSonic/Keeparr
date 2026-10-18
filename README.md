@@ -595,6 +595,13 @@ the same configuration; execution and approvals never reuse that read or cache.
 The expandable Plex diagnostics count listing/metadata/member-page requests,
 ignored Agregarr collections and memberships, plus the five slowest collections.
 This exposes slow smart collections and pagination costs without weakening checks.
+Collection listings request `includeOptionalElements=Label` to avoid redundant
+metadata reads when Plex supplies labels inline. Missing labels still trigger
+the same validated live metadata fallback; this is a hint, not a guarantee of
+fewer requests on every server. Request durations are reported separately as
+`listingMs`, `metadataMs` and `memberMs`, with metadata/member times also shown
+for the slowest collections. These are summed request times (including response
+bodies), not wall-clock runtime: parallel requests overlap. Concurrency stays at four.
 
 Three additional safeguards protect Maintainerr's grace periods and large plans:
 

@@ -481,6 +481,7 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
     candidatesChecked: 0, plexCollectionsRead: 0,
     collectionReads: {
       requests: 0, listingRequests: 0, metadataRequests: 0, memberRequests: 0,
+      listingMs: 0, metadataMs: 0, memberMs: 0,
       collections: 0, ignoredCollections: 0, members: 0, slowest: [],
     } as CollectionReadDiagnostics,
   };
