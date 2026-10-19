@@ -1,6 +1,6 @@
 {
   "name": "keeparr",
-  "version": "0.5.47",
+  "version": "0.5.48",
   "private": true,
   "description": "Media retention app with reviewed Sonarr archiving, Plex placeholders, and on-demand restore.",
   "license": "MIT",
