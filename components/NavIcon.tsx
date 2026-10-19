@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 
 /** Small, consistent navigation glyphs; no font or icon package required. */
-export type NavIconName = 'keep' | 'library' | 'reclaim' | 'campaigns' | 'stats' | 'settings';
+export type NavIconName = 'keep' | 'library' | 'reclaim' | 'campaigns' | 'stats' | 'settings' | 'help';
 
 const paths: Record<NavIconName, ReactNode> = {
   keep: <><path d="M6 4h12v17l-6-4-6 4z" /><path d="m9 9 2 2 4-4" /></>,
@@ -10,6 +10,7 @@ const paths: Record<NavIconName, ReactNode> = {
   campaigns: <><path d="M5 21V4m0 0c5-3 9 3 14 0v10c-5 3-9-3-14 0" /></>,
   stats: <><path d="M4 3v17h17M9 16v-5m5 5V7m5 9V4" /></>,
   settings: <><path d="M4 7h16M4 17h16" /><circle cx="9" cy="7" r="3" /><circle cx="15" cy="17" r="3" /></>,
+  help: <><circle cx="12" cy="12" r="9" /><path d="M9.5 9a2.5 2.5 0 0 1 5 .5c0 1.5-2.5 2-2.5 3.5M12 17h.01" /></>,
 };
 
 export default function NavIcon({ name }: { name: NavIconName }) {

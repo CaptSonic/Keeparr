@@ -290,6 +290,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
            {navItem('/reclaim', m.nav.reclaim, pathname.startsWith('/reclaim'), 'reclaim')}
            {navItem('/campaigns', m.nav.campaigns, pathname.startsWith('/campaigns'), 'campaigns')}
            {navItem('/stats', m.nav.stats, pathname.startsWith('/stats'), 'stats')}
+          <p className="mx-4 mt-4 border-t border-slate-800 px-1 pb-2 pt-4 text-xs text-slate-500">{locale === 'de' ? 'Gut zu wissen' : 'Good to know'}</p>
+          {navItem('/help', locale === 'de' ? 'Hilfe & Anleitung' : 'Help & guide', pathname.startsWith('/help'), 'help')}
           {user?.isAdmin && <p className="mx-4 mt-4 border-t border-slate-800 px-1 pb-2 pt-4 text-xs text-slate-500">{locale === 'de' ? 'Verwaltung' : 'Administration'}</p>}
           {user?.isAdmin &&
             navItem(
