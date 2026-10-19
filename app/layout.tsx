@@ -37,7 +37,7 @@ if(p!=='light'&&p!=='dark'){p='system';}
 var t=p==='system'?(window.matchMedia('(prefers-color-scheme: light)').matches?'light':'dark'):p;
 var d=document.documentElement;d.setAttribute('data-theme',t);d.setAttribute('data-theme-preference',p);
 if(localStorage.getItem('keeparr.colorImpaired')==='1'){d.setAttribute('data-cim','1');}
-var m=document.querySelector('meta[data-keeparr-theme-color]');if(m){m.setAttribute('content',t==='light'?'#f8fafc':'#0f172a');}
+var m=document.querySelector('meta[data-keeparr-theme-color]');if(m){m.setAttribute('content',t==='light'?'#ffffff':'#20252b');}
 }catch(e){document.documentElement.setAttribute('data-theme','dark');}})()`;
 
 const LOCALE_INIT = `(function(){try{var l=localStorage.getItem('keeparr.locale');if(l!=='de'&&l!=='en'){var n=(navigator.languages&&navigator.languages[0])||navigator.language||'en';l=String(n).toLowerCase().split(/[-_]/)[0]==='de'?'de':'en';}document.documentElement.lang=l;document.documentElement.setAttribute('data-locale',l);}catch(e){}})()`;
@@ -50,7 +50,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        <meta name="theme-color" content="#0f172a" data-keeparr-theme-color="1" />
+        <meta name="theme-color" content="#20252b" data-keeparr-theme-color="1" />
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT }} />
         <script dangerouslySetInnerHTML={{ __html: LOCALE_INIT }} />
       </head>

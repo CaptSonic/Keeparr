@@ -322,7 +322,7 @@ export default function LibraryBrowser({
   }, [filterKey]);
 
   const inputCls =
-    'rounded-md bg-slate-800 border border-slate-700 px-3 py-2 text-sm focus:outline-none focus:border-brand';
+    'rounded-md bg-panel border border-slate-700 px-3 py-2 text-sm focus:outline-none focus:border-brand';
 
   const shownLibs = selectedIds.size
     ? sections.filter((s) => selectedIds.has(s.sectionId))
@@ -332,7 +332,7 @@ export default function LibraryBrowser({
   return (
     <div className="px-3 py-4 sm:px-6 sm:py-6">
       <div className="mb-1 flex flex-col gap-1 sm:flex-row sm:items-baseline sm:gap-3">
-        <h1 className="text-2xl font-bold">{m.library.title}</h1>
+        <h1 className="text-xl font-semibold">{m.library.title}</h1>
         <span className="text-sm text-slate-500 break-words">
           {selectedIds.size === 0
             ? m.library.allLibraries
@@ -349,6 +349,7 @@ export default function LibraryBrowser({
         <input
           className={`${inputCls} min-w-0 basis-full sm:basis-auto sm:min-w-[220px] sm:flex-1`}
           placeholder={m.library.searchTitles}
+          aria-label={m.library.searchTitles}
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
@@ -359,6 +360,7 @@ export default function LibraryBrowser({
             <select
               className={inputCls}
               value={sort}
+              aria-label={de ? 'Sortieren nach' : 'Sort by'}
               onChange={(e) => applySort(e.target.value as Sort, dir)}
             >
               <option value="size">{m.common.size}</option>
@@ -370,6 +372,7 @@ export default function LibraryBrowser({
               onClick={() => applySort(sort, dir === 'desc' ? 'asc' : 'desc')}
               className={inputCls}
               title={dir === 'desc' ? m.library.descending : m.library.ascending}
+              aria-label={dir === 'desc' ? m.library.descending : m.library.ascending}
             >
               {dir === 'desc' ? '↓' : '↑'}
             </button>
@@ -405,7 +408,23 @@ export default function LibraryBrowser({
           </select>
         )}
         {arr && (
-          <>
+          <details className="w-full border-y border-slate-800 py-3">
+            <summary className="cursor-pointer text-sm font-medium text-slate-300">
+              {de ? 'Weitere Filter: Qualität & Verwaltung' : 'More filters: quality & management'}
+              {(sources.length + instanceIds.length + tags.length + qualities.length + statuses.length + monitoredSel.length + (match !== 'all' ? 1 : 0) + (sizeMismatch ? 1 : 0)) > 0 &&
+                <span className="ml-2 rounded-full bg-brand/15 px-2 py-0.5 text-xs text-brand">{de ? 'Filter aktiv' : 'Filters active'}</span>}
+            </summary>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              className="rounded-md border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:border-slate-500"
+              onClick={() => {
+                setSources([]); setInstanceIds([]); setTags([]); setQualities([]);
+                setStatuses([]); setMonitoredSel([]); setMatch('all'); setSizeMismatch(false);
+              }}
+            >
+              {de ? 'Weitere Filter zurücksetzen' : 'Reset advanced filters'}
+            </button>
             <MultiSelect
               placeholder={m.library.allApps}
               summaryName={m.library.apps}
@@ -489,7 +508,8 @@ export default function LibraryBrowser({
               />
               {m.library.sizeMismatch}
             </label>
-          </>
+            </div>
+          </details>
         )}
         {seerr && (
         <label className="flex items-center gap-2 text-sm text-slate-400">
@@ -507,6 +527,7 @@ export default function LibraryBrowser({
             <button
               key={v}
               onClick={() => chooseView(v)}
+              aria-pressed={view === v}
               className={`flex-1 px-3 py-2 text-sm sm:flex-none ${
                 view === v ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-white'
               }`}
@@ -534,7 +555,7 @@ export default function LibraryBrowser({
       ) : (
         <div className="overflow-x-auto rounded-lg border border-slate-800">
           <table className="w-full text-sm">
-            <thead className="bg-rail text-xs uppercase tracking-wide text-slate-500">
+            <thead className="bg-rail text-xs font-medium text-slate-500">
               <tr>
                 <th className="w-8 px-2 py-2" />
                 <SortTh col="title" align="left" sort={sort} dir={dir} onSort={sortByHeader}>{m.library.titleColumn}</SortTh>

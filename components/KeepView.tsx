@@ -26,7 +26,7 @@ type Selection = 'all' | 'largest' | string; // string = section id
 
 const STORAGE_KEY = 'keeparr.feedSelection';
 const GAP = 12; // matches gap-3 on the grid
-const LABEL_H = 56; // title + size row + padding below the 2:3 poster
+const LABEL_H = 62; // title + size row + padding; includes the larger UI text
 // A card showing the "OK to delete" action button is ~this much taller. It's
 // budgeted into EVERY row so any row can be full of OK-to-delete cards without
 // overflowing the no-scroll grid.
@@ -262,9 +262,10 @@ export default function KeepView({ libraries }: { libraries: Library[] }) {
     <button
       key={value}
       onClick={() => choose(value)}
+      aria-pressed={selection === value}
       className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
         selection === value
-          ? 'bg-slate-700 text-white'
+          ? 'bg-brand text-ink font-semibold'
           : 'text-slate-400 hover:text-white'
       }`}
     >
@@ -279,14 +280,14 @@ export default function KeepView({ libraries }: { libraries: Library[] }) {
           the no-scroll grid. */}
       <div className="shrink-0 px-3 pt-3 pb-2 sm:px-6 sm:pt-4">
         <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4">
-          <h1 className="text-2xl font-bold">{m.keep.title}</h1>
+          <h1 className="text-xl font-semibold">{m.keep.title}</h1>
           <p className="text-sm text-slate-400">
             {triage
               ? m.keep.triageHint
               : m.keep.largestHint}
           </p>
         </div>
-        <div className="mt-2 flex flex-wrap items-center gap-1 rounded-lg bg-rail p-1">
+        <div className="mt-3 flex flex-wrap items-center gap-1 border-y border-slate-800 py-1">
           {chip('all', m.keep.forYou)}
           {libraries.map((l) => chip(l.id, l.title))}
           {chip('largest', m.keep.largest)}
@@ -341,14 +342,14 @@ export default function KeepView({ libraries }: { libraries: Library[] }) {
       {/* Bottom bar. The action + its explanation align with the GRID, not the
           totals column — a matching spacer keeps them out from under the aside. */}
       <div className="shrink-0 border-t border-slate-800 bg-rail px-3 py-2 flex items-center gap-2 sm:px-6 sm:gap-4">
-        <div className="flex flex-1 items-center gap-4">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3 sm:gap-4">
           <span className="text-sm text-slate-400">
             <span className="text-white font-semibold">{formatNumber(kept.size, locale)}</span> {m.keep.kept} ·{' '}
             {formatBytes(keptSize, locale)}
           </span>
           {triage ? (
-            <div className="ml-auto flex items-center gap-3">
-              <span className="hidden text-right text-xs text-slate-500 sm:block max-w-xs">
+            <div className="ml-auto flex w-full flex-col items-end gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-3">
+              <span className="text-right text-xs text-slate-400 max-w-xs">
                 {m.keep.markRest}{' '}
                 <span className="text-rose-400">„{m.keep.dontCare}“</span> {m.keep.markRestEnd}
               </span>

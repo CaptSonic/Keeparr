@@ -58,7 +58,7 @@ function applyTheme(preference: ThemePreference, colorImpaired: boolean): Resolv
     themeColor.dataset.keeparrThemeColor = '1';
     document.head.appendChild(themeColor);
   }
-  themeColor.content = resolved === 'light' ? '#f8fafc' : '#0f172a';
+  themeColor.content = resolved === 'light' ? '#ffffff' : '#20252b';
   return resolved;
 }
 

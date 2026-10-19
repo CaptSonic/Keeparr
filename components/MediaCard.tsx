@@ -191,7 +191,7 @@ export default function MediaCard({
       )}
 
       <div className="p-2">
-        <div className="truncate text-sm font-medium" title={item.title}>
+        <div className="truncate text-sm font-semibold" title={item.title}>
           {item.title}
         </div>
         <div className="mt-0.5 flex items-center justify-between text-xs text-slate-400">

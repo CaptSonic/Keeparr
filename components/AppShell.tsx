@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import type { SessionUser } from '@/lib/types';
 import SearchBox from './SearchBox';
+import NavIcon, { type NavIconName } from './NavIcon';
 import ShortcutsOverlay from './ShortcutsOverlay';
 import ThemeMenu from './ThemeMenu';
 import LanguageMenu from './LanguageMenu';
@@ -174,17 +175,18 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     href: string,
     label: string,
     active: boolean,
-    icon: string
+    icon: NavIconName
   ) => (
     <Link
       href={href}
-      className={`flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors ${
+      aria-current={active ? 'page' : undefined}
+      className={`flex items-center gap-3 px-4 py-2.5 text-sm font-medium transition-colors ${
         active
-          ? 'bg-slate-800 text-white border-l-2 border-brand pl-[10px]'
+          ? 'bg-brand/10 text-brand border-l-2 border-brand'
           : 'text-slate-400 hover:bg-slate-800/60 hover:text-white border-l-2 border-transparent'
       }`}
     >
-      <span aria-hidden className="w-4 text-center">{icon}</span>
+      <NavIcon name={icon} />
       {label}
     </Link>
   );
@@ -210,37 +212,41 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       >
         <Link
           href="/"
-          className="flex items-center gap-2 h-14 px-4 border-b border-slate-800 shrink-0"
+          className="app-header flex items-center gap-3 h-14 px-5 shrink-0"
           onClick={() => setRailOpen(false)}
         >
-          <span className="grid h-7 w-7 place-items-center rounded-md bg-brand text-ink font-black">
-            K
-          </span>
-          <span className="text-lg font-bold text-brand truncate">{appTitle}</span>
+          <svg aria-hidden="true" viewBox="0 0 28 32" width="25" height="29" className="shrink-0 text-brand" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M14 2 25 6v9c0 7-6 12-11 15C9 27 3 22 3 15V6z" />
+            <path d="m8 15 4 4 8-9" />
+          </svg>
+          <span className="text-lg font-semibold truncate">{appTitle}</span>
         </Link>
 
-        <nav className="flex-1 overflow-y-auto p-2 space-y-1">
-           {navItem('/', m.nav.keep, pathname === '/', '✦')}
+        <nav aria-label={locale === 'de' ? 'Hauptnavigation' : 'Main navigation'} className="flex-1 overflow-y-auto py-3">
+          <p className="px-5 pb-2 pt-2 text-xs text-slate-500">{locale === 'de' ? 'Deine Medien' : 'Your media'}</p>
+           {navItem('/', m.nav.keep, pathname === '/', 'keep')}
 
           {/* Browse (expandable libraries) */}
           <div>
             <div
-              className={`flex items-center rounded-md text-sm ${
+              className={`flex items-center text-sm font-medium ${
                 onLibrary
-                  ? 'bg-slate-800 text-white border-l-2 border-brand'
+                  ? 'bg-brand/10 text-brand border-l-2 border-brand'
                   : 'text-slate-400 border-l-2 border-transparent'
               }`}
             >
               <Link
                 href="/library"
-                className="flex items-center gap-3 px-3 py-2 flex-1 hover:text-white"
+                aria-current={onLibrary ? 'page' : undefined}
+                className="flex items-center gap-3 px-4 py-2.5 flex-1 hover:text-white"
                 onClick={() => setRailOpen(false)}
               >
-                <span aria-hidden className="w-4 text-center">▦</span>
+                <NavIcon name="library" />
                  {m.nav.browse}
               </Link>
               <button
                 onClick={() => setBrowseOpen((o) => !o)}
+                aria-expanded={browseOpen}
                  aria-label={browseOpen ? m.nav.collapseLibraries : m.nav.expandLibraries}
                 className="px-2 py-2 text-slate-500 hover:text-white"
               >
@@ -280,22 +286,24 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             )}
           </div>
 
-           {navItem('/reclaim', m.nav.reclaim, pathname.startsWith('/reclaim'), '♻')}
-           {navItem('/campaigns', m.nav.campaigns, pathname.startsWith('/campaigns'), '◎')}
-           {navItem('/stats', m.nav.stats, pathname.startsWith('/stats'), '◴')}
+          <p className="mx-4 mt-4 border-t border-slate-800 px-1 pb-2 pt-4 text-xs text-slate-500">{locale === 'de' ? 'Gemeinsam aufräumen' : 'Review together'}</p>
+           {navItem('/reclaim', m.nav.reclaim, pathname.startsWith('/reclaim'), 'reclaim')}
+           {navItem('/campaigns', m.nav.campaigns, pathname.startsWith('/campaigns'), 'campaigns')}
+           {navItem('/stats', m.nav.stats, pathname.startsWith('/stats'), 'stats')}
+          {user?.isAdmin && <p className="mx-4 mt-4 border-t border-slate-800 px-1 pb-2 pt-4 text-xs text-slate-500">{locale === 'de' ? 'Verwaltung' : 'Administration'}</p>}
           {user?.isAdmin &&
             navItem(
               '/settings/general',
                m.nav.settings,
               pathname.startsWith('/settings'),
-              '⚙'
+              'settings'
             )}
         </nav>
       </aside>
 
       {/* Main column */}
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="h-14 shrink-0 bg-rail border-b border-slate-800 flex items-center gap-2 px-3 sm:gap-4 sm:px-4">
+        <header className="app-header h-14 shrink-0 flex items-center gap-2 px-3 sm:gap-4 sm:px-4">
           {/* Hamburger — opens the off-canvas rail, only shown below md. */}
           <button
             onClick={() => setRailOpen((o) => !o)}
@@ -304,7 +312,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           >
             <span aria-hidden className="block text-lg leading-none">☰</span>
           </button>
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0 max-w-2xl">
             <SearchBox />
           </div>
           {user?.isAdmin && health.length > 0 && (
@@ -323,9 +331,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               </span>
             </Link>
           )}
-          <div className="relative shrink-0" ref={menuRef}>
+          <div className="relative ml-auto shrink-0 text-slate-200" ref={menuRef}>
             <button
               onClick={() => setMenuOpen((o) => !o)}
+              aria-label={locale === 'de' ? 'Konto und Darstellung' : 'Account and appearance'}
+              aria-expanded={menuOpen}
               className="flex items-center gap-2 rounded-full hover:bg-slate-800 p-1 pr-2"
             >
               <span className="grid h-8 w-8 place-items-center rounded-full bg-slate-700 text-xs font-semibold">
@@ -368,7 +378,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto">{children}</main>
+        <main id="main-content" className="flex-1 overflow-y-auto">{children}</main>
       </div>
     </div>
     {shortcutsOpen && <ShortcutsOverlay onClose={() => setShortcutsOpen(false)} />}

@@ -77,10 +77,10 @@ export default function SearchBox() {
           if (e.key === 'Escape') setOpen(false);
         }}
         placeholder={locale === 'de' ? 'Suchen…' : 'Search…'}
-        className="w-full rounded-md bg-slate-800 border border-slate-700 px-3 py-1.5 text-sm focus:outline-none focus:border-brand"
+        className="app-header-search w-full rounded border px-3 py-1.5 text-sm focus:outline-none"
       />
       {open && suggestions.length > 0 && (
-        <div className="absolute z-30 mt-1 w-full overflow-hidden rounded-md border border-slate-700 bg-panel shadow-xl">
+        <div className="absolute z-30 mt-1 w-full overflow-hidden rounded-md border border-slate-700 bg-panel text-slate-200 shadow-xl">
           {/* Suggestions scroll; the "See all" row stays pinned below them. */}
           <div className="max-h-80 overflow-auto">
             {suggestions.map((s) => (

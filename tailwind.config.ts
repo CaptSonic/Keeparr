@@ -19,8 +19,20 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      fontSize: {
+        xs: ['0.8125rem', { lineHeight: '1.125rem' }],
+        sm: ['0.9375rem', { lineHeight: '1.375rem' }],
+      },
+      borderRadius: {
+        DEFAULT: '3px',
+        md: '4px',
+        lg: '5px',
+        xl: '6px',
+        '2xl': '8px',
+        '3xl': '10px',
+      },
       colors: {
-        // Plex-ish amber accent on a slate base (Sonarr/Radarr-style chrome).
+        // Blue accent with contrast-adjusted foregrounds in each theme.
         brand: {
           DEFAULT: v('brand'),
           light: v('brand-light'),
@@ -30,9 +42,8 @@ const config: Config = {
         app: v('app'), // page background
         rail: v('rail'), // left nav + top bar
         panel: v('panel'), // cards / raised surfaces
-        // NOT themed: fixed dark ink for text sitting on brand-amber
-        // (buttons/badges/logo) — must stay dark in both themes.
-        ink: '#0f172a',
+        // Foreground on filled brand buttons and status badges.
+        ink: v('ink'),
         // NOT themed: fixed true white for text on saturated badges over
         // posters (theme-independent surfaces).
         paper: '#ffffff',
