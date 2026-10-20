@@ -636,6 +636,12 @@ export async function getMovieCollections(
       diagnostics.slowest.sort((a, b) => b.durationMs - a.durationMs);
       diagnostics.slowest = diagnostics.slowest.slice(0, 5);
     }
+    // Thematic "Based on ..." collections are not film-series protection groups.
+    const isBasedOn = (title: string | undefined) => /^based\s+on(?:\s|$|[:\-–—])/i.test(title?.trim() ?? '');
+    if (isBasedOn(collection.title)) {
+      record(0, true);
+      return null;
+    }
     // Collection listings do not always include labels. Read the collection
     // metadata in that case, rather than guessing ownership from its title.
     let labels = collection.Label;
@@ -643,6 +649,10 @@ export async function getMovieCollections(
       const metadata = await pages(`/library/metadata/${encodeURIComponent(String(collection.ratingKey))}`, 'metadataRequests', count);
       if (metadata.length !== 1 || String(metadata[0].ratingKey) !== String(collection.ratingKey)) {
         throw new Error('Plex returned invalid collection metadata.');
+      }
+      if (isBasedOn(metadata[0].title)) {
+        record(0, true);
+        return null;
       }
       labels = metadata[0].Label ?? [];
     }

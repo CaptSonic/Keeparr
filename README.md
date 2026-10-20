@@ -650,7 +650,7 @@ to use their synchronized watch history.
 For large libraries, availability checks use a continuously refilled pool of up
 to eight reads; Plex collection reads use up to eight. Independent availability,
 collection-protection and Maintainerr reads overlap. The Control Center reports
-total and per-phase milliseconds, checked candidates and included non-Agregarr
+total and per-phase milliseconds, checked candidates and included non-ignored
 Plex collections. Phase timings overlap and should not be added together.
 Approvals reuse their freshly validated read-only plan for the response; execution
 always rebuilds and validates a live plan. Failed collection reads still pause
@@ -665,7 +665,7 @@ restarts, and are inaccessible after configuration changes. Approvals and runs
 invalidate them. Concurrent live preview requests share one in-flight read for
 the same configuration; execution and approvals never reuse that read or cache.
 The expandable Plex diagnostics count listing/metadata/member-page requests,
-ignored Agregarr collections and memberships, plus the five slowest collections.
+ignored collections and memberships, plus the five slowest collections.
 This exposes slow smart collections and pagination costs without weakening checks.
 Collection listings request `includeOptionalElements=Label` to avoid redundant
 metadata reads when Plex supplies labels inline. Missing labels still trigger
@@ -718,6 +718,11 @@ starting with `agregarr` (case-insensitive), not collection titles or labels on
 individual movies. Missing listing labels are read from collection metadata. A
 movie in both an ignored Agregarr collection and a normal collection is still
 protected by the normal collection.
+
+Thematic movie collections whose titles start with **Based on** (case-insensitive,
+for example `Based on Books` or `Based on True Events`) are also ignored for
+collection protection. Membership in another, normal collection still protects
+the movie. All other hand-off safety checks continue to apply.
 
 Membership is read live from every selected movie library, even when no movie is
 currently eligible. Failed collection reads pause both additions and withdrawals.

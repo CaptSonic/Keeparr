@@ -304,7 +304,7 @@ export default function MaintainerrControlCenter() {
         <p className="mt-2">
           {locale === 'de' ? 'Übersicht / Metadaten / Mitglieder-Seiten' : 'Listing / metadata / member pages'}:
           {' '}{data.diagnostics.collectionReads.listingRequests} / {data.diagnostics.collectionReads.metadataRequests} / {data.diagnostics.collectionReads.memberRequests}
-          {' · '}{locale === 'de' ? 'Collections / Agregarr ignoriert / Mitgliedschaften' : 'Collections / Agregarr ignored / memberships'}:
+          {' · '}{locale === 'de' ? 'Collections / ignoriert / Mitgliedschaften' : 'Collections / ignored / memberships'}:
           {' '}{data.diagnostics.collectionReads.collections} / {data.diagnostics.collectionReads.ignoredCollections} / {data.diagnostics.collectionReads.members}
         </p>
         {data.diagnostics.collectionReads.listingMs !== undefined && <p className="mt-2">
@@ -314,7 +314,7 @@ export default function MaintainerrControlCenter() {
         </p>}
         <p className="mt-2">{locale === 'de' ? 'Langsamste Collections (inkl. Metadatenabruf)' : 'Slowest collections (including metadata reads)'}</p>
         <ul className="mt-1 space-y-1">{data.diagnostics.collectionReads.slowest.map((row, index) => <li key={`${row.ratingKey}:${index}`}>
-          {row.title}: {row.durationMs} ms · {row.requests} {locale === 'de' ? 'Abfragen' : 'requests'} · {row.members} {locale === 'de' ? 'Mitglieder' : 'members'}{row.ignored ? ' · Agregarr' : ''}
+          {row.title}: {row.durationMs} ms · {row.requests} {locale === 'de' ? 'Abfragen' : 'requests'} · {row.members} {locale === 'de' ? 'Mitglieder' : 'members'}{row.ignored ? (locale === 'de' ? ' · ignoriert' : ' · ignored') : ''}
           {row.metadataMs !== undefined && <span className="ml-1">({locale === 'de' ? 'Metadaten' : 'Metadata'}: {row.metadataMs} ms · {locale === 'de' ? 'Mitglieder' : 'Members'}: {row.memberMs} ms)</span>}
           {row.memberPath && <code className="ml-1 break-all text-slate-500">{row.memberPath}</code>}
         </li>)}</ul>

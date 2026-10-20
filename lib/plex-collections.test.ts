@@ -220,6 +220,40 @@ describe('live Plex collection membership', () => {
     expect(stats.slowest).toHaveLength(3);
   });
 
+  it.each(['Based on Books', 'bAsEd On True Events', '  Based   on Comics  ', 'Based on', 'Based on: Games'])
+  ('ignores thematic collection %s without metadata or member reads', async (title) => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const path = new URL(String(input)).pathname;
+      if (!path.endsWith('/collections')) throw new Error(`Unexpected request: ${path}`);
+      return Response.json({ MediaContainer: { Metadata: [{ ratingKey: 'thematic', title }] } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const stats = diagnostics();
+    await expect(getMovieCollections('http://plex', 'secret', '1', stats)).resolves.toEqual([]);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(stats).toMatchObject({ collections: 1, ignoredCollections: 1, metadataRequests: 0, memberRequests: 0 });
+  });
+
+  it('ignores Based on titles from metadata but preserves overlapping normal collections', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const path = new URL(String(input)).pathname;
+      const rows = path.endsWith('/collections') ? [
+        { ratingKey: 'thematic' },
+        { ratingKey: 'normal', title: 'Based only on a title', Label: [] },
+      ] : path === '/library/metadata/thematic' ? [
+        { ratingKey: 'thematic', title: 'Based on Books' },
+      ] : path === '/library/metadata/normal/children' ? [
+        { ratingKey: 'shared-movie' }, { ratingKey: 'protected-movie' },
+      ] : (() => { throw new Error(`Unexpected request: ${path}`); })();
+      return Response.json({ MediaContainer: { Metadata: rows } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const stats = diagnostics();
+    await expect(getMovieCollections('http://plex', 'secret', '1', stats))
+      .resolves.toEqual([['shared-movie', 'protected-movie']]);
+    expect(stats).toMatchObject({ collections: 2, ignoredCollections: 1, metadataRequests: 1, memberRequests: 1 });
+  });
+
   it('keeps unlabeled collections after loading their metadata', async () => {
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const path = new URL(String(input)).pathname;
