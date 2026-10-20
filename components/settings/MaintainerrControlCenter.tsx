@@ -96,6 +96,7 @@ export default function MaintainerrControlCenter() {
   const [historyFilter, setHistoryFilter] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [adoptSelected, setAdoptSelected] = useState<Set<string>>(new Set());
+  const [readdSelected, setReaddSelected] = useState<Set<string>>(new Set());
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const loadId = useRef(0);
 
@@ -106,6 +107,7 @@ export default function MaintainerrControlCenter() {
     setError('');
     setSelected(new Set());
     setAdoptSelected(new Set());
+    setReaddSelected(new Set());
     setData((previous) => previous ? { ...previous, snapshot: true, massApproved: false } : null);
     // A separate lightweight request lets the last successful result render
     // while the expensive live request is still running. Never overwrite it.
@@ -211,8 +213,14 @@ export default function MaintainerrControlCenter() {
     finally { setApproving(false); }
   }
 
-  async function approve(action: 'approve-mass' | 'approve-readd', item?: MaintainerrPreviewItem) {
+  async function approve(action: 'approve-mass' | 'approve-readd' | 'approve-readds', item?: MaintainerrPreviewItem) {
     if (!data || data.snapshot || loading || running || approving) return;
+    const members = data.items.filter((row) => row.status === 'readd_blocked' &&
+      row.collectionId !== null && readdSelected.has(`${row.collectionId}:${row.ratingKey}`)
+    ).map((row) => ({ collectionId: row.collectionId!, ratingKey: row.ratingKey }));
+    if (action === 'approve-readds' && (members.length === 0 || !window.confirm(locale === 'de'
+      ? `${members.length} ausgewählte Titel einmalig für die Wiederaufnahme entsperren? Es wird noch nichts hinzugefügt. Alle Gates bleiben aktiv.`
+      : `Allow one-time re-add for ${members.length} selected titles? Nothing is added yet. All safety gates remain active.`))) return;
     setApproving(true);
     setError('');
     try {
@@ -222,11 +230,19 @@ export default function MaintainerrControlCenter() {
           action,
           collectionId: item?.collectionId,
           ratingKey: item?.ratingKey,
+          members: action === 'approve-readds' ? members : undefined,
         }),
       });
+      if (response.status === 409 && action === 'approve-readds') {
+        setError(locale === 'de'
+          ? 'Die Auswahl ist nicht mehr aktuell. Es wurde nichts entsperrt. Bitte die Live-Vorschau aktualisieren und erneut auswählen.'
+          : 'The selection is stale. Nothing was approved. Refresh the live preview and select again.');
+        return;
+      }
       if (!response.ok) throw new Error('approval_failed');
       setData(await response.json());
       setSelected(new Set());
+      setReaddSelected(new Set());
     } catch {
       setError(text.failed);
     } finally {
@@ -237,6 +253,7 @@ export default function MaintainerrControlCenter() {
   const rows = useMemo(() =>
     data?.items.filter((item) => filter === 'all' || item.status === filter) ?? [],
   [data, filter]);
+  const blockedRows = rows.filter((item) => item.status === 'readd_blocked' && item.collectionId !== null);
 
   function reasonLabel(item: MaintainerrPreviewItem): string {
     return decisionReasonLabel(item, locale, data?.automaticRules);
@@ -330,6 +347,23 @@ export default function MaintainerrControlCenter() {
             {locale === 'de' ? 'Auswahl einmalig ausführen' : 'Execute selection once'} ({selected.size})
           </button>
         </div>
+        {(data?.summary.readd_blocked ?? 0) > 0 && <div className="mb-3 space-y-2 rounded-md border border-slate-700 p-3">
+          <p className="text-sm text-slate-400">{locale === 'de'
+            ? 'Re-Add-Sperren gemeinsam freigeben. Dies erlaubt nur die einmalige Wiederaufnahme; es führt keine Übergabe aus und umgeht keine Gates.'
+            : 'Approve re-add blocks together. This only authorizes one-time re-add; it does not execute a hand-off or bypass any gates.'}</p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className={btnGhost} disabled={loading || running || approving || data?.snapshot || data?.paused || blockedRows.length === 0}
+              onClick={() => setReaddSelected((previous) => new Set([...previous, ...blockedRows.map((item) => `${item.collectionId}:${item.ratingKey}`)]))}>
+              {locale === 'de' ? 'Alle sichtbaren Re-Add-Sperren auswählen' : 'Select all visible re-add blocks'}
+            </button>
+            <button type="button" className={btnGhost} disabled={loading || running || approving || readdSelected.size === 0} onClick={() => setReaddSelected(new Set())}>
+              {locale === 'de' ? 'Auswahl aufheben' : 'Clear selection'}
+            </button>
+            <button type="button" className={btnCls} disabled={loading || running || approving || data?.snapshot || data?.paused || readdSelected.size === 0} onClick={() => approve('approve-readds')}>
+              {locale === 'de' ? 'Ausgewählte einmalig entsperren' : 'Allow selected re-adds once'} ({readdSelected.size})
+            </button>
+          </div>
+        </div>}
         <div className="mb-3 flex flex-wrap gap-1.5">
           <button type="button" onClick={() => setFilter('all')} className={`rounded-full px-3 py-1 text-xs ${filter === 'all' ? 'bg-brand text-ink' : 'bg-slate-800 text-slate-300'}`}>{text.all} ({formatNumber(data?.items.length ?? 0, locale)})</button>
           {statuses.map((status) => <button key={status} type="button" onClick={() => setFilter(status)} className={`rounded-full px-3 py-1 text-xs ${filter === status ? colors[status] : 'bg-slate-800 text-slate-400'}`}>{text.statuses[status]} ({formatNumber(data?.summary[status] ?? 0, locale)})</button>)}
@@ -360,6 +394,19 @@ export default function MaintainerrControlCenter() {
                       onChange={(event) => {
                         const checked = event.target.checked;
                         setSelected((previous) => {
+                          const next = new Set(previous);
+                          const key = `${item.collectionId}:${item.ratingKey}`;
+                          if (checked) next.add(key); else next.delete(key);
+                          return next;
+                        });
+                      }} />}
+                  {item.status === 'readd_blocked' && item.collectionId !== null &&
+                    <input type="checkbox" className="mr-2" disabled={loading || running || approving || data?.snapshot || data?.paused}
+                      aria-label={`${locale === 'de' ? 'Zum Entsperren auswählen' : 'Select for re-add approval'}: ${item.title}`}
+                      checked={readdSelected.has(`${item.collectionId}:${item.ratingKey}`)}
+                      onChange={(event) => {
+                        const checked = event.target.checked;
+                        setReaddSelected((previous) => {
                           const next = new Set(previous);
                           const key = `${item.collectionId}:${item.ratingKey}`;
                           if (checked) next.add(key); else next.delete(key);

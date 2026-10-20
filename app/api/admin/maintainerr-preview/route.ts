@@ -3,6 +3,7 @@ import { requireAdmin } from '@/lib/auth';
 import {
   approveCurrentMaintainerrPlan,
   approveCurrentMaintainerrReadd,
+  approveCurrentMaintainerrReadds,
   previewMaintainerr,
   savedMaintainerrPreview,
   syncMaintainerr,
@@ -42,14 +43,16 @@ export async function POST(request: Request) {
       operations?: unknown;
       members?: unknown;
     };
-    if (body.action === 'adopt-members') {
+    if (body.action === 'adopt-members' || body.action === 'approve-readds') {
       if (!Array.isArray(body.members) || body.members.length === 0 || body.members.length > 10000 ||
           !body.members.every((member) => member && Number.isSafeInteger(member.collectionId) &&
             member.collectionId > 0 && typeof member.ratingKey === 'string' &&
             member.ratingKey.length > 0 && member.ratingKey.length <= 256)) {
         return NextResponse.json({ error: 'bad_request' }, { status: 400 });
       }
-      return NextResponse.json(await adoptMaintainerrMembers(body.members), {
+      return NextResponse.json(await (body.action === 'approve-readds'
+        ? approveCurrentMaintainerrReadds(body.members)
+        : adoptMaintainerrMembers(body.members)), {
         headers: { 'Cache-Control': 'no-store' },
       });
     }

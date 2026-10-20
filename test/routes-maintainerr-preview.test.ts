@@ -22,6 +22,7 @@ vi.mock('@/lib/maintainerr', () => ({
   savedMaintainerrPreview: savedMock,
   approveCurrentMaintainerrPlan: approveMassMock,
   approveCurrentMaintainerrReadd: approveReaddMock,
+  approveCurrentMaintainerrReadds: approveReaddMock,
   syncMaintainerr: syncMock,
   adoptMaintainerrMembers: adoptMock,
 }));
@@ -99,6 +100,27 @@ describe('POST /api/admin/maintainerr-preview', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('cache-control')).toBe('no-store');
     expect(approveMassMock).toHaveBeenCalledOnce();
+  });
+
+  it('validates admin-only bounded bulk re-add selections and reports stale approvals', async () => {
+    const members = [{ collectionId: 10, ratingKey: 'a' }, { collectionId: 10, ratingKey: 'b' }];
+    expect((await POST(request({ action: 'approve-readds', members }))).status).toBe(401);
+    await loginAs('user', false);
+    expect((await POST(request({ action: 'approve-readds', members }))).status).toBe(403);
+    await loginAs('admin', true);
+    for (const invalid of [[], [null], [{ collectionId: '10', ratingKey: 'a' }],
+      [{ collectionId: 10, ratingKey: '' }], [{ collectionId: 10, ratingKey: 'x'.repeat(257) }],
+      Array(10001).fill(members[0])]) {
+      expect((await POST(request({ action: 'approve-readds', members: invalid }))).status).toBe(400);
+    }
+    expect(approveReaddMock).not.toHaveBeenCalled();
+    approveReaddMock.mockResolvedValue({ items: [] });
+    const response = await POST(request({ action: 'approve-readds', members }));
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(approveReaddMock).toHaveBeenCalledWith(members);
+    approveReaddMock.mockRejectedValue(new Error('Maintainerr re-add is not currently blocked.'));
+    expect((await POST(request({ action: 'approve-readds', members }))).status).toBe(409);
   });
 
   it('validates and forwards only a well-formed re-add identity', async () => {

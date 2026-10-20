@@ -1018,26 +1018,45 @@ export async function approveCurrentMaintainerrReadd(
   collectionId: number,
   ratingKey: string
 ): Promise<MaintainerrPreview> {
+  return approveCurrentMaintainerrReadds([{ collectionId, ratingKey }]);
+}
+
+/** Validate the entire selection before persisting any one-time approvals. */
+export async function approveCurrentMaintainerrReadds(
+  members: { collectionId: number; ratingKey: string }[]
+): Promise<MaintainerrPreview> {
+  if (members.length === 0 || members.length > 10000 || members.some((member) =>
+    !Number.isSafeInteger(member.collectionId) || member.collectionId <= 0 ||
+    typeof member.ratingKey !== 'string' || !member.ratingKey.length || member.ratingKey.length > 256
+  )) throw new Error('Maintainerr re-add is not currently blocked.');
   previewCaches.delete(getDb());
   const plan = await buildMaintainerrPlan();
   const { preview } = plan;
-  const item = preview.items.find((row) =>
-    row.collectionId === collectionId && row.ratingKey === ratingKey &&
-    row.status === 'readd_blocked'
-  );
-  if (!item) throw new Error('Maintainerr re-add is not currently blocked.');
-  approveMaintainerrReadd(collectionId, ratingKey);
-  recordMaintainerrHistory({
-    eventType: 'readd_approved', ratingKey, title: item.title, year: item.year,
-    libraryKind: item.libraryKind, collectionId,
-    collectionTitle: item.collectionTitle, action: 'approve',
-    reason: 'unexpected_remote_removal', planHash: preview.planHash,
+  const unique = new Map(members.map((member) => [JSON.stringify([member.collectionId, member.ratingKey]), member]));
+  const items = [...unique.values()].map(({ collectionId, ratingKey }) => {
+    const item = preview.items.find((row) => row.collectionId === collectionId &&
+      row.ratingKey === ratingKey && row.status === 'readd_blocked');
+    if (!item) throw new Error('Maintainerr re-add is not currently blocked.');
+    return item;
   });
-  const target = plan.targets.find((row) => row.collection.id === collectionId)!;
-  target.add.add(ratingKey);
-  target.approvedReadds.add(ratingKey);
-  item.status = 'add';
-  item.reason = 'readd_approved';
+  getDb().transaction(() => {
+    for (const item of items) {
+      const { ratingKey } = item;
+      const collectionId = item.collectionId!;
+      approveMaintainerrReadd(collectionId, ratingKey);
+      recordMaintainerrHistory({
+        eventType: 'readd_approved', ratingKey, title: item.title, year: item.year,
+        libraryKind: item.libraryKind, collectionId,
+        collectionTitle: item.collectionTitle, action: 'approve',
+        reason: 'unexpected_remote_removal', planHash: preview.planHash,
+      });
+      const target = plan.targets.find((row) => row.collection.id === collectionId)!;
+      target.add.add(ratingKey);
+      target.approvedReadds.add(ratingKey);
+      item.status = 'add';
+      item.reason = 'readd_approved';
+    }
+  })();
   return approvedPreview(plan);
 }
 

@@ -22,6 +22,11 @@ per-user. See README.md for the feature overview.
 
 ## Canonical rules
 
+- Bulk re-add approval uses `POST /api/admin/maintainerr-preview` with
+  `action: 'approve-readds'` and `members: [{ collectionId, ratingKey }]` (1–10000).
+  Validate all members against one fresh live plan before persisting approvals
+  transactionally; stale selections fail entirely. No remote writes or gate bypass.
+
 - Running Sonarr series (`continuing`/`returning`/`returning series`) must never
   enter Maintainerr full-title removal. Track automatic observation normally,
   then queue archive targets for admin preview/execution only. The archive dashboard

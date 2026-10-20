@@ -697,6 +697,10 @@ Three additional safeguards protect Maintainerr's grace periods and large plans:
 - **Unexpected re-add stop:** if a Keeparr-owned, still-desired member disappears
   from Maintainerr, Keeparr keeps ownership but does not add it back automatically.
   The title is shown as **Re-add blocked** and can be approved individually once.
+  Blocked rows can also be selected together (including all visible blocked rows)
+  and approved once as a group. The server validates the entire selection against
+  one fresh live plan before saving any approvals; a stale member rejects the whole
+  selection. Approval does not execute a hand-off or bypass protection gates.
 - **Persistent history:** successful adds/removes, approvals, paused runs, mass
   blocks, and re-add blocks are stored as immutable title/collection snapshots.
   Repeated identical pause/block events are limited to one per six hours; the most

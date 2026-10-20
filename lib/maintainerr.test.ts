@@ -29,6 +29,7 @@ import {
 import {
   approveCurrentMaintainerrPlan,
   approveCurrentMaintainerrReadd,
+  approveCurrentMaintainerrReadds,
   previewMaintainerr,
   savedMaintainerrPreview,
   syncMaintainerr,
@@ -1125,6 +1126,38 @@ describe('Maintainerr safe hand-off', () => {
     expect((await previewMaintainerr()).items).toEqual(expect.arrayContaining([
       expect.objectContaining({ ratingKey: 'requester-movie', status: 'readd_blocked' }),
     ]));
+  });
+
+  it('approves only selected blocked members once without remote writes and deduplicates selections', async () => {
+    const ids = bulkRequesterReleases(3);
+    const remote = mockMaintainerr();
+    await syncMaintainerr();
+    for (const id of ids) remote.members.get(10)!.delete(id);
+    remote.writes.length = 0;
+    const members = ids.slice(0, 2).map((ratingKey) => ({ collectionId: 10, ratingKey }));
+    const approved = await approveCurrentMaintainerrReadds([...members, members[0]]);
+    expect(approved.summary.add).toBe(2);
+    expect(approved.summary.readd_blocked).toBe(1);
+    expect(remote.writes).toEqual([]);
+    expect(recentMaintainerrHistory().filter((row) => row.eventType === 'readd_approved')).toHaveLength(2);
+    await syncMaintainerr();
+    expect([...remote.members.get(10)!].sort()).toEqual(ids.slice(0, 2).sort());
+    for (const id of ids) remote.members.get(10)!.delete(id);
+    expect((await previewMaintainerr()).summary.readd_blocked).toBe(3);
+  });
+
+  it('rejects an entire stale bulk selection without partial approvals or bypassing Keep', async () => {
+    const ids = bulkRequesterReleases(2);
+    const remote = mockMaintainerr();
+    await syncMaintainerr();
+    for (const id of ids) remote.members.get(10)!.delete(id);
+    addKeep('requester', ids[1]);
+    await expect(approveCurrentMaintainerrReadds(ids.map((ratingKey) => ({ collectionId: 10, ratingKey }))))
+      .rejects.toThrow('Maintainerr re-add is not currently blocked.');
+    expect(recentMaintainerrHistory().filter((row) => row.eventType === 'readd_approved')).toHaveLength(0);
+    const preview = await previewMaintainerr();
+    expect(preview.summary.readd_blocked).toBe(1);
+    expect(preview.summary.add).toBe(0);
   });
 
   it('deduplicates repeated re-add block history during scheduled runs', async () => {
