@@ -1593,16 +1593,56 @@ describe('Maintainerr safe hand-off', () => {
   });
 
   it('rejects using the same collection for movies and shows', async () => {
-    setMaintainerrConfig({
+    expect(() => setMaintainerrConfig({
       url: 'http://maintainerr:6246',
       movieCollectionId: 10,
       showCollectionId: 10,
       watchAgeDays: 180,
       enabled: true,
-    });
+    })).toThrow('unique positive IDs');
     const { writes } = mockMaintainerr();
-    await expect(syncMaintainerr()).rejects.toThrow('must be different');
     expect(writes).toEqual([]);
+  });
+
+  it('routes a third kids library only to its selected collection and preserves Keeps', async () => {
+    requesterReleasedMedia();
+    const kids = { ratingKey: 'kids-show', sectionId: 'kids', libraryKind: 'show' as const,
+      title: 'Kids show', year: 2024, thumb: null, sizeBytes: GB, addedAt: 1,
+      guidTmdb: null, guidTvdb: '42' };
+    upsertMediaBatch([kids]);
+    addDelete('requester', kids.ratingKey);
+    const listSections = fakeBackend.listSections;
+    const listItems = fakeBackend.listSectionItems;
+    fakeBackend.listSections = async () => [...await listSections(), { id: 'kids', title: 'Kids', kind: 'show', paths: [] }];
+    fakeBackend.listSectionItems = async (section, kind) => section === 'kids'
+      ? [{ ...kids, guidImdb: null }] : listItems(section, kind);
+    setMaintainerrConfig({ ...getMaintainerrConfig(), showCollectionIds: [20, 30] });
+    const remote = mockMaintainerr({ rows: [...collections, { ...collections[1], id: 30, title: 'Kids', libraryId: 'kids' }] });
+    remote.members.set(30, new Set());
+    const preview = await previewMaintainerr();
+    expect(preview.items).toContainEqual(expect.objectContaining({ ratingKey: kids.ratingKey, collectionId: 30, status: 'add' }));
+    expect(remote.writes).toEqual([]);
+    await syncMaintainerr();
+    expect(remote.members.get(30)).toEqual(new Set([kids.ratingKey]));
+    addKeep('protector', kids.ratingKey);
+    await syncMaintainerr();
+    expect(remote.members.get(30)?.size).toBe(0);
+    expect(remote.members.get(20)).toEqual(new Set(['requester-show']));
+    removeDelete('requester', kids.ratingKey);
+    replaceArrItems([{
+      ratingKey: kids.ratingKey, source: 'sonarr', instanceId: 'sonarr', instanceName: 'Sonarr',
+      arrId: 42, monitored: true, status: 'continuing', quality: null, qualityKind: 'profile',
+      rootFolder: null, arrSizeBytes: GB, tags: [],
+    }]);
+    expect((await archiveDashboard()).targets.some((target) => target.ratingKey === kids.ratingKey)).toBe(false);
+  });
+
+  it('rejects multiple targets for the same library before writing memberships', async () => {
+    requesterReleasedMedia();
+    setMaintainerrConfig({ ...getMaintainerrConfig(), showCollectionIds: [20, 30] });
+    const remote = mockMaintainerr({ rows: [...collections, { ...collections[1], id: 30 }] });
+    await expect(syncMaintainerr()).rejects.toThrow('one Maintainerr collection per media library');
+    expect(remote.writes).toEqual([]);
   });
 
   it('blocks a Maintainerr URL change while remote memberships are owned', () => {

@@ -157,4 +157,17 @@ describe('Maintainerr one-time safety approvals', () => {
     expect(getMaintainerrApprovedPlanHash()).toBeNull();
     expect(isMaintainerrReaddApproved(10, 'a')).toBe(false);
   });
+
+  it('migrates legacy collection selections and clears approvals when an extra library is selected', () => {
+    writeSetting('maintainerr_movie_collection_id', '10');
+    writeSetting('maintainerr_show_collection_id', '20');
+    expect(getMaintainerrConfig()).toMatchObject({ movieCollectionIds: [10], showCollectionIds: [20] });
+    approveMaintainerrPlan('old-plan');
+    approveMaintainerrReadd(20, 'show');
+    setMaintainerrConfig({ ...getMaintainerrConfig(), showCollectionIds: [20, 30] });
+    expect(getMaintainerrConfig()).toMatchObject({ movieCollectionId: 10, showCollectionId: 20,
+      movieCollectionIds: [10], showCollectionIds: [20, 30] });
+    expect(getMaintainerrApprovedPlanHash()).toBeNull();
+    expect(isMaintainerrReaddApproved(20, 'show')).toBe(false);
+  });
 });

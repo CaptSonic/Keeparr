@@ -618,9 +618,14 @@ effect across normal request refreshes; Keeps and delete approvals are never cle
    collection on Plex/Jellyfin/Emby.
 2. In **Settings → Connections → Maintainerr**, enter the private Maintainerr URL
    (for example `http://maintainerr:6246`), load collections, select the matching
-   movie/show collections, set the minimum time since the last server-wide watch
+   movie/show collections (one per media library, including additional libraries
+   such as children's shows), set the minimum time since the last server-wide watch
    for explicit releases (180 days by default), set the automatic-rule observation
    period (30 days by default), enable the hand-off, and save.
+   Collections are selected with checkboxes; existing single-target settings are
+   retained automatically. Selecting multiple targets for the same library blocks
+   planning before any membership writes. Review the preview when removing a target:
+   Keeparr withdraws its own memberships from deselected collections.
 3. Run **Maintainerr hand-off** under **Settings → Jobs**, or leave its default
    five-minute schedule enabled.
 

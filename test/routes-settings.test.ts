@@ -84,6 +84,8 @@ describe('/api/admin/settings', () => {
       url: 'http://maintainerr:6246/',
       movieCollectionId: 10,
       showCollectionId: 20,
+      movieCollectionIds: [10],
+      showCollectionIds: [20, 30],
       watchAgeDays: 365,
       observationDays: 45,
       automaticRules: {
@@ -137,6 +139,22 @@ describe('/api/admin/settings', () => {
     }));
     expect(response.status).toBe(400);
     expect((await response.json()).error).toBe('maintainerr_invalid_watch_age');
+  });
+
+  it('preserves additional targets on partial updates and rejects malformed or duplicate arrays', async () => {
+    await loginAs('admin', true);
+    expect((await settingsPut(putReq({ maintainerr: {
+      url: 'http://maintainerr:6246', movieCollectionIds: [10], showCollectionIds: [20, 30], enabled: true,
+    } }))).status).toBe(200);
+    expect((await settingsPut(putReq({ maintainerr: { watchAgeDays: 270 } }))).status).toBe(200);
+    expect(getMaintainerrConfig()).toMatchObject({ movieCollectionIds: [10], showCollectionIds: [20, 30], watchAgeDays: 270 });
+    const before = getMaintainerrConfig();
+    for (const ids of [null, '30', [0], [-1], ['30'], [1.5], [20, 20], Array.from({ length: 201 }, (_, i) => i + 1)]) {
+      expect((await settingsPut(putReq({ maintainerr: { showCollectionIds: ids } }))).status).toBe(400);
+      expect(getMaintainerrConfig()).toEqual(before);
+    }
+    expect((await settingsPut(putReq({ maintainerr: { showCollectionIds: [10] } }))).status).toBe(400);
+    expect(getMaintainerrConfig()).toEqual(before);
   });
 
   it('rejects an invalid Maintainerr observation period', async () => {

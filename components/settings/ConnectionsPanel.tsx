@@ -276,8 +276,8 @@ export default function ConnectionsPanel() {
   const [radarr, setRadarr] = useState<ArrRow[]>([]);
   const [maintainerr, setMaintainerr] = useState<Parts>({ ssl: false, host: '', port: '', base: '' });
   const [maintainerrEnabled, setMaintainerrEnabled] = useState(false);
-  const [maintainerrMovieCollectionId, setMaintainerrMovieCollectionId] = useState<number | null>(null);
-  const [maintainerrShowCollectionId, setMaintainerrShowCollectionId] = useState<number | null>(null);
+  const [maintainerrMovieCollectionIds, setMaintainerrMovieCollectionIds] = useState<number[]>([]);
+  const [maintainerrShowCollectionIds, setMaintainerrShowCollectionIds] = useState<number[]>([]);
   const [maintainerrWatchAgeDays, setMaintainerrWatchAgeDays] = useState(180);
   const [maintainerrObservationDays, setMaintainerrObservationDays] = useState(30);
   const [maintainerrAutomaticRules, setMaintainerrAutomaticRules] = useState<MaintainerrAutomaticRules>(defaultMaintainerrRules);
@@ -322,8 +322,8 @@ export default function ConnectionsPanel() {
     setRadarr(toRows(d.radarr?.instances));
     setMaintainerr(parseUrl(d.maintainerr?.url));
     setMaintainerrEnabled(d.maintainerr?.enabled === true);
-    setMaintainerrMovieCollectionId(d.maintainerr?.movieCollectionId ?? null);
-    setMaintainerrShowCollectionId(d.maintainerr?.showCollectionId ?? null);
+    setMaintainerrMovieCollectionIds(d.maintainerr?.movieCollectionIds ?? (d.maintainerr?.movieCollectionId ? [d.maintainerr.movieCollectionId] : []));
+    setMaintainerrShowCollectionIds(d.maintainerr?.showCollectionIds ?? (d.maintainerr?.showCollectionId ? [d.maintainerr.showCollectionId] : []));
     setMaintainerrWatchAgeDays(d.maintainerr?.watchAgeDays ?? 180);
     setMaintainerrObservationDays(d.maintainerr?.observationDays ?? 30);
     setMaintainerrAutomaticRules(d.maintainerr?.automaticRules ?? defaultMaintainerrRules(d.maintainerr?.observationDays ?? 30));
@@ -550,8 +550,8 @@ export default function ConnectionsPanel() {
           radarrInstances: toInstancesBody(radarr),
           maintainerr: {
             url: buildUrl(maintainerr),
-            movieCollectionId: maintainerrMovieCollectionId,
-            showCollectionId: maintainerrShowCollectionId,
+            movieCollectionIds: maintainerrMovieCollectionIds,
+            showCollectionIds: maintainerrShowCollectionIds,
             watchAgeDays: maintainerrWatchAgeDays,
             observationDays: maintainerrObservationDays,
             automaticRules: maintainerrAutomaticRules,
@@ -891,57 +891,35 @@ export default function ConnectionsPanel() {
             ? 'Maintainerr 3.27 schützt seine API nicht selbst. Verwende ausschließlich ein privates Docker-/LAN-Netz oder einen authentifizierenden Reverse Proxy.'
             : 'Maintainerr 3.27 does not protect its own API. Use only a private Docker/LAN network or an authenticating reverse proxy.'}
         </p>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <label className="text-sm text-slate-400">
-            {de ? 'Film-Collection' : 'Movie collection'}
-            <select
-              className={`${inputCls} mt-1`}
-              value={maintainerrMovieCollectionId ?? ''}
-              onChange={(e) => setMaintainerrMovieCollectionId(e.target.value ? Number(e.target.value) : null)}
-            >
-              <option value="">{de ? 'Nicht ausgewählt' : 'Not selected'}</option>
-              {maintainerrMovieCollectionId != null &&
-                !maintainerrCollections.some((c) => c.id === maintainerrMovieCollectionId) && (
-                  <option value={maintainerrMovieCollectionId}>
-                    {de
-                      ? `Gespeichert (#${maintainerrMovieCollectionId})`
-                      : `Saved (#${maintainerrMovieCollectionId})`}
-                  </option>
-                )}
-              {maintainerrCollections.filter((c) => c.type === 'movie').map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.title} — {!c.tagInArr
-                    ? `${de ? 'Aktion' : 'action'} ${c.arrAction}${c.keepInMaintainerrOnly ? ` · ${de ? 'nur Maintainerr' : 'Maintainerr only'}` : ` · ${de ? 'sichtbar' : 'visible'}`}`
-                    : de ? 'BLOCKIERT (*arr-Tag)' : 'BLOCKED (*arr tag)'}
-                </option>
+        <p className="mt-4 text-xs text-slate-400">{de
+          ? 'Wähle je Medienbibliothek eine Collection, z. B. Serien und Kinderserien. Bestehende Ziele bleiben ausgewählt.'
+          : 'Select one collection per media library, for example shows and children’s shows. Existing targets remain selected.'}</p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          {(['movie', 'show'] as const).map((kind) => {
+            const ids = kind === 'movie' ? maintainerrMovieCollectionIds : maintainerrShowCollectionIds;
+            const setIds = kind === 'movie' ? setMaintainerrMovieCollectionIds : setMaintainerrShowCollectionIds;
+            return <fieldset key={kind} className="space-y-2 rounded border border-slate-700 p-3">
+              <legend className="px-1 text-sm text-slate-400">{kind === 'movie'
+                ? (de ? 'Film-Collections' : 'Movie collections')
+                : (de ? 'Serien-Collections' : 'Show collections')}</legend>
+              {ids.filter((id) => !maintainerrCollections.some((c) => c.id === id && c.type === kind)).map((id) => (
+                <label key={id} className="flex items-center gap-2 text-sm text-slate-300">
+                  <input type="checkbox" checked onChange={() => setIds(ids.filter((value) => value !== id))} />
+                  {de ? 'Gespeichert' : 'Saved'} (#{id})
+                </label>
               ))}
-            </select>
-          </label>
-          <label className="text-sm text-slate-400">
-            {de ? 'Serien-Collection' : 'Show collection'}
-            <select
-              className={`${inputCls} mt-1`}
-              value={maintainerrShowCollectionId ?? ''}
-              onChange={(e) => setMaintainerrShowCollectionId(e.target.value ? Number(e.target.value) : null)}
-            >
-              <option value="">{de ? 'Nicht ausgewählt' : 'Not selected'}</option>
-              {maintainerrShowCollectionId != null &&
-                !maintainerrCollections.some((c) => c.id === maintainerrShowCollectionId) && (
-                  <option value={maintainerrShowCollectionId}>
-                    {de
-                      ? `Gespeichert (#${maintainerrShowCollectionId})`
-                      : `Saved (#${maintainerrShowCollectionId})`}
-                  </option>
-                )}
-              {maintainerrCollections.filter((c) => c.type === 'show').map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.title} — {!c.tagInArr
-                    ? `${de ? 'Aktion' : 'action'} ${c.arrAction}${c.keepInMaintainerrOnly ? ` · ${de ? 'nur Maintainerr' : 'Maintainerr only'}` : ` · ${de ? 'sichtbar' : 'visible'}`}`
-                    : de ? 'BLOCKIERT (*arr-Tag)' : 'BLOCKED (*arr tag)'}
-                </option>
+              {maintainerrCollections.filter((c) => c.type === kind).map((c) => (
+                <label key={c.id} className="flex items-start gap-2 text-sm text-slate-300">
+                  <input type="checkbox" className="mt-1" checked={ids.includes(c.id)}
+                    onChange={(e) => setIds(e.target.checked ? [...ids, c.id] : ids.filter((id) => id !== c.id))} />
+                  <span>{c.title} — {de ? 'Bibliothek' : 'Library'} #{c.libraryId} · {!c.tagInArr
+                    ? `${de ? 'Aktion' : 'action'} ${c.arrAction}${c.keepInMaintainerrOnly ? (de ? ' / nur Maintainerr' : ' / Maintainerr only') : (de ? ' / sichtbar' : ' / visible')}`
+                    : (de ? 'BLOCKIERT (*arr-Tag)' : 'BLOCKED (*arr tag)')}</span>
+                </label>
               ))}
-            </select>
-          </label>
+              {maintainerrCollections.filter((c) => c.type === kind).length === 0 && <p className="text-xs text-slate-500">{de ? 'Collections laden, um weitere Ziele auszuwählen.' : 'Load collections to select additional targets.'}</p>}
+            </fieldset>;
+          })}
         </div>
         <label className="mt-4 block max-w-xs text-sm text-slate-400">
           {de ? 'Watch-Alter für explizite Freigaben (Tage)' : 'Watch age for explicit releases (days)'}

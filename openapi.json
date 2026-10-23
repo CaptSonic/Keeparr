@@ -839,6 +839,7 @@
       "put": {
         "tags": ["admin"],
         "summary": "Update settings (only provided fields change)",
+        "description": "Maintainerr accepts movieCollectionIds and showCollectionIds arrays of unique positive integer IDs (maximum 200 combined). Select one target per media library; ambiguous live library mappings reject planning before membership writes. Legacy movieCollectionId/showCollectionId remain supported and returned as first-target aliases. Omitted selections are preserved; empty arrays deselect targets. Existing owned memberships in deselected targets are reconciled normally, without touching foreign members. All existing safety gates apply.",
         "requestBody": { "content": { "application/json": { "schema": { "type": "object", "description": "Any of: plexServer, plexBaseUrl, tautulli, seerr, sonarrInstances, radarrInstances, maintainerr, archivePlaceholders (`enabled`, `archiveRoot`, `plexArchiveRoot`, `templatePath`, `automaticRestore`, `plexRefresh`, `webhookSecret`), jobSchedules, storageMappings, managedSectionIds, appTitle, appUrl, apiKey, backupRetention, automationBridgeEnabled" } } } },
         "responses": { "200": { "description": "`{ok:true}`" } }
       }

@@ -289,7 +289,7 @@ The chrome is a Sonarr/Radarr-style left rail (logo → Keep; Keep / Browse[expa
   current non-removed media ids, reapplies the global keep veto, and deduplicates a
   title appearing in multiple campaigns to its newest closed campaign record.
 - `lib/maintainerr.ts` is the optional non-destructive hand-off client. Settings
-  select one Maintainerr movie/show collection and the `maintainerr` job reconciles
+  select multiple Maintainerr movie/show collections (one per media library) and the `maintainerr` job reconciles
   unprotected requester `user_deletes`, `listAutomationReleases()`, and matured
   persisted automatic watch-rule matches into Maintainerr's internal membership using only
   `POST /api/collections/add` and `/remove`. It validates every collection/member
@@ -571,6 +571,8 @@ measurement), `managed_section_ids` (json; which libraries Keeparr tracks, empty
 all), `open_signin` (`'true'`/`'false'`), `api_key`* (automation), `app_title`,
 `automation_bridge_enabled` (`'true'` only after explicit admin opt-in; defaults off),
 `maintainerr_observation_days` (automatic rule delay, default 30, 1–365),
+`maintainerr_movie_collection_ids` / `maintainerr_show_collection_ids` (JSON ID arrays;
+legacy singular keys migrate on read and mirror the first target on write),
 `maintainerr_safety_state` (internal JSON one-time mass-plan hash + per-collection/id
 re-add approvals; cleared on Maintainerr config changes and dev reset),
 `app_url` (Plex sign-in forwardUrl; overrides the `APP_URL` env var),

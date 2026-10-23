@@ -223,13 +223,13 @@ function blocked(
 async function currentArchiveTargets(includeObserving = false) {
   const targets = new Map(listArchiveTargets().map((target) => [target.ratingKey, target]));
   const config = getMaintainerrConfig();
-  if (config.enabled && config.url && config.showCollectionId && getReclaimSignalReadiness().watch) {
+  if (config.enabled && config.url && config.showCollectionIds.length > 0 && getReclaimSignalReadiness().watch) {
     const activeTitles = await activePlaybackTitles();
     const collections = await listMaintainerrCollections(config.url);
-    const selected = collections.find((collection) => collection.id === config.showCollectionId && collection.type === 'show');
-    if (selected) {
+    const selected = collections.filter((collection) => config.showCollectionIds.includes(collection.id) && collection.type === 'show');
+    for (const collection of selected) {
       for (const target of automaticArchiveTargets(
-        Math.floor(Date.now() / 1000), config.automaticRules, selected.libraryId, includeObserving,
+        Math.floor(Date.now() / 1000), config.automaticRules, collection.libraryId, includeObserving,
         config.watchAgeDays
       )) {
         if (activeTitles.has(target.ratingKey)) continue;

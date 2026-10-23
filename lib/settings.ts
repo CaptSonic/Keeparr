@@ -392,6 +392,8 @@ export interface MaintainerrConfig {
   url: string;
   movieCollectionId: number | null;
   showCollectionId: number | null;
+  movieCollectionIds: number[];
+  showCollectionIds: number[];
   watchAgeDays: number;
   observationDays: number;
   automaticRules: MaintainerrAutomaticRules;
@@ -415,10 +417,26 @@ export function getMaintainerrConfig(): MaintainerrConfig {
     const id = Number(value);
     return Number.isSafeInteger(id) && id > 0 ? id : null;
   };
+  const collectionIds = (kind: 'movie' | 'show') => {
+    const legacy = positiveId(readSetting(`maintainerr_${kind}_collection_id`));
+    const raw = readSetting(`maintainerr_${kind}_collection_ids`);
+    if (raw !== null) {
+      try {
+        const ids: unknown = JSON.parse(raw);
+        if (Array.isArray(ids) && ids.every((id) => Number.isSafeInteger(id) && id > 0)) {
+          return [...new Set(ids)] as number[];
+        }
+      } catch { /* Invalid target configuration must not select extra collections. */ }
+      return [];
+    }
+    return legacy === null ? [] : [legacy];
+  };
   return {
     url: readSetting('maintainerr_url') ?? '',
     movieCollectionId: positiveId(readSetting('maintainerr_movie_collection_id')),
     showCollectionId: positiveId(readSetting('maintainerr_show_collection_id')),
+    movieCollectionIds: collectionIds('movie'),
+    showCollectionIds: collectionIds('show'),
     watchAgeDays: (() => {
       const days = Number(readSetting('maintainerr_watch_age_days'));
       return Number.isInteger(days) && days >= 1 && days <= 3650 ? days : 180;
@@ -430,13 +448,21 @@ export function getMaintainerrConfig(): MaintainerrConfig {
 }
 
 export function setMaintainerrConfig(
-  config: Omit<MaintainerrConfig, 'observationDays' | 'automaticRules'> & {
+  config: Omit<MaintainerrConfig, 'observationDays' | 'automaticRules' | 'movieCollectionIds' | 'showCollectionIds'> & {
+    movieCollectionIds?: number[];
+    showCollectionIds?: number[];
     observationDays?: number;
     automaticRules?: MaintainerrAutomaticRules;
   }
 ): void {
   const url = config.url.trim().replace(/\/$/, '');
   const previous = getMaintainerrConfig();
+  const movieCollectionIds = config.movieCollectionIds ?? (config.movieCollectionId === null ? [] : [config.movieCollectionId]);
+  const showCollectionIds = config.showCollectionIds ?? (config.showCollectionId === null ? [] : [config.showCollectionId]);
+  const ids = [...movieCollectionIds, ...showCollectionIds];
+  if (ids.length > 200 || ids.some((id) => !Number.isSafeInteger(id) || id <= 0) || new Set(ids).size !== ids.length) {
+    throw new Error('Maintainerr collection selections must contain unique positive IDs (maximum 200).');
+  }
   const observationDays = config.observationDays ?? previous.observationDays;
   const fallbackRules = observationDays !== previous.observationDays
     ? {
@@ -459,8 +485,10 @@ export function setMaintainerrConfig(
     );
   }
   writeSetting('maintainerr_url', url);
-  writeSetting('maintainerr_movie_collection_id', config.movieCollectionId?.toString() ?? '');
-  writeSetting('maintainerr_show_collection_id', config.showCollectionId?.toString() ?? '');
+  writeSetting('maintainerr_movie_collection_id', movieCollectionIds[0]?.toString() ?? '');
+  writeSetting('maintainerr_show_collection_id', showCollectionIds[0]?.toString() ?? '');
+  writeSetting('maintainerr_movie_collection_ids', JSON.stringify(movieCollectionIds));
+  writeSetting('maintainerr_show_collection_ids', JSON.stringify(showCollectionIds));
   writeSetting('maintainerr_watch_age_days', String(config.watchAgeDays));
   writeSetting('maintainerr_observation_days', String(observationDays));
   writeSetting('maintainerr_enabled', config.enabled ? 'true' : 'false');
@@ -470,8 +498,8 @@ export function setMaintainerrConfig(
   if (changedKinds.length > 0) resetMaintainerrRuleTracking(changedKinds);
   if (
     previous.url !== url ||
-    previous.movieCollectionId !== config.movieCollectionId ||
-    previous.showCollectionId !== config.showCollectionId ||
+    JSON.stringify(previous.movieCollectionIds) !== JSON.stringify(movieCollectionIds) ||
+    JSON.stringify(previous.showCollectionIds) !== JSON.stringify(showCollectionIds) ||
     previous.watchAgeDays !== config.watchAgeDays ||
     previous.observationDays !== observationDays ||
     previous.enabled !== config.enabled || changedKinds.length > 0
@@ -483,7 +511,7 @@ export function setMaintainerrConfig(
 export const isMaintainerrConfigured = () => {
   const config = getMaintainerrConfig();
   return config.enabled && !!config.url &&
-    (config.movieCollectionId !== null || config.showCollectionId !== null);
+    (config.movieCollectionIds.length > 0 || config.showCollectionIds.length > 0);
 };
 
 /** Membership ids owned by Keeparr, keyed by Maintainerr collection id. */

@@ -541,16 +541,15 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
   }
   if (
     config.enabled &&
-    config.movieCollectionId !== null &&
-    config.movieCollectionId === config.showCollectionId
+    config.movieCollectionIds.some((id) => config.showCollectionIds.includes(id))
   ) {
     throw new Error('Maintainerr movie and show collections must be different.');
   }
   const selected = config.enabled
     ? [
-        config.movieCollectionId ? { id: config.movieCollectionId, kind: 'movie' as const } : null,
-        config.showCollectionId ? { id: config.showCollectionId, kind: 'show' as const } : null,
-      ].filter((v): v is { id: number; kind: 'movie' | 'show' } => v !== null)
+        ...config.movieCollectionIds.map((id) => ({ id, kind: 'movie' as const })),
+        ...config.showCollectionIds.map((id) => ({ id, kind: 'show' as const })),
+      ]
     : [];
   const collections = new Map(
     (await timed('maintainerrMs', () => listMaintainerrCollections(config.url)))
@@ -562,6 +561,9 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
       return collection ? [`${kind}\0${collection.libraryId}`] : [];
     })
   );
+  if (selectedLibraries.size !== selected.length) {
+    throw new Error('Select exactly one Maintainerr collection per media library; a selected collection is missing or shares a library.');
+  }
   const watchReady = getReclaimSignalReadiness().watch;
   // A cached history cannot prove that nobody started watching since its sync.
   // A failed live check aborts planning before membership/ownership writes.

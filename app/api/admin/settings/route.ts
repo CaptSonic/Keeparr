@@ -166,6 +166,8 @@ interface PutBody {
     url?: string;
     movieCollectionId?: number | null;
     showCollectionId?: number | null;
+    movieCollectionIds?: number[];
+    showCollectionIds?: number[];
     watchAgeDays?: number;
     observationDays?: number;
     automaticRules?: unknown;
@@ -298,11 +300,25 @@ export async function PUT(req: Request) {
           ? body.maintainerr.enabled
           : current.enabled,
       };
+      const movieCollectionIds = body.maintainerr.movieCollectionIds ??
+        (body.maintainerr.movieCollectionId !== undefined
+          ? (nextMaintainerr.movieCollectionId === null ? [] : [nextMaintainerr.movieCollectionId])
+          : current.movieCollectionIds);
+      const showCollectionIds = body.maintainerr.showCollectionIds ??
+        (body.maintainerr.showCollectionId !== undefined
+          ? (nextMaintainerr.showCollectionId === null ? [] : [nextMaintainerr.showCollectionId])
+          : current.showCollectionIds);
+      if (body.maintainerr.movieCollectionIds === null || body.maintainerr.showCollectionIds === null ||
+          !Array.isArray(movieCollectionIds) || !Array.isArray(showCollectionIds) ||
+          movieCollectionIds.length + showCollectionIds.length > 200 ||
+          [...movieCollectionIds, ...showCollectionIds].some((value) => !Number.isSafeInteger(value) || value <= 0)) {
+        return NextResponse.json({ error: 'maintainerr_invalid_collections' }, { status: 400 });
+      }
+      const collectionIds = [...movieCollectionIds, ...showCollectionIds];
       if (
         nextMaintainerr.enabled &&
         (!nextMaintainerr.url.trim() ||
-          (nextMaintainerr.movieCollectionId === null &&
-            nextMaintainerr.showCollectionId === null))
+          collectionIds.length === 0)
       ) {
         return NextResponse.json(
           { error: 'maintainerr_incomplete' },
@@ -310,8 +326,7 @@ export async function PUT(req: Request) {
         );
       }
       if (
-        nextMaintainerr.movieCollectionId !== null &&
-        nextMaintainerr.movieCollectionId === nextMaintainerr.showCollectionId
+        new Set(collectionIds).size !== collectionIds.length
       ) {
         return NextResponse.json(
           { error: 'maintainerr_duplicate_collection' },
@@ -338,7 +353,7 @@ export async function PUT(req: Request) {
           { status: 400 }
         );
       }
-      setMaintainerrConfig(nextMaintainerr);
+      setMaintainerrConfig({ ...nextMaintainerr, movieCollectionIds, showCollectionIds });
     }
 
     if (body.archivePlaceholders && typeof body.archivePlaceholders === 'object') {
