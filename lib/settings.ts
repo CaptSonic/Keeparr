@@ -24,6 +24,7 @@ const SECRET_KEYS = new Set([
   'emby_token',
   'emby_admin_token',
   'tautulli_api_key',
+  'tracearr_api_key',
   'seerr_api_key',
   'api_key',
   // Whole JSON blob encrypted at rest (each instance holds an apiKey).
@@ -125,13 +126,24 @@ export const getTautulliKey = () => readSetting('tautulli_api_key');
 export const isTautulliConfigured = () =>
   !!getTautulliUrl() && !!getTautulliKey();
 
+// Explicit source selection avoids silently falling back to stale Tautulli data.
+export const getPlexWatchSource = (): 'tautulli' | 'tracearr' =>
+  readSetting('plex_watch_source') === 'tracearr' ? 'tracearr' : 'tautulli';
+export const getTracearrUrl = () => readSetting('tracearr_url');
+export const getTracearrKey = () => readSetting('tracearr_api_key');
+export const getTracearrServerId = () => readSetting('tracearr_server_id');
+export const isTracearrConfigured = () =>
+  !!getTracearrUrl() && !!getTracearrKey() && !!getTracearrServerId();
+
 /**
  * Whether watch data is available for the configured backend (drives the Watched
  * filter, the watched badge, and the Big Picture never-watched metric): Plex needs
  * Tautulli; Jellyfin/Emby have native watch data once connected.
  */
 export const isWatchAvailable = () =>
-  getMediaServerType() === 'plex' ? isTautulliConfigured() : isServerConfigured();
+  getMediaServerType() === 'plex'
+    ? (getPlexWatchSource() === 'tracearr' ? isTracearrConfigured() : isTautulliConfigured())
+    : isServerConfigured();
 
 /**
  * Stable, non-secret identity for the currently configured watch source. A
@@ -143,7 +155,10 @@ export function getWatchSourceFingerprint(): string | null {
   const type = getMediaServerType();
   const source =
     type === 'plex'
-      ? [type, getTautulliUrl(), getTautulliKey()]
+      ? (getPlexWatchSource() === 'tracearr'
+        ? [type, 'tracearr-v2', getTracearrUrl(), getTracearrKey(), getTracearrServerId(),
+          getServerId(), getServerBaseUrl(), getServerToken()]
+        : [type, getTautulliUrl(), getTautulliKey()])
       : [type, getServerId(), getServerBaseUrl(), getServerToken()];
   return createHash('sha256').update(JSON.stringify(source)).digest('hex');
 }

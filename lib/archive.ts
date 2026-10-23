@@ -46,7 +46,7 @@ import {
 import { refreshPlexSection } from './plex';
 import { listMaintainerrCollections } from './maintainerr';
 import { getReclaimSignalReadiness } from './reclaim-readiness';
-import { activePlaybackTitles } from './tautulli';
+import { activePlaybackTitles } from './watch-source';
 
 export type ArchiveBlockReason =
   | 'not_found'

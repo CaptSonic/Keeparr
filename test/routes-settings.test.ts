@@ -19,6 +19,7 @@ import {
   setSonarrInstances,
   getBackupRetention,
   getMaintainerrConfig,
+  readSetting,
 } from '@/lib/settings';
 import { GET as settingsGet, PUT as settingsPut } from '@/app/api/admin/settings/route';
 
@@ -41,6 +42,30 @@ const putReq = (body: unknown) =>
   });
 
 describe('/api/admin/settings', () => {
+  it('round-trips Tracearr selection without exposing or clearing the saved secret', async () => {
+    await loginAs('admin', true);
+    const serverId = '00000000-0000-4000-8000-000000000001';
+    expect((await settingsPut(putReq({ plexWatchSource: 'tracearr',
+      tracearr: { url: 'http://tracearr:3000/', apiKey: 'tracearr-secret', serverId } }))).status).toBe(200);
+    expect((await settingsPut(putReq({ tracearr: { url: 'http://tracearr:3000', apiKey: '' } }))).status).toBe(200);
+    const body = await settingsGet().then((r) => r.json());
+    expect(body.plexWatchSource).toBe('tracearr');
+    expect(body.tracearr).toEqual({ url: 'http://tracearr:3000', serverId, hasKey: true, configured: true });
+    expect(JSON.stringify(body)).not.toContain('tracearr-secret');
+    expect(readSetting('tracearr_api_key')).toBe('tracearr-secret');
+    expect((await settingsPut(putReq({ tracearr: { url: 'http://tracearr:3000', serverId: '' } }))).status).toBe(200);
+    expect((await settingsGet().then((r) => r.json())).tracearr.configured).toBe(false);
+  });
+
+  it('rejects invalid Tracearr configuration before changing other settings', async () => {
+    await loginAs('admin', true);
+    for (const patch of [{ plexWatchSource: 'invalid' }, { tracearr: null },
+      { tracearr: { url: 'http://tracearr', serverId: 'not-a-uuid' } }]) {
+      expect((await settingsPut(putReq({ ...patch, appTitle: 'should-not-save' }))).status).toBe(400);
+      expect(readSetting('app_title')).not.toBe('should-not-save');
+    }
+  });
+
   it('401 without a session, 403 for non-admin', async () => {
     expect((await settingsGet()).status).toBe(401);
     await loginAs('user', false);

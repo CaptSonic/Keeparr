@@ -704,6 +704,9 @@ export async function getAllLeaves(
   const d = await pmsGet<{
     MediaContainer: { Metadata?: PlexMetadata[] };
   }>(baseUrl, `/library/metadata/${showRatingKey}/allLeaves`, token);
+  if (!d.MediaContainer || (d.MediaContainer.Metadata !== undefined && !Array.isArray(d.MediaContainer.Metadata))) {
+    throw new Error('Invalid Plex episode inventory');
+  }
   return d.MediaContainer.Metadata ?? [];
 }
 

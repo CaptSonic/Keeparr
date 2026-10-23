@@ -112,6 +112,37 @@ afterAll(() => {
 });
 
 describe('syncLibrary tombstone guards', () => {
+  it('hides the last deleted title in an independently verified empty library', async () => {
+    upsertMediaBatch([media('last')]);
+    fakeBackend = { ...backendWith([section('1')], {}), itemExists: async () => false };
+    const result = await syncLibrary();
+    expect(getMediaItem('last')?.removed).toBe(1);
+    expect(result.refreshComplete).toBe(true);
+  });
+  it('hides series without episodes, preserves partial series and restores returning titles', async () => {
+    upsertMediaBatch([media('gone', { libraryKind: 'show' }), media('partial', { libraryKind: 'show' })]);
+    fakeBackend = {
+      ...backendWith([section('1', 'show')], { '1': [backendItem('gone'), backendItem('partial')] }),
+      itemExists: async (id) => id === 'partial',
+    };
+    await syncLibrary();
+    expect(getMediaItem('gone')?.removed).toBe(1);
+    expect(getMediaItem('partial')?.removed).toBe(0);
+    fakeBackend.itemExists = async () => true;
+    await syncLibrary();
+    expect(getMediaItem('gone')?.removed).toBe(0);
+  });
+
+  it('does not hide existing titles when episode verification fails', async () => {
+    upsertMediaBatch([media('uncertain', { libraryKind: 'show' })], 1000);
+    fakeBackend = {
+      ...backendWith([section('1', 'show')], { '1': [backendItem('uncertain')] }),
+      itemExists: async () => { throw new Error('offline'); },
+    };
+    await expect(syncLibrary()).rejects.toThrow('offline');
+    expect(getMediaItem('uncertain')?.removed).toBe(0);
+  });
+
   it('aborts on zero sections without touching stored sections or media', async () => {
     setPlexSections([{ id: '1', title: 'Movies', type: 'movie', paths: ['/data/movies'] }]);
     upsertMediaBatch([media('1')], 1000);
@@ -246,6 +277,17 @@ describe('syncArr per-instance replace', () => {
 });
 
 describe('syncRecentlyAdded', () => {
+  it('does not resurrect a series that has no remaining episodes', async () => {
+    setPlexSections([{ id: '1', title: 'Shows', type: 'show', paths: [] }]);
+    fakeBackend = {
+      ...backendWith([], {}),
+      recentItems: async () => [backendItem('empty-series')],
+      itemExists: async () => false,
+    };
+    expect((await syncRecentlyAdded()).result).toBe(0);
+    expect(getMediaItem('empty-series')).toBeNull();
+  });
+
   it('upserts recent items per managed section, sizing new shows; never tombstones', async () => {
     setPlexSections([
       { id: '1', title: 'Movies', type: 'movie', paths: [] },

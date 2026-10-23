@@ -16,6 +16,11 @@ import {
   getAppTitle,
   getAppUrl,
   getTautulliUrl,
+  getPlexWatchSource,
+  getTracearrUrl,
+  getTracearrKey,
+  getTracearrServerId,
+  isTracearrConfigured,
   isApiKeyConfigured,
   isAutomationBridgeEnabled,
   isSeerrConfigured,
@@ -111,6 +116,13 @@ export async function GET() {
         url: getTautulliUrl(),
         configured: isTautulliConfigured(),
       },
+      plexWatchSource: getPlexWatchSource(),
+      tracearr: {
+        url: getTracearrUrl(),
+        serverId: getTracearrServerId(),
+        hasKey: !!getTracearrKey(),
+        configured: isTracearrConfigured(),
+      },
       seerr: {
         url: getSeerrUrl(),
         configured: isSeerrConfigured(),
@@ -148,6 +160,8 @@ interface PutBody {
     serverName?: string;
   };
   tautulli?: { url: string; apiKey?: string };
+  plexWatchSource?: 'tautulli' | 'tracearr';
+  tracearr?: { url: string; apiKey?: string; serverId?: string };
   seerr?: { url: string; apiKey?: string };
   sonarrInstances?: IncomingInstance[];
   radarrInstances?: IncomingInstance[];
@@ -191,6 +205,24 @@ export async function PUT(req: Request) {
   try {
     await requireAdmin();
     const body = (await req.json()) as PutBody;
+
+    // Validate before writing any settings; blank IDs deliberately deselect.
+    if (body.plexWatchSource !== undefined && !['tautulli', 'tracearr'].includes(body.plexWatchSource)) {
+      return NextResponse.json({ error: 'invalid_watch_source' }, { status: 400 });
+    }
+    if (body.tracearr !== undefined && (!body.tracearr ||
+        typeof body.tracearr.url !== 'string' ||
+        (body.tracearr.apiKey !== undefined && typeof body.tracearr.apiKey !== 'string') ||
+        (body.tracearr.serverId !== undefined && (typeof body.tracearr.serverId !== 'string' ||
+          (body.tracearr.serverId !== '' && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.tracearr.serverId)))))) {
+      return NextResponse.json({ error: 'invalid_tracearr_settings' }, { status: 400 });
+    }
+    if (body.plexWatchSource !== undefined) writeSetting('plex_watch_source', body.plexWatchSource);
+    if (body.tracearr) {
+      writeSetting('tracearr_url', body.tracearr.url.trim().replace(/\/+$/, ''));
+      if (body.tracearr.apiKey?.trim()) writeSetting('tracearr_api_key', body.tracearr.apiKey.trim());
+      if (body.tracearr.serverId !== undefined) writeSetting('tracearr_server_id', body.tracearr.serverId);
+    }
 
     if (body.plexServer) {
       const p = body.plexServer;

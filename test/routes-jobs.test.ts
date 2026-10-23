@@ -24,6 +24,7 @@ import {
 } from '@/lib/queries';
 import { setApiKey, writeSetting } from '@/lib/settings';
 import { runJob } from '@/lib/jobs';
+import { reportJobProgress } from '@/lib/job-progress';
 import { setSessionCookie } from '@/lib/auth';
 import { GET as jobsGet, POST as jobsPost } from '@/app/api/admin/jobs/route';
 import { GET as requestsGet } from '@/app/api/requests/route';
@@ -83,6 +84,15 @@ afterAll(() => {
 });
 
 describe('GET /api/admin/jobs', () => {
+  it('returns structured live progress without caching it', async () => {
+    await loginAs('admin', true);
+    reportJobProgress('maintainerr', 'Applying changes', 'Änderungen übertragen', 5, 12);
+    const response = await jobsGet(getReq());
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    const body = await response.json();
+    expect(body.jobs.find((row: { jobId: string }) => row.jobId === 'maintainerr').progress)
+      .toMatchObject({ completed: 5, total: 12, status: 'running' });
+  });
   it('401 without a session', async () => {
     expect((await jobsGet(getReq())).status).toBe(401);
   });

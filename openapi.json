@@ -215,6 +215,18 @@
           "lastRun": { "type": "integer", "nullable": true },
           "lastMessage": { "type": "string", "nullable": true },
           "lastDurationMs": { "type": "integer", "nullable": true },
+          "progress": {
+            "type": "object", "nullable": true,
+            "description": "Latest phase-scoped progress for library, watch or Maintainerr, including interactive selected hand-offs. Null total means unknown; never infer a percentage. Counts acknowledge successful batches, not pending requests. A complete status means the runner returned, not that safety gates authorized writes.",
+            "properties": {
+              "status": { "type": "string", "enum": ["running", "complete", "error"] },
+              "phase": { "type": "string" },
+              "phaseDe": { "type": "string" },
+              "completed": { "type": "integer" },
+              "total": { "type": "integer", "nullable": true },
+              "updatedAt": { "type": "integer", "description": "Unix milliseconds" }
+            }
+          },
           "schedule": { "type": "object" }
         }
       },
@@ -840,7 +852,7 @@
         "tags": ["admin"],
         "summary": "Update settings (only provided fields change)",
         "description": "Maintainerr accepts movieCollectionIds and showCollectionIds arrays of unique positive integer IDs (maximum 200 combined). Select one target per media library; ambiguous live library mappings reject planning before membership writes. Legacy movieCollectionId/showCollectionId remain supported and returned as first-target aliases. Omitted selections are preserved; empty arrays deselect targets. Existing owned memberships in deselected targets are reconciled normally, without touching foreign members. All existing safety gates apply.",
-        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "description": "Any of: plexServer, plexBaseUrl, tautulli, seerr, sonarrInstances, radarrInstances, maintainerr, archivePlaceholders (`enabled`, `archiveRoot`, `plexArchiveRoot`, `templatePath`, `automaticRestore`, `plexRefresh`, `webhookSecret`), jobSchedules, storageMappings, managedSectionIds, appTitle, appUrl, apiKey, backupRetention, automationBridgeEnabled" } } } },
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "description": "Any of: plexServer, plexBaseUrl, tautulli, plexWatchSource (tautulli or tracearr; default tautulli), tracearr (url, optional apiKey, optional serverId UUID; blank key preserves secret, omitted serverId preserves selection, empty serverId deselects), seerr, sonarrInstances, radarrInstances, maintainerr, archivePlaceholders (`enabled`, `archiveRoot`, `plexArchiveRoot`, `templatePath`, `automaticRestore`, `plexRefresh`, `webhookSecret`), jobSchedules, storageMappings, managedSectionIds, appTitle, appUrl, apiKey, backupRetention, automationBridgeEnabled. Tracearr requires public API v2 and exactly the Plex server connected to Keeparr. Source changes require a successful watch refresh; no provider fallback." } } } },
         "responses": { "200": { "description": "`{ok:true}`" } }
       }
     },
@@ -1047,7 +1059,7 @@
       "post": {
         "tags": ["admin"],
         "summary": "Test a service connection",
-        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "service": { "type": "string", "enum": ["plex", "jellyfin", "emby", "tautulli", "seerr", "sonarr", "radarr", "maintainerr"] }, "url": { "type": "string" }, "apiKey": { "type": "string" } }, "required": ["service"] } } } },
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "service": { "type": "string", "enum": ["plex", "jellyfin", "emby", "tautulli", "tracearr", "seerr", "sonarr", "radarr", "maintainerr"] }, "url": { "type": "string" }, "apiKey": { "type": "string" } }, "required": ["service"] } } } },
         "responses": { "200": { "description": "`{ok, message}`" } }
       }
     },

@@ -269,6 +269,12 @@ export default function ConnectionsPanel() {
   const [taut, setTaut] = useState<Parts>({ ssl: false, host: '', port: '', base: '' });
   const [tautKey, setTautKey] = useState('');
   const [tautConfigured, setTautConfigured] = useState(false);
+  const [watchSource, setWatchSource] = useState<'tautulli' | 'tracearr'>('tautulli');
+  const [tracearr, setTracearr] = useState<Parts>({ ssl: false, host: '', port: '', base: '' });
+  const [tracearrKey, setTracearrKey] = useState('');
+  const [tracearrHasKey, setTracearrHasKey] = useState(false);
+  const [tracearrServerId, setTracearrServerId] = useState('');
+  const [tracearrServers, setTracearrServers] = useState<{ id: string; name: string; status: string; historical: boolean }[]>([]);
   const [seerr, setSeerr] = useState<Parts>({ ssl: false, host: '', port: '', base: '' });
   const [seerrKey, setSeerrKey] = useState('');
   const [seerrConfigured, setSeerrConfigured] = useState(false);
@@ -308,6 +314,10 @@ export default function ConnectionsPanel() {
     );
     setTaut(parseUrl(d.tautulli.url));
     setTautConfigured(!!d.tautulli.configured);
+    setWatchSource(d.plexWatchSource ?? 'tautulli');
+    setTracearr(parseUrl(d.tracearr?.url));
+    setTracearrHasKey(!!d.tracearr?.hasKey);
+    setTracearrServerId(d.tracearr?.serverId ?? '');
     setSeerr(parseUrl(d.seerr.url));
     setSeerrConfigured(!!d.seerr.configured);
     const toRows = (arr: { id: string; name: string; url: string; hasKey: boolean }[]) =>
@@ -469,7 +479,7 @@ export default function ConnectionsPanel() {
     }
   }
 
-  async function testConn(service: 'plex' | 'tautulli' | 'seerr' | 'maintainerr') {
+  async function testConn(service: 'plex' | 'tautulli' | 'tracearr' | 'seerr' | 'maintainerr') {
     const url =
       service === 'plex'
         ? buildUrl(plex)
@@ -478,12 +488,12 @@ export default function ConnectionsPanel() {
           : service === 'seerr'
             ? buildUrl(seerr)
             : buildUrl(maintainerr);
-    const apiKey = service === 'tautulli' ? tautKey : service === 'seerr' ? seerrKey : undefined;
+    const apiKey = service === 'tracearr' ? tracearrKey : service === 'tautulli' ? tautKey : service === 'seerr' ? seerrKey : undefined;
     setTest((m) => ({ ...m, [service]: de ? 'Wird getestet…' : 'Testing…' }));
     const r = await fetch('/api/admin/test-connection', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ service, url, apiKey }),
+      body: JSON.stringify({ service, url: service === 'tracearr' ? buildUrl(tracearr) : url, apiKey }),
     }).then((x) => x.json());
     setTest((m) => ({
       ...m,
@@ -492,6 +502,7 @@ export default function ConnectionsPanel() {
     if (service === 'maintainerr' && r.ok && Array.isArray(r.collections)) {
       setMaintainerrCollections(r.collections);
     }
+    if (service === 'tracearr') setTracearrServers(r.ok && Array.isArray(r.servers) ? r.servers : []);
   }
 
   async function testArrInstance(kind: 'sonarr' | 'radarr', idx: number) {
@@ -545,6 +556,8 @@ export default function ConnectionsPanel() {
         body: JSON.stringify({
           ...(buildUrl(plex) ? { plexBaseUrl: buildUrl(plex) } : {}),
           tautulli: { url: buildUrl(taut), apiKey: tautKey || undefined },
+          plexWatchSource: watchSource,
+          tracearr: { url: buildUrl(tracearr), apiKey: tracearrKey || undefined, serverId: tracearrServerId },
           seerr: { url: buildUrl(seerr), apiKey: seerrKey || undefined },
           sonarrInstances: toInstancesBody(sonarr),
           radarrInstances: toInstancesBody(radarr),
@@ -565,6 +578,7 @@ export default function ConnectionsPanel() {
       // Only on success — a failed save must keep the typed API keys in their
       // inputs so the admin can just hit Save again instead of re-typing them.
       setTautKey('');
+      setTracearrKey('');
       setSeerrKey('');
       setMsg(de ? 'Gespeichert.' : 'Saved.');
       await load();
@@ -811,7 +825,52 @@ export default function ConnectionsPanel() {
         </div>
       </Card>
 
-      {/* Tautulli is the Plex watch-history source. Jellyfin/Emby have native
+      {serverType === 'plex' && <Card title={de ? 'Quelle für Wiedergabedaten' : 'Watch data source'}>
+        <label className="block text-sm text-slate-400">
+          {de ? 'Aktive Quelle' : 'Active source'}
+          <select className={`${inputCls} mt-1 max-w-md`} value={watchSource}
+            onChange={(e) => setWatchSource(e.target.value as 'tautulli' | 'tracearr')}>
+            <option value="tautulli">Tautulli</option>
+            <option value="tracearr">Tracearr</option>
+          </select>
+        </label>
+        <p className="mt-2 text-xs text-slate-500">{de
+          ? 'Nach einem Quellen- oder Serverwechsel speichern und den Wiedergabeverlauf neu synchronisieren. Kein automatischer Rückfall auf die andere Quelle.'
+          : 'Save and refresh watch history after changing source or server. No automatic fallback to the other provider.'}</p>
+      </Card>}
+
+      {serverType === 'plex' && <Card title="Tracearr">
+        <ServiceFields parts={tracearr} setParts={(parts) => { setTracearr(parts); setTracearrServers([]); setTracearrServerId(''); }} showBase />
+        <label className="mt-3 block text-sm text-slate-400">
+          {de ? 'Öffentlicher API-Schlüssel (API v2 erforderlich)' : 'Public API key (API v2 required)'}
+          {tracearrHasKey && (de ? ' (gespeichert; leer lassen zum Beibehalten)' : ' (saved; leave blank to keep)')}
+          <input className={`${inputCls} mt-1 max-w-md`} type="password" value={tracearrKey}
+            onChange={(e) => { setTracearrKey(e.target.value); setTracearrServers([]); }} />
+        </label>
+        <div className="mt-3 flex items-center gap-3">
+          <button type="button" className={btnGhost} onClick={() => testConn('tracearr')}>
+            {de ? 'Testen / Plex-Server laden' : 'Test / load Plex servers'}
+          </button>
+          {test.tracearr && <span className="text-sm text-slate-400">{test.tracearr}</span>}
+        </div>
+        <label className="mt-3 block text-sm text-slate-400">
+          {de ? 'Plex-Server dieser Keeparr-Installation' : 'Plex server for this Keeparr instance'}
+          <select className={`${inputCls} mt-1 max-w-md`} value={tracearrServerId}
+            onChange={(e) => setTracearrServerId(e.target.value)}>
+            <option value="">{de ? 'Server auswählen' : 'Select server'}</option>
+            {tracearrServerId && !tracearrServers.some((s) => s.id === tracearrServerId) &&
+              <option value={tracearrServerId}>{tracearrServerId}</option>}
+            {tracearrServers.map((server) => <option key={server.id} value={server.id} disabled={server.historical}>
+              {server.name} ({server.status}{server.historical ? ', historical' : ''})
+            </option>)}
+          </select>
+        </label>
+        <p className="mt-2 text-xs text-slate-500">{de
+          ? 'Tracearr kann mehrere Server überwachen. Hier exakt den in Keeparr verbundenen Plex-Server wählen: Medien-IDs sind nur innerhalb eines Servers eindeutig. Keeparr verwaltet weiterhin einen Medienserver pro Installation.'
+          : 'Tracearr can monitor multiple servers. Select exactly the Plex server connected to Keeparr: media IDs are only unique within a server. Keeparr still manages one media server per installation.'}</p>
+      </Card>}
+
+      {/* Tautulli is a Plex watch-history source. Jellyfin/Emby have native
           watch data, so the card is hidden for them. */}
       {serverType === 'plex' && (
         <Card title={de ? 'Tautulli (Wiedergabeverlauf)' : 'Tautulli (watch history)'}>

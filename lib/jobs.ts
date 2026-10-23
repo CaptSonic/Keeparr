@@ -23,6 +23,7 @@ import type { JobState } from './types';
 import { beginFreshness, finishFreshness, freshnessFingerprint } from './data-freshness';
 import { getDb } from './db';
 import { JobQueue } from './job-queue';
+import { reportJobProgress, finishJobProgress, getJobProgress } from './job-progress';
 
 export type JobId =
   | 'recentlyAdded'
@@ -79,10 +80,15 @@ export async function runWithState(
   const started = clock();
   const startedSec = nowSec();
   const fingerprint = freshnessFingerprint(id);
+  if (!['library', 'watch', 'maintainerr'].includes(id)) {
+    getDb().prepare('DELETE FROM settings WHERE key = ?').run(`job_progress:${id}`);
+  }
   beginFreshness(id, fingerprint, startedSec);
   setJobState(id, { lastStatus: 'running', lastMessage: 'Running…' });
+  if (['library', 'watch', 'maintainerr'].includes(id)) reportJobProgress(id, 'Preparing', 'Vorbereitung');
   try {
     const { result, message, refreshComplete } = await fn();
+    finishJobProgress(id, true);
     finishFreshness(id, fingerprint, nowSec(), refreshComplete === true ? 'complete' : 'incomplete');
     const durationMs = clock() - started;
     setJobState(id, {
@@ -104,6 +110,7 @@ export async function runWithState(
     logEvent('info', `job:${id}`, message);
     return true;
   } catch (e) {
+    finishJobProgress(id, false);
     finishFreshness(id, fingerprint, nowSec(), 'error');
     const durationMs = clock() - started;
     setJobState(id, {
@@ -192,13 +199,14 @@ export function dueJobs(nowMs: number = Date.now()): JobId[] {
 }
 
 /** Job state for every registered job (with its schedule + label). */
-export function jobStates(): (JobState & { label: string; schedule: JobSchedule })[] {
+export function jobStates(): (JobState & { label: string; schedule: JobSchedule; progress: ReturnType<typeof getJobProgress> })[] {
   const schedules = getJobSchedules();
   const byId = new Map(getAllJobState().map((s) => [s.jobId, s]));
   return JOBS.map((j) => {
     const state = byId.get(j.id) ?? getJobState(j.id);
     return {
       ...state,
+      progress: getJobProgress(j.id),
       label: j.label,
       schedule: schedules[j.id] ?? { type: 'interval', minutes: 0 },
     };

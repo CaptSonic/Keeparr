@@ -9,6 +9,8 @@ import HealthCard from './HealthCard';
 import { useLocale } from '../LocaleProvider';
 import { jobLabel, jobStatusLabel } from '@/lib/ui-labels';
 import DataFreshness from '../DataFreshness';
+import JobProgress from '../JobProgress';
+import type { JobProgress as Progress } from '@/lib/job-progress';
 import type { SourceFreshness } from '@/lib/data-freshness';
 
 type JobSchedule =
@@ -17,6 +19,7 @@ type JobSchedule =
   | { type: 'weekly'; weekday: number; hour: number; minute: number };
 
 interface JobRow {
+  progress?: Progress | null;
   jobId: string;
   label: string;
   lastStatus: string;
@@ -118,12 +121,12 @@ export default function JobsCachePanel() {
     loadCache();
   }, [loadJobs, loadCache]);
 
-  const anyRunning = jobs.some((j) => j.lastStatus === 'running' || j.lastStatus === 'queued');
+  const anyRunning = jobs.some((j) => j.lastStatus === 'running' || j.lastStatus === 'queued' || j.progress?.status === 'running');
   useEffect(() => {
     if (anyRunning && !pollRef.current) {
       pollRef.current = setInterval(async () => {
         const rows = await loadJobs();
-        if (!rows.some((j) => j.lastStatus === 'running' || j.lastStatus === 'queued') && pollRef.current) {
+        if (!rows.some((j) => j.lastStatus === 'running' || j.lastStatus === 'queued' || j.progress?.status === 'running') && pollRef.current) {
           clearInterval(pollRef.current);
           pollRef.current = null;
         }
@@ -221,6 +224,7 @@ export default function JobsCachePanel() {
                         ? (de ? 'Noch nie ausgeführt' : 'Never run')
                         : `${jobStatusLabel(j.lastStatus, locale)}${j.lastMessage ? ` — ${j.lastMessage}` : ''}`}
                   </div>
+                  <JobProgress progress={j.progress ?? null} queued={j.lastStatus === 'queued'} />
                 </div>
                 {/* Schedule controls + Run now stay on one line (shrink-0, no wrap). */}
                 <div className="flex shrink-0 items-center gap-3">

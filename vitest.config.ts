@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 const root = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
+  oxc: { jsx: { runtime: 'automatic' } },
   resolve: {
     alias: {
       // Match the tsconfig "@/*" path alias so route/middleware tests can
@@ -15,6 +16,6 @@ export default defineConfig({
   test: {
     environment: 'node',
     setupFiles: ['./test/setup.ts'],
-    include: ['lib/**/*.test.ts', 'test/**/*.test.ts'],
+    include: ['lib/**/*.test.ts', 'test/**/*.test.ts', 'components/**/*.test.tsx'],
   },
 });

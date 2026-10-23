@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { __closeDb, __setTestDbToMemory } from './db';
+import { getJobProgress } from './job-progress';
 import {
   addKeep,
   addDelete,
@@ -238,6 +239,7 @@ describe('Maintainerr safe hand-off', () => {
     expect(remote.writes.map((write) => (write.body.media as unknown[]).length)).toEqual([5, 5, 2]);
     expect(getMaintainerrManagedItems()['10']).toHaveLength(12);
     expect(pendingMemberships('http://maintainerr:6246')).toEqual([]);
+    expect(getJobProgress('maintainerr')).toMatchObject({ status: 'complete', completed: 12, total: 12 });
   });
 
   it('recovers an applied timed-out batch without claiming foreign members or retrying POST', async () => {
@@ -277,6 +279,7 @@ describe('Maintainerr safe hand-off', () => {
     await expect(syncMaintainerr()).rejects.toThrow('timed out');
     expect(getMaintainerrManagedItems()['10']).toHaveLength(5);
     expect(pendingMemberships('http://maintainerr:6246')).toHaveLength(3);
+    expect(getJobProgress('maintainerr')).toMatchObject({ status: 'error', completed: 5, total: 8 });
     remote.fetchMock.mockImplementation(fetch);
     await expect(syncMaintainerr()).rejects.toThrow('unconfirmed outcome');
     expect(remote.writes).toHaveLength(1);

@@ -8,10 +8,12 @@ import {
   getServerToken,
   getSonarrInstances,
   getTautulliKey,
+  getTracearrKey,
   getMaintainerrConfig,
 } from '@/lib/settings';
 import { logEvent } from '@/lib/queries';
 import { testTautulli } from '@/lib/tautulli';
+import { testTracearr } from '@/lib/tracearr';
 import { testSeerr } from '@/lib/seerr';
 import { testArr } from '@/lib/arr';
 import { testJellyfin } from '@/lib/jellyfin';
@@ -20,7 +22,7 @@ import { testMaintainerr } from '@/lib/maintainerr';
 export const runtime = 'nodejs';
 
 interface Body {
-  service: 'plex' | 'jellyfin' | 'emby' | 'tautulli' | 'seerr' | 'sonarr' | 'radarr' | 'maintainerr';
+  service: 'plex' | 'jellyfin' | 'emby' | 'tautulli' | 'tracearr' | 'seerr' | 'sonarr' | 'radarr' | 'maintainerr';
   url: string;
   apiKey?: string;
   token?: string;
@@ -51,6 +53,8 @@ export async function POST(req: Request) {
     } else if (body.service === 'tautulli') {
       // Blank key → fall back to the saved one (re-testing a saved connection).
       result = await testTautulli(body.url, body.apiKey || getTautulliKey() || '');
+    } else if (body.service === 'tracearr') {
+      result = await testTracearr(body.url, body.apiKey || getTracearrKey() || '');
     } else if (body.service === 'seerr') {
       result = await testSeerr(body.url, body.apiKey || getSeerrKey() || '');
     } else if (body.service === 'sonarr' || body.service === 'radarr') {

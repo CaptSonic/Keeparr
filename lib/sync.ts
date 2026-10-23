@@ -2,6 +2,8 @@ import { getBackend, type BackendItem } from './mediaserver';
 import {
   isServerConfigured,
   isTautulliConfigured,
+  getPlexWatchSource,
+  isTracearrConfigured,
   getTautulliUrl,
   getTautulliKey,
   isSeerrConfigured,
@@ -19,6 +21,7 @@ import {
   writeSetting,
 } from './settings';
 import { aggregatedWatchHistory } from './tautulli';
+import { tracearrWatchHistory } from './tracearr';
 import { requestedRatingKeysForUser } from './seerr';
 import { fetchSonarr, fetchRadarr, type ArrRecord } from './arr';
 import {
@@ -31,6 +34,7 @@ import {
   reconcileUnrequestedMediaOwner,
   showRatingKeys,
   tombstoneStale,
+  sectionInventory,
   updateItemSize,
   upsertMediaBatch,
   replaceWatchBatch,
@@ -39,6 +43,7 @@ import {
   type UpsertMediaInput,
 } from './queries';
 import type { LibraryKind } from './types';
+import { reportJobProgress } from './job-progress';
 
 const nowSec = () => Math.floor(Date.now() / 1000);
 
@@ -65,6 +70,7 @@ export async function syncLibrary(): Promise<JobResult> {
   const backend = getBackend();
   const syncStart = nowSec();
 
+  reportJobProgress('library', 'Loading libraries', 'Bibliotheken laden');
   const sections = await backend.listSections();
   // A 200 with no sections is a server hiccup (e.g. PMS mid-restart), not an
   // empty install — proceeding would overwrite the stored sections (and their
@@ -86,25 +92,42 @@ export async function syncLibrary(): Promise<JobResult> {
 
   const knownSizes = existingShowSizes();
   let itemsSynced = 0;
+  const presentRatingKeys: string[] = [];
   // Sections that answered with zero items get no removal sweep below — an
   // empty-but-200 response (backend hiccup) must not tombstone a whole library.
   // Cost: a genuinely emptied library keeps its rows until it has items again.
   const emptySections: string[] = [];
 
   for (const section of scanned) {
+    reportJobProgress('library', `Loading library: ${section.title}`, `Bibliothek laden: ${section.title}`,
+      scanned.indexOf(section), scanned.length);
     const items = await backend.listSectionItems(section.id, section.kind);
     if (items.length === 0) {
-      emptySections.push(section.id);
+      // Independently verify cached titles before accepting an actually emptied
+      // library. A misleading empty listing alone never removes cached rows.
+      const cached = sectionInventory(section.id);
+      let found = false;
+      for (const [index, item] of cached.entries()) {
+        reportJobProgress('library', `Verifying empty library: ${section.title}`,
+          `Leere Bibliothek prüfen: ${section.title}`, index, cached.length);
+        if (await backend.itemExists(item.ratingKey, item.kind)) { found = true; break; }
+      }
+      if (found) emptySections.push(section.id);
       continue;
     }
     const availableItems = items.filter((item) => item.available !== false);
 
     if (section.kind === 'movie') {
       const batch = availableItems.map((m) => toInput(m, section.id, 'movie'));
+      presentRatingKeys.push(...batch.map((item) => item.ratingKey));
       itemsSynced += upsertMediaBatch(batch, syncStart);
     } else {
       const batch: UpsertMediaInput[] = [];
       for (const show of availableItems) {
+        reportJobProgress('library', `Checking series in ${section.title}`, `Serien prüfen in ${section.title}`,
+          availableItems.indexOf(show), availableItems.length);
+        // Errors abort before the removal sweep; uncertainty is not deletion.
+        if (!await backend.itemExists(show.ratingKey, 'show')) continue;
         let size = knownSizes.get(show.ratingKey);
         if (size == null) {
           // New show — compute its size now so it never shows as 0 GB.
@@ -115,12 +138,16 @@ export async function syncLibrary(): Promise<JobResult> {
           }
         }
         batch.push(toInput({ ...show, sizeBytes: size }, section.id, 'show'));
+        presentRatingKeys.push(show.ratingKey);
       }
       itemsSynced += upsertMediaBatch(batch, syncStart);
     }
+    reportJobProgress('library', `Scanned library: ${section.title} (${itemsSynced} titles)`,
+      `Bibliothek geprüft: ${section.title} (${itemsSynced} Titel)`, scanned.indexOf(section) + 1, scanned.length);
   }
 
-  const removed = tombstoneStale(syncStart, emptySections);
+  reportJobProgress('library', 'Reconciling library inventory', 'Bibliotheksbestand abgleichen', scanned.length, scanned.length);
+  const removed = tombstoneStale(syncStart, emptySections, presentRatingKeys);
   const emptyNote = emptySections.length
     ? `; ${emptySections.length} section(s) returned no items (removal check skipped)`
     : '';
@@ -155,6 +182,9 @@ export async function syncRecentlyAdded(): Promise<JobResult> {
     for (const node of items.filter((item) => item.available !== false)) {
       let size = node.sizeBytes;
       if (kind === 'show') {
+        try {
+          if (!await backend.itemExists(node.ratingKey, 'show')) continue;
+        } catch { continue; } // Do not resurrect an unverified series.
         size = knownSizes.get(node.ratingKey) ?? 0;
         if (size === 0) {
           try {
@@ -198,9 +228,11 @@ export async function syncSizes(): Promise<JobResult> {
  * (clear message) when neither source is available.
  */
 export async function syncWatchHistory(): Promise<JobResult> {
+  reportJobProgress('watch', 'Loading watch history', 'Wiedergabeverlauf laden');
   if (isServerConfigured()) {
     const native = await getBackend().getWatchData();
     if (native) {
+      reportJobProgress('watch', 'Saving native history', 'Nativen Verlauf speichern', native.length, native.length);
       const n = replaceWatchBatch(native);
       const fingerprint = getWatchSourceFingerprint();
       // A custom/test backend may provide native data without a complete
@@ -210,12 +242,17 @@ export async function syncWatchHistory(): Promise<JobResult> {
       return { result: n, message: `Refreshed ${n} watch-history rows (native).`, refreshComplete: true };
     }
   }
-  if (!isTautulliConfigured()) {
+  const tracearr = getPlexWatchSource() === 'tracearr';
+  if (tracearr ? !isTracearrConfigured() : !isTautulliConfigured()) {
     return { result: 0, message: 'No watch source configured.', refreshComplete: false };
   }
-  const rows = await aggregatedWatchHistory(getTautulliUrl()!, getTautulliKey()!);
-  const n = replaceWatchBatch(rows);
   const fingerprint = getWatchSourceFingerprint();
+  const rows = tracearr
+    ? await tracearrWatchHistory()
+    : await aggregatedWatchHistory(getTautulliUrl()!, getTautulliKey()!);
+  if (fingerprint !== getWatchSourceFingerprint()) throw new Error('Watch source changed during refresh; retry sync.');
+  reportJobProgress('watch', 'Saving watch history', 'Wiedergabeverlauf speichern', rows.length, rows.length);
+  const n = replaceWatchBatch(rows);
   if (fingerprint) writeSetting('watch_source_fingerprint', fingerprint);
   return { result: n, message: `Refreshed ${n} watch-history rows.`, refreshComplete: true };
 }

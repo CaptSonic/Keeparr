@@ -10,6 +10,7 @@ import type {
 } from '@/lib/maintainerr';
 import { useLocale } from '../LocaleProvider';
 import { Card, btnCls, btnGhost } from './ui';
+import { MaintainerrJobProgress } from '../JobProgress';
 
 const statuses: MaintainerrPreviewStatus[] = [
   'add', 'remove', 'managed', 'manual', 'blocked_keep',
@@ -276,6 +277,7 @@ export default function MaintainerrControlCenter() {
         </div>
       </div>
       {error && <div className="mb-4 rounded-lg border border-red-800 bg-red-950/30 p-3 text-sm text-red-300">{error}</div>}
+      <div className="mb-4"><MaintainerrJobProgress /></div>
       {data?.snapshot && <div className="mb-4 rounded-lg border border-cyan-800 bg-cyan-950/30 p-3 text-sm text-cyan-300">
         {locale === 'de'
           ? `Gespeicherte Vorschau – keine aktuelle Freigabe.${loading ? ' Live-Prüfung läuft im Hintergrund.' : ' Live-Prüfung erneut starten, um Aktionen freizuschalten.'}`

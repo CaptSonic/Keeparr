@@ -1,5 +1,54 @@
 # Keeparr
 
+### Sync and hand-off progress
+
+**Settings → Jobs & Cache** displays live progress for full library scans and
+watch-history imports. Library scans identify the active library and series-check
+phase; Tracearr/Tautulli imports show pages and loaded entries. Percentages apply
+only to the current phase when its total is known, not to an estimated runtime.
+
+The **Maintainerr Control Center** also shows progress for entire and selected
+hand-offs. Counts advance only after a successful batch response and durable
+local bookkeeping. Failed or interrupted work retains the last acknowledged count;
+an ambiguous timed-out request is not counted as successful. Existing journal
+recovery and all safety gates remain unchanged.
+
+A full library scan hides movies without available files and series without any
+available episodes. An unexpectedly empty library is independently checked against
+its cached titles before removals are accepted. Errors do not mean deletion.
+Keeps and other decisions are retained, and returning titles become visible again.
+The incremental recently-added scan does not resurrect unverified/empty series.
+This checks the media server's reported availability, not direct filesystem access.
+
+### Plex watch history: Tautulli or Tracearr
+
+In **Settings → Connections**, choose **Tautulli** (the default for existing
+installations) or **Tracearr** as the active watch-data source. For Tracearr:
+
+1. Enter the Tracearr base URL and public API key. Public API **v2** is required;
+   older responses without Plex media/account identity are not imported.
+2. Click **Test / load Plex servers** and select exactly the Plex server connected
+   to this Keeparr installation. Tracearr can monitor multiple servers, but Keeparr
+   still manages **one media server per installation**. Selecting the matching server
+   is an administrator responsibility; the public API does not expose the Plex
+   machine identifier needed to verify this mapping automatically.
+3. Save, then refresh watch history before reviewing any hand-off or archive plan.
+
+History is fetched across all cursor pages, maps server-local accounts to Plex
+user IDs, and rolls episode plays up to their series. Only the selected server is
+used. Live sessions (including paused playback) protect entire movies/series.
+Unavailable/historical servers, malformed responses, unmappable users and incomplete
+pagination fail closed; no partial history replaces the cache and no automatic
+fallback to Tautulli occurs. A changed provider, credential, or Tracearr server
+invalidates cached watch readiness until a successful refresh. API keys are encrypted
+at rest and are not returned by the settings API. Jellyfin/Emby keep native history.
+
+The connection test checks API v2 server discovery; the first history refresh and
+live preview also validate the required identity fields. Tracearr's own retained
+history determines historical coverage; Keeparr cannot recover data Tracearr never
+recorded or already pruned. Live checks remain planning-time protection, not an
+atomic interlock with downstream deletion.
+
 ### Maintainerr: interrupted hand-offs and ownership recovery
 
 Membership writes use sequential batches of at most five titles. Before each

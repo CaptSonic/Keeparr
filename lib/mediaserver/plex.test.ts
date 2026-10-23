@@ -1,6 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlexMetadata } from '../plex';
-import { isAvailableSectionItem } from './plex';
+import { isAvailableSectionItem, plexBackend } from './plex';
+import { __setTestDbToMemory, __closeDb } from '../db';
+import { writeSetting } from '../settings';
+
+beforeEach(() => {
+  __setTestDbToMemory();
+  writeSetting('plex_base_url', 'http://plex:32400');
+  writeSetting('plex_server_token', 'token');
+});
+afterEach(() => vi.restoreAllMocks());
+afterAll(() => __closeDb());
 
 describe('Plex section inventory availability', () => {
   const live: PlexMetadata = {
@@ -25,5 +35,20 @@ describe('Plex section inventory availability', () => {
   it('does not reject show headers merely because Plex omits inline parts', () => {
     const show: PlexMetadata = { ratingKey: 'show', title: 'Show' };
     expect(isAvailableSectionItem(show, 'show')).toBe(true);
+  });
+
+  it.each([false, true])('verifies actual episode availability (remaining episode: %s)', async (remaining) => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => new Response(JSON.stringify({
+      MediaContainer: { Metadata: String(input).includes('allLeaves')
+        ? [trashed, ...(remaining ? [live] : [])] : [{ ratingKey: 'show', title: 'Show' }] },
+    }), { headers: { 'content-type': 'application/json' } }));
+    expect(await plexBackend.itemExists('show', 'show')).toBe(remaining);
+  });
+
+  it('does not interpret malformed episode inventory as an empty series', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => new Response(JSON.stringify(
+      String(input).includes('allLeaves') ? {} : { MediaContainer: { Metadata: [{ ratingKey: 'show' }] } }
+    ), { headers: { 'content-type': 'application/json' } }));
+    await expect(plexBackend.itemExists('show', 'show')).rejects.toThrow();
   });
 });

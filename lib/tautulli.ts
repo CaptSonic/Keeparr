@@ -5,6 +5,7 @@
  * NOTE: get_history rows are at response.data.data[] (data is an object).
  */
 import { fetchJson } from './http';
+import { reportJobProgress } from './job-progress';
 import { getMediaServerType, getTautulliUrl, getTautulliKey } from './settings';
 
 /** Live title-level veto; never expose household/session details to callers.
@@ -115,6 +116,8 @@ export async function aggregatedWatchHistory(
     );
     const batch = data.data ?? [];
     rows.push(...batch);
+    reportJobProgress('watch', `Tautulli history: ${page + 1} pages, ${rows.length} entries`,
+      `Tautulli-Verlauf: ${page + 1} Seiten, ${rows.length} Einträge`, rows.length);
     if (batch.length < pageLen) break;
     const total = Number(data.recordsFiltered);
     if (Number.isFinite(total) && rows.length >= total) break;

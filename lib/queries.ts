@@ -285,20 +285,25 @@ export function upsertMediaBatch(
  * Called at the end of a full sync (with that sync's timestamp) so items
  * deleted in Plex disappear here. `excludeSectionIds` shields sections whose
  * scan returned no items (an empty-but-200 backend hiccup must not tombstone
- * a whole library). Returns the number of items tombstoned.
+ * a whole library). An explicit presentRatingKeys snapshot avoids timestamp
+ * collisions when consecutive scans run within the same second.
+ * Returns the number of items tombstoned.
  */
 export function tombstoneStale(
   before: number,
-  excludeSectionIds: string[] = []
+  excludeSectionIds: string[] = [],
+  presentRatingKeys?: string[]
 ): number {
   const notIn = excludeSectionIds.length
     ? ` AND section_id NOT IN (${excludeSectionIds.map(() => '?').join(',')})`
     : '';
   const info = getDb()
     .prepare(
-      `UPDATE media_items SET removed = 1 WHERE removed = 0 AND last_synced < ?${notIn}`
+      `UPDATE media_items SET removed = 1 WHERE removed = 0 AND ${presentRatingKeys
+        ? 'rating_key NOT IN (SELECT value FROM json_each(?))'
+        : 'last_synced < ?'}${notIn}`
     )
-    .run(before, ...excludeSectionIds);
+    .run(presentRatingKeys ? JSON.stringify(presentRatingKeys) : before, ...excludeSectionIds);
   return info.changes;
 }
 
@@ -308,6 +313,12 @@ export function getMediaItem(ratingKey: string): MediaItem | null {
       .prepare('SELECT * FROM media_items WHERE rating_key = ?')
       .get(ratingKey) as MediaItem | undefined) ?? null
   );
+}
+
+/** Cached inventory for verifying a suspiciously empty section, not for display. */
+export function sectionInventory(sectionId: string): { ratingKey: string; kind: LibraryKind }[] {
+  return getDb().prepare(`SELECT rating_key AS ratingKey, library_kind AS kind FROM media_items
+    WHERE section_id = ? AND removed = 0`).all(sectionId) as { ratingKey: string; kind: LibraryKind }[];
 }
 
 /** Read labels and Keep vetoes only for the requested remote members. Chunked
@@ -2098,6 +2109,14 @@ export function isJobRunning(jobId: string): boolean {
  * last_run is untouched so the schedule re-fires the job normally.
  */
 export function resetInterruptedJobs(): number {
+  const progressRows = getDb().prepare("SELECT key, value FROM settings WHERE key LIKE 'job_progress:%'")
+    .all() as { key: string; value: string }[];
+  for (const row of progressRows) {
+    try {
+      const progress = JSON.parse(row.value);
+      if (progress.status === 'running') setSetting(row.key, JSON.stringify({ ...progress, status: 'error' }));
+    } catch { /* Ignore invalid legacy progress, not job state. */ }
+  }
   getDb().prepare("UPDATE source_freshness SET outcome = 'error' WHERE outcome = 'running'").run();
   return getDb()
     .prepare(

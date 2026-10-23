@@ -1,3 +1,28 @@
+# Tracearr watch provider
+
+- `lib/job-progress.ts` persists current phase/count/optional total separately
+  from job history under `job_progress:<id>`. Job status API exposes it; Jobs &
+  Cache and Maintainerr Control Center poll it. No fabricated cursor percentages.
+- Full scans verify series with `itemExists` and reconcile explicit present keys
+  (not second-resolution timestamps). Empty sections need independent cached-title
+  verification before removals. Errors never authorize the removal sweep.
+- Maintainerr counters advance after acknowledged batch writes and transactional
+  bookkeeping; errors retain counts and the durable journal. Startup marks any
+  running progress interrupted, including interactive selected hand-offs.
+
+- Plex watch provider is explicit (`plex_watch_source`, default `tautulli`).
+  `lib/tracearr.ts` uses public API v2 bearer authentication, server discovery,
+  cursor-paginated users/history, account `external_user_id` correlation and streams.
+- `tracearr_server_id` selects exactly one Plex server, not a union of server-local
+  rating keys. Administrator must match it to Keeparr's Plex server. Down/unknown,
+  historical/missing servers and unsafe/partial responses fail closed.
+- `lib/watch-source.ts` is the shared live-playback seam for Maintainerr/archive.
+  No cross-provider fallback. Fingerprint covers Tracearr credentials, selected
+  server and Keeparr Plex identity; successful full sync is required after changes.
+- Tracearr API keys are encrypted at rest and never returned to the browser.
+- `lib/tracearr.test.ts` covers identity isolation, pagination, cache replacement,
+  live vetoes, source selection and failure paths. No live deployment is implied.
+
 # CLAUDE.md — Keeparr contributor guide
 
 Keep this file and README.md in sync when you change behavior, schema, routes,

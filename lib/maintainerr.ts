@@ -38,8 +38,9 @@ import type { JobResult } from './sync';
 import type { MaintainerrHistoryEvent } from './types';
 import { getReclaimSignalReadiness } from './reclaim-readiness';
 import { getBackend } from './mediaserver';
-import { activePlaybackTitles } from './tautulli';
+import { activePlaybackTitles } from './watch-source';
 import { pendingMemberships, journalMemberships, clearPendingMembership } from './maintainerr-journal';
+import { reportJobProgress, finishJobProgress } from './job-progress';
 
 // Maintainerr's membership endpoint can take noticeably longer for large visible
 // collections than its lightweight health endpoints. Keep a finite ceiling, but
@@ -1073,7 +1074,17 @@ export interface MaintainerrSelection {
 }
 
 export async function syncMaintainerr(selection?: MaintainerrSelection): Promise<JobResult> {
-  return withMembershipLock(() => executeMaintainerr(selection));
+  return withMembershipLock(async () => {
+    reportJobProgress('maintainerr', 'Checking pending changes and live safety rules', 'Offene Änderungen und Live-Schutzregeln prüfen');
+    try {
+      const result = await executeMaintainerr(selection);
+      finishJobProgress('maintainerr', true);
+      return result;
+    } catch (error) {
+      finishJobProgress('maintainerr', false);
+      throw error;
+    }
+  });
 }
 
 /** Reconcile only writes Keeparr actually journaled. Never claim arbitrary
@@ -1273,6 +1284,10 @@ async function executeMaintainerr(selection?: MaintainerrSelection): Promise<Job
 
   let added = 0;
   let removed = 0;
+  const totalChanges = targets.reduce((sum, target) => sum + target.add.size + target.remove.size, 0);
+  const progress = (phase: string, phaseDe: string) => reportJobProgress('maintainerr', phase, phaseDe,
+    added + removed, totalChanges);
+  progress('Applying membership changes', 'Mitgliedschaften abgleichen');
   const previewByMember = new Map(preview.items.map((item) =>
     [`${item.collectionId}\0${item.ratingKey}`, item]));
   // Keep vetoes first: only remove memberships previously managed by Keeparr.
@@ -1281,6 +1296,7 @@ async function executeMaintainerr(selection?: MaintainerrSelection): Promise<Job
     for (let offset = 0; offset < remove.length; offset += MEMBERSHIP_BATCH_SIZE) {
       const batch = remove.slice(offset, offset + MEMBERSHIP_BATCH_SIZE);
       journalMemberships(config.url, target.collection.id, batch, 'remove', preview.planHash);
+      progress('Removing memberships; waiting for acknowledgement', 'Mitgliedschaften entfernen; auf Bestätigung warten');
       try { await changeMembership(config.url, target.collection.id, batch, 'remove'); }
       catch (error) {
         // Preserve the original request error if the follow-up read also fails.
@@ -1305,6 +1321,7 @@ async function executeMaintainerr(selection?: MaintainerrSelection): Promise<Job
           clearPendingMembership(config.url, target.collection.id, id);
         }
       })();
+      progress('Acknowledged membership changes', 'Bestätigte Mitgliedschaftsänderungen');
     }
   }
   // Only after every removal succeeded, add new desired memberships.
@@ -1313,6 +1330,7 @@ async function executeMaintainerr(selection?: MaintainerrSelection): Promise<Job
     for (let offset = 0; offset < add.length; offset += MEMBERSHIP_BATCH_SIZE) {
       const batch = add.slice(offset, offset + MEMBERSHIP_BATCH_SIZE);
       journalMemberships(config.url, target.collection.id, batch, 'add', preview.planHash);
+      progress('Adding memberships; waiting for acknowledgement', 'Mitgliedschaften hinzufügen; auf Bestätigung warten');
       try { await changeMembership(config.url, target.collection.id, batch, 'add'); }
       catch (error) {
         try { await reconcilePendingMemberships(config.url); } catch { /* journal retained */ }
@@ -1335,10 +1353,12 @@ async function executeMaintainerr(selection?: MaintainerrSelection): Promise<Job
           clearPendingMembership(config.url, target.collection.id, id);
         }
       })();
+      progress('Acknowledged membership changes', 'Bestätigte Mitgliedschaftsänderungen');
     }
   }
 
   const nextState: Record<string, string[]> = {};
+  progress('Saving final ownership state', 'Abschließenden Besitzstand speichern');
   const selectedIds = new Set(
     preview.collections.filter((collection) => collection.selected).map((collection) => collection.id)
   );
