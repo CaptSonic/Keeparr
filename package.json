@@ -41,7 +41,7 @@
     "tailwindcss-build": "npm:tailwindcss@^3.4.19",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.12"
   },
   "overrides": {
     "@headlessui/tailwindcss": {
