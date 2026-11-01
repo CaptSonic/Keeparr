@@ -24,7 +24,7 @@
     "seed": "tsx scripts/seed.mts"
   },
   "dependencies": {
-    "@scalar/api-reference-react": "^0.9.53",
+    "@scalar/api-reference-react": "^0.9.87",
     "better-sqlite3": "^11.8.1",
     "next": "15.5.28",
     "react": "^19.0.0",
