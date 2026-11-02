@@ -174,6 +174,8 @@ export interface ArrInstance {
   name: string;
   url: string;
   apiKey: string;
+  /** Explicit source whose confirmed removal permits Maintainerr follow-up deletion. */
+  deleteAfterSourceId?: string;
 }
 
 function readArrInstances(key: string): ArrInstance[] {
@@ -189,6 +191,8 @@ function readArrInstances(key: string): ArrInstance[] {
         name: String(i.name ?? '').trim(),
         url: String(i.url).trim().replace(/\/$/, ''),
         apiKey: String(i.apiKey ?? ''),
+        ...(typeof i.deleteAfterSourceId === 'string' && i.deleteAfterSourceId
+          ? { deleteAfterSourceId: i.deleteAfterSourceId } : {}),
       }));
   } catch {
     return [];

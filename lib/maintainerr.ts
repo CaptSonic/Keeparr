@@ -41,6 +41,7 @@ import { getBackend } from './mediaserver';
 import { activePlaybackTitles } from './watch-source';
 import { pendingMemberships, journalMemberships, clearPendingMembership } from './maintainerr-journal';
 import { reportJobProgress, finishJobProgress } from './job-progress';
+import { trackSonarrHandoff } from './sonarr-cleanup';
 
 // Maintainerr's membership endpoint can take noticeably longer for large visible
 // collections than its lightweight health endpoints. Keep a finite ceiling, but
@@ -1110,6 +1111,7 @@ async function reconcilePendingMemberships(url: string): Promise<void> {
       if (entry.action === 'add') owned.add(entry.ratingKey); else owned.delete(entry.ratingKey);
       state[String(entry.collectionId)] = [...owned].sort();
       setMaintainerrManagedItems(state);
+      trackSonarrHandoff(entry.ratingKey, entry.action);
       const item = maintainerrMemberDetails([entry.ratingKey]).get(entry.ratingKey);
       recordMaintainerrHistory({ eventType: 'membership_recovered', action: entry.action,
         ratingKey: entry.ratingKey, title: item?.title, collectionId: entry.collectionId,
@@ -1318,6 +1320,7 @@ async function executeMaintainerr(selection?: MaintainerrSelection): Promise<Job
             action: 'remove', reason: item?.reason ?? 'release_revoked',
             planHash: preview.planHash,
           });
+          trackSonarrHandoff(id, 'remove');
           clearPendingMembership(config.url, target.collection.id, id);
         }
       })();
@@ -1350,6 +1353,7 @@ async function executeMaintainerr(selection?: MaintainerrSelection): Promise<Job
             collectionId: target.collection.id, collectionTitle: target.collection.title,
             action: 'add', reason: item?.reason ?? 'eligible', planHash: preview.planHash,
           });
+          trackSonarrHandoff(id, 'add');
           clearPendingMembership(config.url, target.collection.id, id);
         }
       })();

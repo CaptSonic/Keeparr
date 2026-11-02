@@ -1,7 +1,7 @@
 /**
  * Sonarr / Radarr API client (v3; base /api/v3, auth header X-Api-Key). The two
  * apps share a near-identical shape, so one module serves both. Normal syncs are
- * read-only; the explicitly admin-approved archive workflow additionally updates
+ * read-only unless explicit Maintainerr follow-up deletion is configured. The archive workflow updates
  * Sonarr monitoring and bulk-deletes episode files through Sonarr itself. The pure
  * `normalize*` functions are split from HTTP calls for network-free unit tests.
  */
@@ -251,6 +251,11 @@ async function arrWrite<T>(
 
 export async function listSonarrSeries(inst: ArrInstance): Promise<SonarrSeries[]> {
   return arrGet<SonarrSeries[]>(inst, '/series');
+}
+
+/** Maintainerr follow-up: remove the series and its files through Sonarr. */
+export async function deleteSonarrSeries(inst: ArrInstance, seriesId: number): Promise<void> {
+  await arrWrite(inst, `/series/${seriesId}?deleteFiles=true&addImportListExclusion=false`, 'DELETE', undefined, 120_000);
 }
 
 export async function getSonarrSeries(

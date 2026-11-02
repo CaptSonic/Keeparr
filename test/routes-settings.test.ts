@@ -42,6 +42,20 @@ const putReq = (body: unknown) =>
   });
 
 describe('/api/admin/settings', () => {
+  it('round-trips explicit Sonarr follow-up mapping and rejects unsafe sources', async () => {
+    await loginAs('admin', true);
+    const hd = { id: 'hd', name: 'Sonarr', url: 'http://hd', apiKey: 'secret' };
+    const target = { id: '4k', name: 'Sonarr4k', url: 'http://4k', apiKey: 'secret', deleteAfterSourceId: 'hd' };
+    expect((await settingsPut(putReq({ sonarrInstances: [hd, target] }))).status).toBe(200);
+    const body = await settingsGet().then((r) => r.json());
+    expect(body.sonarr.instances[1]).toMatchObject({ deleteAfterSourceId: 'hd', hasKey: true });
+    expect(JSON.stringify(body.sonarr)).not.toContain('secret');
+    for (const source of ['missing', '4k']) {
+      expect((await settingsPut(putReq({ sonarrInstances: [hd, { ...target, deleteAfterSourceId: source }] }))).status).toBe(400);
+    }
+    expect((await settingsPut(putReq({ sonarrInstances: [hd, { ...target, url: hd.url }] }))).status).toBe(400);
+    expect((await settingsPut(putReq({ sonarrInstances: [hd, { ...target, deleteAfterSourceId: '' }] }))).status).toBe(200);
+  });
   it('round-trips Tracearr selection without exposing or clearing the saved secret', async () => {
     await loginAs('admin', true);
     const serverId = '00000000-0000-4000-8000-000000000001';

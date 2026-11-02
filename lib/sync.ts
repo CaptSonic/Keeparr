@@ -44,6 +44,7 @@ import {
 } from './queries';
 import type { LibraryKind } from './types';
 import { reportJobProgress } from './job-progress';
+import { cleanupSonarrHandoffs } from './sonarr-cleanup';
 
 const nowSec = () => Math.floor(Date.now() / 1000);
 
@@ -422,6 +423,9 @@ export async function syncArr(): Promise<JobResult> {
     };
   }
 
+  const cleaned = await cleanupSonarrHandoffs();
+  // Deletions happen after the read pass: refresh the next run rather than
+  // presenting deleted target rows as a complete fresh snapshot.
   replaceArrItems(matched, failedInstanceIds);
   replaceArrUnmatched(unmatchedRecs, failedInstanceIds);
   const unmatched = unmatchedRecs.length;
@@ -430,8 +434,8 @@ export async function syncArr(): Promise<JobResult> {
     : '';
   return {
     result: matched.length,
-    message: `Matched ${matched.length} of ${total} titles (${unmatched} downloaded but not in Plex)${errNote}.`,
-    refreshComplete: errors === 0,
+    message: `Matched ${matched.length} of ${total} titles (${unmatched} downloaded but not in Plex)${errNote}.${cleaned ? ` Maintainerr follow-up: deleted ${cleaned} series including files.` : ''}`,
+    refreshComplete: errors === 0 && cleaned === 0,
   };
 }
 

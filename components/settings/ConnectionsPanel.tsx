@@ -163,6 +163,7 @@ interface ArrRow {
   parts: Parts;
   apiKey: string;
   hasKey: boolean;
+  deleteAfterSourceId?: string;
 }
 
 const emptyParts = (): Parts => ({ ssl: false, host: '', port: '', base: '' });
@@ -222,6 +223,22 @@ function ArrCard({
               </button>
             </div>
             <ServiceFields parts={row.parts} setParts={(p) => update(idx, { parts: p })} showBase />
+            {kind === 'sonarr' && (
+              <label className="mt-3 block text-sm text-slate-400">
+                {de ? 'Maintainerr-Nachbereinigung: Quellinstanz' : 'Maintainerr follow-up deletion: source instance'}
+                <select className={`${inputCls} mt-1`} value={row.deleteAfterSourceId ?? ''}
+                  onChange={(e) => update(idx, { deleteAfterSourceId: e.target.value })}>
+                  <option value="">{de ? 'Deaktiviert' : 'Disabled'}</option>
+                  {rows.filter((source) => source.id !== row.id && !source.deleteAfterSourceId).map((source) => (
+                    <option key={source.id} value={source.id}>{source.name || buildUrl(source.parts) || source.id}</option>
+                  ))}
+                </select>
+                <span className="mt-1 block text-xs text-amber-400">
+                  {de ? 'Nur am 4K-Ziel aktivieren: Nach bestätigter Maintainerr-Übergabe und Entfernung aus der Quelle werden hier Serie UND Dateien gelöscht.'
+                    : 'Enable only on the 4K target: after confirmed Maintainerr hand-off and removal from the source, deletes the series AND files here.'}
+                </span>
+              </label>
+            )}
             <label className="mt-3 mb-1 block text-sm text-slate-400">
               {de ? 'API-Schlüssel' : 'API key'}{' '}
               {row.hasKey && (de ? '(gespeichert — zum Beibehalten leer lassen)' : '(saved — leave blank to keep)')}
@@ -320,13 +337,14 @@ export default function ConnectionsPanel() {
     setTracearrServerId(d.tracearr?.serverId ?? '');
     setSeerr(parseUrl(d.seerr.url));
     setSeerrConfigured(!!d.seerr.configured);
-    const toRows = (arr: { id: string; name: string; url: string; hasKey: boolean }[]) =>
+    const toRows = (arr: { id: string; name: string; url: string; hasKey: boolean; deleteAfterSourceId?: string }[]) =>
       (arr ?? []).map((i) => ({
         id: i.id,
         name: i.name,
         parts: parseUrl(i.url),
         apiKey: '',
         hasKey: !!i.hasKey,
+        deleteAfterSourceId: i.deleteAfterSourceId ?? '',
       }));
     setSonarr(toRows(d.sonarr?.instances));
     setRadarr(toRows(d.radarr?.instances));
@@ -541,6 +559,7 @@ export default function ConnectionsPanel() {
         name: r.name.trim(),
         url: buildUrl(r.parts),
         apiKey: r.apiKey || undefined,
+        deleteAfterSourceId: r.deleteAfterSourceId ?? '',
       }));
 
   async function save() {

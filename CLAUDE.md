@@ -1,3 +1,17 @@
+# Maintainerr Sonarr follow-up deletion
+
+- Sonarr instances optionally carry `deleteAfterSourceId`; only an explicit target
+  mapping enables deletion of series AND files after source removal. Configure
+  on Sonarr4k, never infer roles from names/order. API rejects missing/self/shared-URL
+  sources and chains. UI explains destructive behavior; default is disabled.
+- `lib/sonarr-cleanup.ts` tracks acknowledged/recovered membership adds in
+  `maintainerr_sonarr_cleanup` (no media FK); membership removal cancels work.
+  `syncArr` executes it with fresh validated Sonarr listings, stable TVDB matching,
+  previous source-presence evidence, URL binding and household Keep vetoes.
+  Errors fail closed; pending work survives restart/Plex removal/audit pruning.
+  Old historical hand-offs are not retroactively enrolled. Tests cover guards,
+  cancellation, retries, identity matching, API flags and settings round-trip.
+
 # Tracearr watch provider
 
 - `lib/job-progress.ts` persists current phase/count/optional total separately

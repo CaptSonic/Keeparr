@@ -61,6 +61,7 @@ function sanitizeInstances(instances: ArrInstance[]) {
     name: i.name,
     url: i.url,
     hasKey: !!i.apiKey,
+    deleteAfterSourceId: i.deleteAfterSourceId ?? '',
   }));
 }
 
@@ -69,6 +70,7 @@ interface IncomingInstance {
   name?: string;
   url: string;
   apiKey?: string;
+  deleteAfterSourceId?: string;
 }
 
 /** Merge incoming instances with the saved ones: a blank apiKey keeps the
@@ -89,6 +91,7 @@ function mergeInstances(
         name: String(i.name ?? '').trim(),
         url,
         apiKey: (i.apiKey && String(i.apiKey).trim()) || prev?.apiKey || '',
+        deleteAfterSourceId: i.deleteAfterSourceId ?? prev?.deleteAfterSourceId ?? '',
       };
     });
 }
@@ -205,6 +208,15 @@ export async function PUT(req: Request) {
   try {
     await requireAdmin();
     const body = (await req.json()) as PutBody;
+
+    if (Array.isArray(body.sonarrInstances)) {
+      const instances = mergeInstances(body.sonarrInstances, getSonarrInstances());
+      if (instances.some((target) => target.deleteAfterSourceId &&
+          (!instances.some((source) => source.id === target.deleteAfterSourceId &&
+            source.id !== target.id && source.url !== target.url && !source.deleteAfterSourceId)))) {
+        return NextResponse.json({ error: 'invalid_sonarr_delete_source' }, { status: 400 });
+      }
+    }
 
     // Validate before writing any settings; blank IDs deliberately deselect.
     if (body.plexWatchSource !== undefined && !['tautulli', 'tracearr'].includes(body.plexWatchSource)) {

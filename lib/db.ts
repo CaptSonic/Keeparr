@@ -286,6 +286,18 @@ export function applySchema(database: Database.Database): void {
       PRIMARY KEY (instance_url, collection_id, rating_key)
     );
 
+    -- No media FK: follow-up work must survive Plex removal and audit pruning.
+    CREATE TABLE IF NOT EXISTS maintainerr_sonarr_cleanup (
+      rating_key TEXT NOT NULL,
+      tvdb_id TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      source_url TEXT NOT NULL,
+      target_id TEXT NOT NULL,
+      target_url TEXT NOT NULL,
+      source_seen INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (rating_key, source_id, target_id)
+    );
+
     -- Automatic Maintainerr rules must remain true for a Keeparr-owned
     -- observation period before membership is handed off. Each rule has its own
     -- clock so one condition can reset without erasing the other.

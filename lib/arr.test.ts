@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest';
 import { __setTestDbToMemory, __closeDb } from './db';
 import { getSetting } from './queries';
-import { deleteSonarrEpisodeFiles, normalizeSonarr, normalizeRadarr } from './arr';
+import { deleteSonarrSeries, deleteSonarrEpisodeFiles, normalizeSonarr, normalizeRadarr } from './arr';
 import {
   getSonarrInstances,
   setSonarrInstances,
@@ -16,6 +16,16 @@ const inst: ArrInstance = { id: 'i1', name: 'Main', url: 'http://x', apiKey: 'k'
 afterEach(() => vi.unstubAllGlobals());
 
 describe('Sonarr writes', () => {
+  it('deletes a series including files without adding an import-list exclusion', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(deleteSonarrSeries(inst, 99)).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://x/api/v3/series/99?deleteFiles=true&addImportListExclusion=false',
+      expect.objectContaining({ method: 'DELETE', body: undefined,
+        headers: expect.objectContaining({ 'X-Api-Key': 'k' }) })
+    );
+  });
   it('accepts a timed-out bulk delete when Sonarr confirms the files are gone', async () => {
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
       if (init?.method === 'DELETE') {

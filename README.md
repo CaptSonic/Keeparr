@@ -1,3 +1,20 @@
+# Maintainerr: Sonarr → Sonarr4k follow-up deletion
+
+In **Settings → Connections → Sonarr**, select the normal Sonarr instance as the
+**Maintainerr follow-up deletion: source instance** on the **Sonarr4k target**.
+Leave the normal Sonarr instance disabled. This is opt-in and deletes both the
+target series entry **and its files** through Sonarr's API.
+
+Keeparr records new acknowledged/recovered Maintainerr hand-offs durably. During
+the Sonarr/Radarr job it matches by TVDB ID, requires that the source previously
+contained the series and now reports it absent, then deletes the corresponding
+target. Unreachable/malformed source responses never authorize deletion. Keeps
+(including other Plex entries with the same TVDB ID) veto cleanup; revoked
+hand-offs cancel it. Pending work survives Plex removal and restarts; failed
+deletions are retried after fresh reads. Changed instance URLs invalidate old work.
+Existing historical hand-offs are not retroactively authorized: configure this
+before handing a series to Maintainerr. No title-based or reverse deletion occurs.
+
 # Keeparr
 
 ### Sync and hand-off progress
