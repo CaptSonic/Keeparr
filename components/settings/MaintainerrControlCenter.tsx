@@ -11,6 +11,8 @@ import type {
 import { useLocale } from '../LocaleProvider';
 import { Card, btnCls, btnGhost } from './ui';
 import { MaintainerrJobProgress } from '../JobProgress';
+import { pollJob } from '@/lib/job-polling';
+import { CollectionProtectionDetails } from './CollectionProtectionDetails';
 
 const statuses: MaintainerrPreviewStatus[] = [
   'add', 'remove', 'managed', 'manual', 'blocked_keep', 'blocked_collection',
@@ -99,10 +101,15 @@ export default function MaintainerrControlCenter() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [adoptSelected, setAdoptSelected] = useState<Set<string>>(new Set());
   const [readdSelected, setReaddSelected] = useState<Set<string>>(new Set());
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollRef = useRef<(() => void) | null>(null);
+  const previewRequest = useRef<AbortController | null>(null);
+  const startRequest = useRef<AbortController | null>(null);
   const loadId = useRef(0);
 
   const load = useCallback(async () => {
+    previewRequest.current?.abort();
+    const controller = new AbortController();
+    previewRequest.current = controller;
     const id = ++loadId.current;
     let liveFinished = false;
     setLoading(true);
@@ -113,7 +120,7 @@ export default function MaintainerrControlCenter() {
     setData((previous) => previous ? { ...previous, snapshot: true, massApproved: false } : null);
     // A separate lightweight request lets the last successful result render
     // while the expensive live request is still running. Never overwrite it.
-    void fetch('/api/admin/maintainerr-preview?snapshot=1', { cache: 'no-store' })
+    void fetch('/api/admin/maintainerr-preview?snapshot=1', { cache: 'no-store', signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) return;
         const saved = await response.json();
@@ -122,12 +129,12 @@ export default function MaintainerrControlCenter() {
         }
       }).catch(() => undefined);
     try {
-      const response = await fetch('/api/admin/maintainerr-preview', { cache: 'no-store' });
+      const response = await fetch('/api/admin/maintainerr-preview', { cache: 'no-store', signal: controller.signal });
       if (!response.ok) throw new Error('preview_failed');
       const preview = await response.json();
       if (loadId.current === id) setData({ ...preview, snapshot: false });
     } catch {
-      if (loadId.current === id) setError(text.failed);
+      if (loadId.current === id && !controller.signal.aborted) setError(text.failed);
     } finally {
       liveFinished = true;
       if (loadId.current === id) setLoading(false);
@@ -136,32 +143,55 @@ export default function MaintainerrControlCenter() {
 
   useEffect(() => {
     load();
-    return () => { loadId.current++; if (pollRef.current) clearInterval(pollRef.current); };
+    return () => {
+      loadId.current++;
+      previewRequest.current?.abort();
+      startRequest.current?.abort();
+      pollRef.current?.();
+      pollRef.current = null;
+    };
   }, [load]);
 
   async function runNow() {
     if (!data || data.snapshot || loading || running || approving) return;
     setRunning(true);
     setError('');
-    const response = await fetch('/api/admin/jobs', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ job: 'maintainerr' }),
-    });
-    if (!response.ok) {
+    const controller = new AbortController();
+    startRequest.current = controller;
+    const disconnected = () => {
       setRunning(false);
-      setError(text.failed);
-      return;
-    }
-    pollRef.current = setInterval(async () => {
-      const jobs = await fetch('/api/admin/jobs', { cache: 'no-store' }).then((r) => r.json());
-      const job = (jobs.jobs ?? []).find((row: { jobId: string }) => row.jobId === 'maintainerr');
-      if (job && job.lastStatus !== 'running' && job.lastStatus !== 'queued') {
-        if (pollRef.current) clearInterval(pollRef.current);
+      setData((previous) => previous ? { ...previous, snapshot: true, massApproved: false } : null);
+      setError(locale === 'de'
+        ? 'Verbindung unterbrochen. Der Job kann serverseitig weiterlaufen. Vorschau aktualisieren, bevor du erneut startest.'
+        : 'Connection interrupted. The job may still be running on the server. Refresh the preview before starting again.');
+    };
+    try {
+      const response = await fetch('/api/admin/jobs', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ job: 'maintainerr' }),
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error('job_start_failed');
+      if (controller.signal.aborted) return;
+      pollRef.current?.();
+      pollRef.current = pollJob(async (signal) => {
+        const response = await fetch('/api/admin/jobs', { cache: 'no-store', signal });
+        if (!response.ok) throw new Error('job_status_failed');
+        const jobs = await response.json();
+        const job = jobs.jobs?.find((row: { jobId: string }) => row.jobId === 'maintainerr');
+        if (!job || !['running', 'queued', 'ok', 'error'].includes(job.lastStatus)) throw new Error('invalid_job_status');
+        return job.lastStatus === 'ok' || job.lastStatus === 'error';
+      }, () => {
         pollRef.current = null;
         setRunning(false);
-        load();
-      }
-    }, 1500);
+        void load();
+      }, () => {
+        pollRef.current = null;
+        disconnected();
+      });
+    } catch {
+      if (!controller.signal.aborted) disconnected();
+    }
   }
 
   async function executeSelection() {
@@ -419,7 +449,7 @@ export default function MaintainerrControlCenter() {
                   {item.title}{item.year ? <span className="ml-1 text-xs text-slate-500">({item.year})</span> : null}</td>
                 <td className="px-3 py-2 text-slate-400">{item.collectionTitle ?? '—'}</td>
                 <td className="px-3 py-2 text-slate-400">{sourceLabel(item.source, locale === 'de')}</td>
-                <td className="px-3 py-2"><span title={collectionProtectionTooltip(item, locale)} tabIndex={item.collectionBlockers?.length ? 0 : undefined} className={`rounded-full px-2 py-1 text-xs font-semibold ${colors[item.status]} ${item.collectionBlockers?.length ? 'cursor-help' : ''}`}>{text.statuses[item.status]}</span></td>
+                <td className="px-3 py-2"><span title={collectionProtectionTooltip(item, locale)} tabIndex={item.collectionBlockers?.length ? 0 : undefined} className={`rounded-full px-2 py-1 text-xs font-semibold ${colors[item.status]} ${item.collectionBlockers?.length ? 'cursor-help' : ''}`}>{text.statuses[item.status]}</span><CollectionProtectionDetails item={item} locale={locale} /></td>
                 <td className="px-3 py-2 text-slate-400">{reasonLabel(item)}{item.status === 'tracking' && item.dueAt ? <span className="ml-1 text-xs text-cyan-400">({locale === 'de' ? 'bis' : 'until'} {formatDate(item.dueAt * 1000, locale, { dateStyle: 'medium' })})</span> : null}{item.status === 'readd_blocked' && item.collectionId !== null ? <button type="button" className="ml-2 rounded border border-rose-800 px-2 py-1 text-xs text-rose-300 hover:border-rose-500" disabled={loading || running || approving || data?.snapshot} onClick={() => approve('approve-readd', item)}>{text.approveReadd}</button> : null}</td>
                 <td className="px-3 py-2 text-slate-500">{item.lastWatched ? formatRelativeTime(item.lastWatched, locale) : text.never}</td>
               </tr>)}

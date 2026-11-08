@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/auth';
 import { errorResponse } from '@/lib/route-helpers';
 import {
+  BackupValidationError,
   deleteBackup,
   isValidBackupName,
   listBackups,
@@ -54,6 +55,9 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ error: 'unknown_action' }, { status: 400 });
   } catch (e) {
+    if (e instanceof BackupValidationError) {
+      return NextResponse.json({ error: 'invalid_backup' }, { status: 400 });
+    }
     return errorResponse(e);
   }
 }

@@ -24,7 +24,7 @@ vi.mock('@/lib/config', async (importOriginal) => {
 import { __setTestDbToMemory, __closeDb } from '@/lib/db';
 import { upsertUser } from '@/lib/queries';
 import { setSessionCookie } from '@/lib/auth';
-import { createBackup } from '@/lib/backup';
+import { backupPath, createBackup } from '@/lib/backup';
 import { GET as backupsGet, POST as backupsPost, DELETE as backupsDelete } from '@/app/api/admin/backups/route';
 import { GET as downloadGet } from '@/app/api/admin/backups/download/route';
 
@@ -88,6 +88,15 @@ describe('/api/admin/backups', () => {
 
   it('unknown action → 400', async () => {
     expect((await backupsPost(postReq({ action: 'nope' }))).status).toBe(400);
+  });
+
+  it('rejects damaged restore files with a safe validation error', async () => {
+    const name = await createBackup();
+    fs.writeFileSync(backupPath(name), 'not a database');
+    const response = await backupsPost(postReq({ action: 'restore', name }));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: 'invalid_backup' });
+    expect((await backupsGet()).status).toBe(200);
   });
 
   it('deletes an existing backup', async () => {

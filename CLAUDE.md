@@ -1,9 +1,18 @@
 # Maintainerr Sonarr follow-up deletion
 
+- Follow-up cleanup rechecks the durable pending row after network reads, handles
+  failures per series, logs sanitized outcomes, and removes confirmed target cache
+  rows immediately. `syncArr` cleans before its read pass and reports partial
+  cleanup errors without discarding healthy refreshes. `lib/job-polling.ts` uses
+  sequential cancellable timers; Control Center aborts preview/start/poll reads
+  on unmount and invalidates executable display state on lost connectivity.
+
 - Collection vetoes use the distinct `blocked_collection` preview status. Admin
   preview rows with `plex_collection_protected` expose optional `collectionBlockers`
   (ratingKey/title/year/reason), tracing root ineligible members through overlaps.
-  Control Center status tooltips show these localized causes; actual Keeps remain
+  Control Center status tooltips and expandable `CollectionProtectionDetails`
+  show these localized causes, years and media IDs without extra requests or
+  approval actions. Native details/summary supports keyboard/touch; actual Keeps remain
   `blocked_keep`. The narrow non-admin ItemDecision DTO does not expose blockers.
   This presentation change must not alter release eligibility or approval gates.
 

@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import Database from 'better-sqlite3';
 import { DATA_DIR, DB_PATH } from './config';
-import { closeDbForSwap, getDb } from './db';
+import { applySchema, closeDbForSwap, getDb } from './db';
 import { getBackupRetention } from './settings';
 import type { JobResult } from './sync';
 
@@ -17,6 +18,42 @@ import type { JobResult } from './sync';
  */
 
 export const BACKUP_DIR = path.join(DATA_DIR, 'backups');
+
+export class BackupValidationError extends Error {
+  constructor() {
+    super('Backup is damaged or incompatible with this Keeparr version.');
+    this.name = 'BackupValidationError';
+  }
+}
+
+/** Validate and migrate an isolated copy, never the original or live database. */
+function validateRestore(database: Database.Database): void {
+  if (database.pragma('integrity_check', { simple: true }) !== 'ok') throw new BackupValidationError();
+  // These persisted core tables distinguish historical Keeparr snapshots from
+  // empty/foreign SQLite files; applySchema must not manufacture their contents.
+  for (const table of ['media_items', 'users', 'keeps', 'settings']) {
+    if (!database.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table)) {
+      throw new BackupValidationError();
+    }
+  }
+  applySchema(database);
+  const reference = new Database(':memory:');
+  try {
+    applySchema(reference);
+    const tables = reference.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
+      .all() as { name: string }[];
+    for (const { name } of tables) {
+      const expected = reference.pragma(`table_info("${name}")`) as { name: string; type: string; pk: number }[];
+      const actual = database.pragma(`table_info("${name}")`) as { name: string; type: string; pk: number }[];
+      if (expected.some((column) => !actual.some((found) => found.name === column.name &&
+          found.type === column.type && found.pk === column.pk))) throw new BackupValidationError();
+    }
+  } finally {
+    reference.close();
+  }
+  if ((database.pragma('foreign_key_check') as unknown[]).length > 0 ||
+      database.pragma('integrity_check', { simple: true }) !== 'ok') throw new BackupValidationError();
+}
 
 /** keeparr-20260706-193000.db (+ the pre-restore safety snapshots; an optional
  *  numeric suffix disambiguates same-second creates). */
@@ -106,9 +143,9 @@ export async function runBackup(): Promise<JobResult> {
 /**
  * Restore a backup over the live database.
  *
- * Sequence: snapshot the CURRENT db first (keeparr-pre-restore-…, the safety
- * net) → online-backup the snapshot file INTO the live DB_PATH → reopen the
- * singleton so applySchema()/migrate() upgrade an older backup right away.
+ * Sequence: stage, validate and migrate an isolated copy → snapshot the CURRENT
+ * db (keeparr-pre-restore-…, the safety net) → online-backup the validated copy
+ * INTO the live DB_PATH → reopen the singleton.
  *
  * Restoring via SQLite's backup API (instead of deleting/copying the file)
  * matters: it takes proper locks, so it's safe even when OTHER connections
@@ -120,15 +157,30 @@ export async function restoreBackup(name: string): Promise<{ safetyNet: string }
   const srcPath = backupPath(name);
   if (!fs.existsSync(srcPath)) throw new Error(`Backup not found: ${name}`);
 
-  const safetyNet = await createBackup('keeparr-pre-restore');
-  const src = new Database(srcPath, { readonly: true, fileMustExist: true });
+  const stagingDir = fs.mkdtempSync(path.join(os.tmpdir(), 'keeparr-restore-'));
+  let candidate: Database.Database | undefined;
   try {
-    await src.backup(DB_PATH);
+    // Snapshot once: validation and restore use the same bytes even if the
+    // selected backup is replaced/deleted while the safety net is being made.
+    try {
+      const src = new Database(srcPath, { readonly: true, fileMustExist: true });
+      try {
+        await src.backup(path.join(stagingDir, 'candidate.db'));
+      } finally {
+        src.close();
+      }
+      candidate = new Database(path.join(stagingDir, 'candidate.db'), { fileMustExist: true });
+      validateRestore(candidate);
+    } catch {
+      throw new BackupValidationError();
+    }
+    const safetyNet = await createBackup('keeparr-pre-restore');
+    await candidate.backup(DB_PATH);
+    closeDbForSwap();
+    getDb();
+    return { safetyNet };
   } finally {
-    src.close();
+    candidate?.close();
+    fs.rmSync(stagingDir, { recursive: true, force: true });
   }
-  // Reopen so an older backup's schema is migrated immediately.
-  closeDbForSwap();
-  getDb();
-  return { safetyNet };
 }

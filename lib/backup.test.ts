@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import Database from 'better-sqlite3';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Point the app at a REAL SQLite file in a temp dir (no mocks of storage —
@@ -103,6 +104,48 @@ describe('backup + list + delete', () => {
 });
 
 describe('restore round-trip', () => {
+  it.each(['empty', 'foreign', 'malformed', 'incompatible', 'orphan'])('rejects %s backups without changing live data or the source', async (kind) => {
+    upsertMediaBatch([media('live')]);
+    const name = await createBackup();
+    const file = path.join(BACKUP_DIR, name);
+    if (kind === 'empty') fs.writeFileSync(file, '');
+    else if (kind === 'malformed') fs.writeFileSync(file, 'not a SQLite database');
+    else {
+      const candidate = new Database(file);
+      try {
+        if (kind === 'foreign') candidate.exec('DROP TABLE settings');
+        if (kind === 'incompatible') candidate.exec('ALTER TABLE users DROP COLUMN username');
+        if (kind === 'orphan') {
+          candidate.pragma('foreign_keys = OFF');
+          candidate.prepare('INSERT INTO keeps (plex_user_id, rating_key, kept_at) VALUES (?, ?, ?)').run('u', 'missing', 1);
+        }
+      } finally { candidate.close(); }
+    }
+    const original = fs.readFileSync(file);
+    await expect(restoreBackup(name)).rejects.toThrow(/damaged or incompatible/i);
+    expect(titles()).toEqual(['live']);
+    expect(listBackups().map((backup) => backup.name)).toEqual([name]);
+    expect(fs.readFileSync(file)).toEqual(original);
+    upsertMediaBatch([media('still-writable')]);
+    expect(titles()).toEqual(['live', 'still-writable']);
+  });
+
+  it('migrates legacy keeps on an isolated copy without modifying the selected backup', async () => {
+    upsertMediaBatch([media('1')]);
+    const name = await createBackup();
+    const file = path.join(BACKUP_DIR, name);
+    const legacy = new Database(file);
+    try {
+      legacy.exec(`DROP TABLE keeps;
+        CREATE TABLE keeps (rating_key TEXT PRIMARY KEY REFERENCES media_items(rating_key), kept_by TEXT NOT NULL, kept_at INTEGER NOT NULL);
+        INSERT INTO keeps VALUES ('1', 'user', 123);`);
+    } finally { legacy.close(); }
+    const original = fs.readFileSync(file);
+    await restoreBackup(name);
+    expect(getDb().prepare('SELECT * FROM keeps').all()).toEqual([{ plex_user_id: 'user', rating_key: '1', kept_at: 123 }]);
+    expect(fs.readFileSync(file)).toEqual(original);
+  });
+
   it('restores the pre-backup state and leaves a safety-net snapshot', async () => {
     upsertMediaBatch([media('1'), media('2')]);
     const name = await createBackup();

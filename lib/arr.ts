@@ -253,6 +253,18 @@ export async function listSonarrSeries(inst: ArrInstance): Promise<SonarrSeries[
   return arrGet<SonarrSeries[]>(inst, '/series');
 }
 
+/** Existing library entries only, not /series/lookup's external search results. */
+export async function findSonarrSeriesByTvdbId(inst: ArrInstance, tvdbId: number): Promise<SonarrSeries[]> {
+  if (!Number.isSafeInteger(tvdbId) || tvdbId <= 0) throw new Error('Invalid Sonarr TVDB id.');
+  const series = await arrGet<SonarrSeries[]>(inst, `/series?tvdbId=${tvdbId}`);
+  // Never interpret malformed data (or an ignored server-side filter) as absence.
+  if (!Array.isArray(series) || series.some((row) => !row || !Number.isSafeInteger(row.id) ||
+      row.id <= 0 || row.tvdbId !== tvdbId)) {
+    throw new Error('Unsafe Sonarr TVDB response.');
+  }
+  return series;
+}
+
 /** Maintainerr follow-up: remove the series and its files through Sonarr. */
 export async function deleteSonarrSeries(inst: ArrInstance, seriesId: number): Promise<void> {
   await arrWrite(inst, `/series/${seriesId}?deleteFiles=true&addImportListExclusion=false`, 'DELETE', undefined, 120_000);

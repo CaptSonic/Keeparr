@@ -4,8 +4,7 @@ import { DB_PATH, DATA_DIR } from './config';
 
 let db: Database.Database | null = null;
 
-/** Create the schema on a freshly opened database. Exported for tests only —
- *  the app always goes through getDb(). */
+/** Create/migrate the schema. Also used on isolated restore candidates and in tests. */
 export function applySchema(database: Database.Database): void {
   database.pragma('foreign_keys = ON');
   database.exec(`

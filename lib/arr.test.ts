@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest';
 import { __setTestDbToMemory, __closeDb } from './db';
 import { getSetting } from './queries';
-import { deleteSonarrSeries, deleteSonarrEpisodeFiles, normalizeSonarr, normalizeRadarr } from './arr';
+import { deleteSonarrSeries, deleteSonarrEpisodeFiles, findSonarrSeriesByTvdbId, normalizeSonarr, normalizeRadarr } from './arr';
 import {
   getSonarrInstances,
   setSonarrInstances,
@@ -14,6 +14,30 @@ import {
 const inst: ArrInstance = { id: 'i1', name: 'Main', url: 'http://x', apiKey: 'k' };
 
 afterEach(() => vi.unstubAllGlobals());
+
+describe('targeted Sonarr library reads', () => {
+  it.each([{ rows: [] }, { rows: [{ id: 7, title: 'Show', tvdbId: 123 }] }])('accepts a valid filtered response $rows', async ({ rows }) => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(rows), { headers: { 'content-type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await findSonarrSeriesByTvdbId(inst, 123)).toEqual(rows);
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith('http://x/api/v3/series?tvdbId=123',
+      expect.objectContaining({ headers: expect.objectContaining({ 'X-Api-Key': 'k' }) }));
+  });
+  it.each([null, {}, [{ id: 7 }], [{ id: 0, tvdbId: 123 }], [{ id: 7, tvdbId: 456 }]].map((rows) => ({ rows })))('rejects unsafe response $rows', async ({ rows }) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(rows), { headers: { 'content-type': 'application/json' } })));
+    await expect(findSonarrSeriesByTvdbId(inst, 123)).rejects.toThrow('Unsafe Sonarr TVDB response');
+  });
+  it.each([0, -1, 1.5, NaN, Number.MAX_SAFE_INTEGER + 1])('rejects invalid TVDB id %s before fetching', async (id) => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(findSonarrSeriesByTvdbId(inst, id)).rejects.toThrow('Invalid Sonarr TVDB id');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+  it('does not treat HTTP errors as absence', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 401 })));
+    await expect(findSonarrSeriesByTvdbId(inst, 123)).rejects.toThrow();
+  });
+});
 
 describe('Sonarr writes', () => {
   it('deletes a series including files without adding an import-list exclusion', async () => {

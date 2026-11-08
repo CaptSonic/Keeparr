@@ -1,5 +1,16 @@
 # Maintainerr: Sonarr → Sonarr4k follow-up deletion
 
+Follow-up cleanup rechecks its durable authorization immediately before deletion,
+and uses a fresh TVDB-filtered source-library read for that final check rather
+than downloading the full source inventory again. Initial source and target
+inventories remain full reads; failed or malformed filtered responses block
+deletion and retain pending work for retry. It
+continues other series after individual failures, and logs confirmed deletions or
+retryable failures without raw connector errors. Confirmed target cache rows are
+removed immediately; the regular refresh runs afterwards. Maintainerr job status
+polling is sequential and cancellable. A lost connection invalidates the displayed
+plan and asks for a refresh; it does not imply the server job has stopped.
+
 The Maintainerr Control Center distinguishes **Collection protected** from
 **Keep blocked**. Hover over a collection-protected status to see the protecting
 movies (title/year) and their reasons, including causes in overlapping collections.
@@ -618,6 +629,12 @@ Everything Keeparr stores — keeps, users, watch/request caches, settings
 - **Settings → Jobs → Backups** lists snapshots with **Download / Restore /
   Delete**. Restore snapshots the current database first (`keeparr-pre-restore-…`)
   before replacing it, so a mistaken restore is itself reversible.
+- Before taking that safety snapshot or replacing live data, restore validates an
+  isolated copy (SQLite integrity, Keeparr core tables, migration compatibility,
+  current columns/keys and foreign keys). Damaged or incompatible files are
+  rejected without changing live data or the selected backup. Older compatible
+  backups are migrated on the copy. There is no schema-version marker yet, so
+  this checks actual compatibility rather than guaranteeing downgrade detection.
 - Files live in `DATA_DIR/backups/` (`/data/backups` in Docker) — include that
   folder (or just `DATA_DIR`) in your host backup tool for off-box copies.
 
@@ -806,6 +823,13 @@ currently eligible. Failed collection reads pause both additions and withdrawals
 Explicit requester/campaign releases remain individual decisions, subject to the
 normal Keep and watch-age checks. This protection is Plex-only; Radarr film-series
 metadata is not used, and it is not implemented for Jellyfin/Emby.
+
+In the Control Center, rows with collection-protection causes offer expandable
+**Protecting movies** details next to their status, in addition to the tooltip.
+The list shows each protecting movie's title, year, media ID and localized reason,
+including causes propagated through overlapping collections. Details use the
+displayed preview, make no extra requests and never approve or execute a release.
+They list protecting movies, not the names of the underlying Plex collections.
 
 #### Live checks and membership safety
 

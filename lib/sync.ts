@@ -394,6 +394,9 @@ export async function syncArr(): Promise<JobResult> {
   // Instances that errored this run keep their cached rows in the replace below
   // — their fresh data is missing from this run, not gone from the arr.
   const failedInstanceIds: string[] = [];
+  // Read caches only after mutations so successful deletions are not reinserted.
+  const cleanupReport = { errors: 0 };
+  const cleaned = await cleanupSonarrHandoffs(cleanupReport);
   for (const inst of getSonarrInstances()) {
     try {
       ingest(await fetchSonarr(inst), tvdbMap);
@@ -418,14 +421,11 @@ export async function syncArr(): Promise<JobResult> {
   if (ok === 0 && instanceCount > 0) {
     return {
       result: 0,
-      message: `No instances reachable (${errors} error(s)); kept existing cache.`,
+      message: `No instances reachable (${errors} error(s)); kept existing cache except confirmed deletions.${cleaned ? ` Maintainerr follow-up: deleted ${cleaned} series including files.` : ''}${cleanupReport.errors ? ` ${cleanupReport.errors} follow-up error(s); pending work retained.` : ''}`,
       refreshComplete: false,
     };
   }
 
-  const cleaned = await cleanupSonarrHandoffs();
-  // Deletions happen after the read pass: refresh the next run rather than
-  // presenting deleted target rows as a complete fresh snapshot.
   replaceArrItems(matched, failedInstanceIds);
   replaceArrUnmatched(unmatchedRecs, failedInstanceIds);
   const unmatched = unmatchedRecs.length;
@@ -434,8 +434,8 @@ export async function syncArr(): Promise<JobResult> {
     : '';
   return {
     result: matched.length,
-    message: `Matched ${matched.length} of ${total} titles (${unmatched} downloaded but not in Plex)${errNote}.${cleaned ? ` Maintainerr follow-up: deleted ${cleaned} series including files.` : ''}`,
-    refreshComplete: errors === 0 && cleaned === 0,
+    message: `Matched ${matched.length} of ${total} titles (${unmatched} downloaded but not in Plex)${errNote}.${cleaned ? ` Maintainerr follow-up: deleted ${cleaned} series including files.` : ''}${cleanupReport.errors ? ` ${cleanupReport.errors} follow-up error(s); pending work retained.` : ''}`,
+    refreshComplete: errors === 0 && cleanupReport.errors === 0,
   };
 }
 

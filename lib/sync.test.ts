@@ -1,5 +1,5 @@
 import { beforeEach, afterAll, describe, expect, it, vi } from 'vitest';
-import { __setTestDbToMemory, __closeDb } from './db';
+import { __setTestDbToMemory, __closeDb, getDb } from './db';
 import {
   getArrUnmatched,
   getMediaItem,
@@ -25,7 +25,8 @@ import {
   writeSetting,
 } from './settings';
 import type { BackendItem, BackendSection, MediaBackend } from './mediaserver';
-import { fetchSonarr, fetchRadarr, type ArrRecord } from './arr';
+import { deleteSonarrSeries, listSonarrSeries, fetchSonarr, fetchRadarr, type ArrRecord } from './arr';
+import { trackSonarrHandoff } from './sonarr-cleanup';
 import { requestedRatingKeysForUser } from './seerr';
 import {
   syncArr,
@@ -42,7 +43,7 @@ let fakeBackend: MediaBackend;
 vi.mock('./mediaserver', () => ({ getBackend: () => fakeBackend }));
 
 // Network clients are mocked (never storage); everything below them is real.
-vi.mock('./arr', () => ({ fetchSonarr: vi.fn(), fetchRadarr: vi.fn() }));
+vi.mock('./arr', () => ({ fetchSonarr: vi.fn(), fetchRadarr: vi.fn(), listSonarrSeries: vi.fn(), findSonarrSeriesByTvdbId: vi.fn().mockResolvedValue([]), deleteSonarrSeries: vi.fn() }));
 vi.mock('./seerr', () => ({ requestedRatingKeysForUser: vi.fn() }));
 
 const GB = 1024 ** 3;
@@ -104,6 +105,8 @@ beforeEach(() => {
   writeSetting('plex_server_token', 't');
   vi.mocked(fetchSonarr).mockReset();
   vi.mocked(fetchRadarr).mockReset();
+  vi.mocked(listSonarrSeries).mockReset();
+  vi.mocked(deleteSonarrSeries).mockReset();
   vi.mocked(requestedRatingKeysForUser).mockReset();
 });
 
@@ -273,6 +276,40 @@ describe('syncArr per-instance replace', () => {
     expect(arrSource('m1')).toBe('radarr');
     expect(arrSource('sh1')).toBeNull(); // Sonarr reported nothing → row dropped
     expect(getArrUnmatched()).toEqual([]); // stale orphan swept
+  });
+  it('reads cache data after confirmed cleanup and reports complete fresh state', async () => {
+    setSonarrInstances([
+      { id: 's1', name: 'HD', url: 'http://s1', apiKey: 'k' },
+      { id: '4k', name: '4K', url: 'http://4k', apiKey: 'k', deleteAfterSourceId: 's1' },
+    ]);
+    trackSonarrHandoff('sh1', 'add');
+    vi.mocked(listSonarrSeries).mockImplementation(async (inst) => inst.id === 's1' ? [] : [{ id: 99, title: 'Show', tvdbId: 11 }]);
+    let deleted = false;
+    vi.mocked(deleteSonarrSeries).mockImplementation(async () => { deleted = true; });
+    vi.mocked(fetchSonarr).mockImplementation(async () => {
+      expect(deleted).toBe(true);
+      return [];
+    });
+    vi.mocked(fetchRadarr).mockResolvedValue([rec({})]);
+    const result = await syncArr();
+    expect(result.refreshComplete).toBe(true);
+    expect(result.message).toContain('deleted 1 series');
+    expect(arrSource('sh1')).toBeNull();
+  });
+  it('keeps healthy refreshes when a follow-up fails and reports incomplete provenance', async () => {
+    setSonarrInstances([
+      { id: 's1', name: 'HD', url: 'http://s1', apiKey: 'k' },
+      { id: '4k', name: '4K', url: 'http://4k', apiKey: 'k', deleteAfterSourceId: 's1' },
+    ]);
+    trackSonarrHandoff('sh1', 'add');
+    vi.mocked(listSonarrSeries).mockRejectedValue(new Error('offline'));
+    vi.mocked(fetchSonarr).mockResolvedValue([]);
+    vi.mocked(fetchRadarr).mockResolvedValue([rec({})]);
+    const result = await syncArr();
+    expect(result.refreshComplete).toBe(false);
+    expect(result.message).toContain('1 follow-up error(s)');
+    expect(arrSource('m1')).toBe('radarr');
+    expect(getDb().prepare('SELECT * FROM maintainerr_sonarr_cleanup').all()).toHaveLength(1);
   });
 });
 
