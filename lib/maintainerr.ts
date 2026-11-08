@@ -261,6 +261,7 @@ export type MaintainerrPreviewStatus =
   | 'managed'
   | 'manual'
   | 'blocked_keep'
+  | 'blocked_collection'
   | 'blocked_recent'
   | 'tracking'
   | 'missing'
@@ -280,6 +281,7 @@ export interface MaintainerrPreviewItem {
   reason: string;
   lastWatched: number | null;
   dueAt: number | null;
+  collectionBlockers?: Array<{ ratingKey: string; title: string; year: number | null; reason: string }>;
 }
 
 export interface MaintainerrPreviewCollection {
@@ -453,7 +455,7 @@ async function liveInventoryCandidates(
 }
 
 const previewStatuses: MaintainerrPreviewStatus[] = [
-  'add', 'remove', 'managed', 'manual', 'blocked_keep',
+  'add', 'remove', 'managed', 'manual', 'blocked_keep', 'blocked_collection',
   'blocked_recent', 'tracking', 'missing', 'outside', 'readd_blocked', 'paused',
 ];
 
@@ -680,9 +682,15 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
     return watchReady && (explicitEligible || automaticEligible);
   });
   const collectionBlocked = new Set<string>();
+  const collectionCauses = new Map<string, Set<string>>();
+  const collectionDetails = maintainerrMemberDetails([...new Set(collectionInventory.groups.flat())]);
+  const collectionCandidates = new Map(candidates.items.map((item) => [item.ratingKey, item]));
   {
     const groups = collectionInventory.groups;
     const eligible = new Set(eligibleBeforeCollection.map((item) => item.ratingKey));
+    for (const group of groups) for (const id of group) {
+      if (!eligible.has(id)) collectionCauses.set(id, new Set([id]));
+    }
     const explicit = new Set(eligibleBeforeCollection.filter((item) => {
       const watchedAt = latest.get(item.ratingKey);
       return item.explicitRelease && (watchedAt == null || watchedAt <= cutoff);
@@ -694,8 +702,15 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
       changed = false;
       for (const group of groups) {
         if (group.every((id) => eligible.has(id))) continue;
+        const causes = new Set(group.filter((id) => !eligible.has(id))
+          .flatMap((id) => [...(collectionCauses.get(id) ?? [])]));
         for (const id of group) {
           collectionBlocked.add(id);
+          const previous = collectionCauses.get(id) ?? new Set<string>();
+          for (const cause of causes) {
+            if (!previous.has(cause)) { previous.add(cause); changed = true; }
+          }
+          collectionCauses.set(id, previous);
           if (!explicit.has(id) && eligible.delete(id)) changed = true;
         }
       }
@@ -811,7 +826,7 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
       status = 'blocked_recent';
       reason = 'watched_too_recently';
     } else if (!explicitEligible && collectionBlocked.has(item.ratingKey)) {
-      status = 'blocked_keep';
+      status = 'blocked_collection';
       reason = 'plex_collection_protected';
     } else if (!explicitEligible && !automaticEligible && item.automaticRules.length > 0) {
       status = 'tracking';
@@ -852,6 +867,24 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
       reason,
       lastWatched,
       dueAt: item.dueAt,
+      ...(reason === 'plex_collection_protected' ? {
+        collectionBlockers: [...(collectionCauses.get(item.ratingKey) ?? [])]
+          .filter((id) => id !== item.ratingKey).sort().map((id) => {
+            const detail = collectionDetails.get(id);
+            const candidate = collectionCandidates.get(id);
+            const watched = latest.get(id);
+            return {
+              ratingKey: id, title: detail?.title ?? candidate?.title ?? `Media ${id}`, year: detail?.year ?? candidate?.year ?? null,
+              reason: detail?.kept ? 'global_keep'
+                : archiveExclusions.has(id) ? 'sonarr_archive_workflow'
+                  : watched != null && watched > cutoff ? 'watched_too_recently'
+                    : !watchReady ? 'watch_cache_untrusted'
+                      : candidate && !inventoryIds.has(id) ? 'missing_from_media_server'
+                        : candidate?.dueAt != null && candidate.dueAt > generatedAt ? 'collection_member_observing'
+                          : 'collection_member_ineligible',
+            };
+          }),
+      } : {}),
     });
   }
 

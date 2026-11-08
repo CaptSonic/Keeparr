@@ -1,5 +1,12 @@
 # Maintainerr Sonarr follow-up deletion
 
+- Collection vetoes use the distinct `blocked_collection` preview status. Admin
+  preview rows with `plex_collection_protected` expose optional `collectionBlockers`
+  (ratingKey/title/year/reason), tracing root ineligible members through overlaps.
+  Control Center status tooltips show these localized causes; actual Keeps remain
+  `blocked_keep`. The narrow non-admin ItemDecision DTO does not expose blockers.
+  This presentation change must not alter release eligibility or approval gates.
+
 - Sonarr instances optionally carry `deleteAfterSourceId`; only an explicit target
   mapping enables deletion of series AND files after source removal. Configure
   on Sonarr4k, never infer roles from names/order. API rejects missing/self/shared-URL

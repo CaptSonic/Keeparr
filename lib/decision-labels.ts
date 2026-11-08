@@ -24,6 +24,8 @@ const reasons: Record<string, [string, string]> = {
   release_revoked: ['Release is no longer active', 'Freigabe ist nicht mehr aktiv'],
   ownership_stale: ['Ownership recorded, remote member missing', 'Ownership-Eintrag vorhanden, Remote-Mitglied fehlt'],
   plex_collection_protected: ['Plex collection protected: not all present movies are eligible', 'Plex-Collection geschützt: Nicht alle vorhandenen Filme sind freigegeben'],
+  collection_member_observing: ['Observation period has not finished', 'Beobachtungszeit noch nicht abgeschlossen'],
+  collection_member_ineligible: ['Not eligible for release', 'Nicht zur Freigabe berechtigt'],
 };
 
 /** Presentation only. Rules and decisions always come from the actual plan. */
@@ -55,10 +57,22 @@ export function decisionStatusLabel(status: MaintainerrPreviewItem['status'], lo
     add: ['Planned addition', 'Hinzufügen geplant'],
     remove: ['Planned membership removal', 'Mitgliedschaft entfernen geplant'],
     managed: ['Managed', 'Verwaltet'], manual: ['Not managed by Keeparr', 'Nicht von Keeparr verwaltet'],
-    blocked_keep: ['Protected', 'Geschützt'], blocked_recent: ['Recently watched', 'Kürzlich angesehen'],
+    blocked_keep: ['Keep blocked', 'Durch Keep blockiert'],
+    blocked_collection: ['Collection protected', 'Durch Collection geschützt'], blocked_recent: ['Recently watched', 'Kürzlich angesehen'],
     tracking: ['Observing', 'Beobachtung'], missing: ['Missing', 'Nicht vorhanden'],
     outside: ['Outside selected libraries', 'Außerhalb ausgewählter Bibliotheken'],
     readd_blocked: ['Re-add blocked', 'Re-Add blockiert'], paused: ['Paused', 'Pausiert'],
   };
   return labels[status][locale === 'de' ? 1 : 0];
+}
+
+export function collectionProtectionTooltip(
+  item: Pick<MaintainerrPreviewItem, 'collectionBlockers'>,
+  locale: Locale,
+): string | undefined {
+  if (!item.collectionBlockers?.length) return undefined;
+  return [locale === 'de' ? 'Schützende Filme der Plex-Collection:' : 'Protecting movies in the Plex collection:',
+    ...item.collectionBlockers.map((blocker) =>
+      `${blocker.title}${blocker.year !== null ? ` (${blocker.year})` : ''} — ${decisionReasonLabel({ reason: blocker.reason, libraryKind: 'movie' }, locale)}`),
+  ].join('\n');
 }

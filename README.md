@@ -1,5 +1,11 @@
 # Maintainerr: Sonarr → Sonarr4k follow-up deletion
 
+The Maintainerr Control Center distinguishes **Collection protected** from
+**Keep blocked**. Hover over a collection-protected status to see the protecting
+movies (title/year) and their reasons, including causes in overlapping collections.
+Unknown members are identified by media ID rather than an invented title.
+This is display-only; existing Keep, watch-age and collection safeguards remain unchanged.
+
 In **Settings → Connections → Sonarr**, select the normal Sonarr instance as the
 **Maintainerr follow-up deletion: source instance** on the **Sonarr4k target**.
 Leave the normal Sonarr instance disabled. This is opt-in and deletes both the

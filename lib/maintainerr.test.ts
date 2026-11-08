@@ -630,7 +630,8 @@ describe('Maintainerr safe hand-off', () => {
     await syncMaintainerr();
     vi.setSystemTime((BASE + 30 * 86400) * 1000);
     expect((await previewMaintainerr()).items).toContainEqual(expect.objectContaining({
-      ratingKey: 'requester-movie', status: 'blocked_keep', reason: 'plex_collection_protected',
+      ratingKey: 'requester-movie', status: 'blocked_collection', reason: 'plex_collection_protected',
+      collectionBlockers: [{ ratingKey: 'movie-1', title: 'Other Marvel film', year: 2025, reason: 'watched_too_recently' }],
     }));
     await syncMaintainerr();
     expect([...remote.members.get(10)!]).toEqual([]);
@@ -648,9 +649,25 @@ describe('Maintainerr safe hand-off', () => {
     const remote = mockMaintainerr({ movieMembers: ['requester-movie', 'movie-1'] });
     expect((await previewMaintainerr()).items).toContainEqual(expect.objectContaining({
       ratingKey: 'requester-movie', status: 'remove', reason: 'plex_collection_protected',
+      collectionBlockers: [{ ratingKey: 'movie-1', title: 'Other Marvel film', year: 2025, reason: 'global_keep' }],
     }));
     await syncMaintainerr();
     expect([...remote.members.get(10)!]).toEqual(['movie-1']);
+  });
+
+  it('shows a collection Keep blocker separately from a direct Keep', async () => {
+    plexCollectionMedia();
+    addKeep('protector', 'movie-1');
+    mockMaintainerr();
+    await syncMaintainerr();
+    vi.setSystemTime((BASE + 30 * 86400) * 1000);
+    const preview = await previewMaintainerr();
+    expect(preview.items).toContainEqual(expect.objectContaining({
+      ratingKey: 'requester-movie', status: 'blocked_collection',
+      collectionBlockers: [{ ratingKey: 'movie-1', title: 'Other Marvel film', year: 2025, reason: 'global_keep' }],
+    }));
+    expect(preview.summary.blocked_collection).toBeGreaterThan(0);
+    expect(preview.collections[0].add).toBe(0);
   });
 
   it('propagates protection across overlapping collections and allows explicit releases', async () => {
@@ -662,7 +679,10 @@ describe('Maintainerr safe hand-off', () => {
     await syncMaintainerr();
     vi.setSystemTime((BASE + 30 * 86400) * 1000);
     expect((await previewMaintainerr()).items).toContainEqual(expect.objectContaining({
-      ratingKey: 'requester-movie', status: 'blocked_keep', reason: 'plex_collection_protected',
+      ratingKey: 'requester-movie', status: 'blocked_collection', reason: 'plex_collection_protected',
+      collectionBlockers: expect.arrayContaining([
+        { ratingKey: 'unknown-film', title: 'Media unknown-film', year: null, reason: 'collection_member_ineligible' },
+      ]),
     }));
     addDelete('requester', 'requester-movie');
     expect((await previewMaintainerr()).items).toContainEqual(expect.objectContaining({

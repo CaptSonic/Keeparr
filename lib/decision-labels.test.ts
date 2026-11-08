@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decisionReasonLabel, decisionStatusLabel } from './decision-labels';
+import { collectionProtectionTooltip, decisionReasonLabel, decisionStatusLabel } from './decision-labels';
 import { defaultMaintainerrRules } from './maintainerr-rules';
 
 describe('shared decision presentation', () => {
@@ -24,5 +24,19 @@ describe('shared decision presentation', () => {
   });
   it('does not expose unknown internal reason strings', () => {
     expect(decisionReasonLabel({ reason: 'internal-detail', libraryKind: 'movie' }, 'de')).toBe('Unbekannter Prüfgrund');
+  });
+  it('distinguishes collection protection from an actual Keep', () => {
+    expect(decisionStatusLabel('blocked_collection', 'de')).toBe('Durch Collection geschützt');
+    expect(decisionStatusLabel('blocked_keep', 'de')).toBe('Durch Keep blockiert');
+    expect(decisionStatusLabel('blocked_collection', 'en')).toBe('Collection protected');
+  });
+  it('lists protecting movie titles, years and reasons in a localized tooltip', () => {
+    const item = { collectionBlockers: [
+      { ratingKey: 'a', title: 'Film A', year: 2011, reason: 'global_keep' },
+      { ratingKey: 'b', title: 'Film B', year: null, reason: 'collection_member_observing' },
+    ] };
+    expect(collectionProtectionTooltip(item, 'de')).toBe('Schützende Filme der Plex-Collection:\nFilm A (2011) — Durch ein globales Keep geschützt\nFilm B — Beobachtungszeit noch nicht abgeschlossen');
+    expect(collectionProtectionTooltip(item, 'en')).toContain('Film A (2011) — Protected by a global Keep');
+    expect(collectionProtectionTooltip({}, 'de')).toBeUndefined();
   });
 });
