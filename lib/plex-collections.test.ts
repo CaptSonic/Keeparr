@@ -266,6 +266,33 @@ describe('live Plex collection membership', () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
+  it.each([true, false])('excludes the exact hand-off destination with listing title available: %s', async (hasTitle) => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const path = new URL(String(input)).pathname;
+      if (path.endsWith('/collections')) return Response.json({ MediaContainer: { Metadata: [
+        { ratingKey: 'queue', ...(hasTitle ? { title: 'Keeparr – Filme' } : {}), Label: [] },
+        { ratingKey: 'real', title: 'Real film series', Label: [] },
+        { ratingKey: 'similar', title: 'Keeparr – Filme extras', Label: [] },
+      ] } });
+      if (path === '/library/metadata/queue') return Response.json({ MediaContainer: { Metadata: [
+        { ratingKey: 'queue', title: 'Keeparr – Filme', Label: [] },
+      ] } });
+      if (path === '/library/metadata/real/children') return Response.json({ MediaContainer: { Metadata: [
+        { ratingKey: '2012' }, { ratingKey: 'real-sequel' },
+      ] } });
+      if (path === '/library/metadata/similar/children') return Response.json({ MediaContainer: { Metadata: [
+        { ratingKey: 'other' },
+      ] } });
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const stats = diagnostics();
+    expect(await getMovieCollections('http://plex', 'secret', '1', stats, ['Keeparr – Filme']))
+      .toEqual([['2012', 'real-sequel'], ['other']]);
+    expect(stats.ignoredCollections).toBe(1);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/queue/children'))).toBe(false);
+  });
+
   it('rejects missing collection metadata rather than silently skipping protection', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => new Response(JSON.stringify({
       MediaContainer: { Metadata: new URL(String(input)).pathname.endsWith('/collections')

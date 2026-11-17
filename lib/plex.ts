@@ -547,7 +547,8 @@ export async function getSectionItems(
 /** Read actual collection membership, including smart collections, without
  * relying on movie tags (which do not describe smart collection membership). */
 export async function getMovieCollections(
-  baseUrl: string, token: string, sectionId: string, diagnostics?: CollectionReadDiagnostics
+  baseUrl: string, token: string, sectionId: string, diagnostics?: CollectionReadDiagnostics,
+  excludedTitles: readonly string[] = [],
 ): Promise<string[][]> {
   const concurrency = getPlexCollectionConcurrency();
   let activeRequests = 0;
@@ -638,19 +639,19 @@ export async function getMovieCollections(
     }
     // Thematic "Based on ..." collections are not film-series protection groups.
     const isBasedOn = (title: string | undefined) => /^based\s+on(?:\s|$|[:\-–—])/i.test(title?.trim() ?? '');
-    if (isBasedOn(collection.title)) {
+    if (isBasedOn(collection.title) || (collection.title !== undefined && excludedTitles.includes(collection.title))) {
       record(0, true);
       return null;
     }
     // Collection listings do not always include labels. Read the collection
     // metadata in that case, rather than guessing ownership from its title.
     let labels = collection.Label;
-    if (labels === undefined) {
+    if (labels === undefined || (excludedTitles.length > 0 && collection.title === undefined)) {
       const metadata = await pages(`/library/metadata/${encodeURIComponent(String(collection.ratingKey))}`, 'metadataRequests', count);
       if (metadata.length !== 1 || String(metadata[0].ratingKey) !== String(collection.ratingKey)) {
         throw new Error('Plex returned invalid collection metadata.');
       }
-      if (isBasedOn(metadata[0].title)) {
+      if (isBasedOn(metadata[0].title) || (metadata[0].title !== undefined && excludedTitles.includes(metadata[0].title))) {
         record(0, true);
         return null;
       }

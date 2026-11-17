@@ -98,7 +98,10 @@ per-user. See README.md for the feature overview.
   `reconcileMaintainerrRuleTracking`; preserve archive-only clocks across jobs.
 
 - Automatic Maintainerr movie hand-off preserves live Plex collections, including
-  smart collections. Ignore Agregarr-managed collections identified by collection
+  smart collections. Destination-title exclusions are scoped to each movie library: hand-off
+  queues must not protect their own unrelated members. Only exact titles of
+  selected/previously owned Maintainerr targets are excluded, not Keeparr prefixes.
+  Ignore Agregarr-managed collections identified by collection
   labels starting with `agregarr` (case-insensitive), not by title or movie labels.
   Also ignore thematic collections whose titles start with `Based on` (case-insensitive).
   Read collection metadata when listing labels are absent; failed reads still pause

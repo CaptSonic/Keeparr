@@ -807,6 +807,13 @@ Every present collection member must satisfy the hand-off rules, including its
 observation period. A Keep, an ineligible movie, or an unknown member protects the
 whole collection. Protection propagates through overlapping collections.
 
+The configured Maintainerr hand-off destinations are operational queues, not
+film-series protection groups. Plex collections with the exact destination title
+in that destination's movie library are excluded, including previously owned
+destinations being reconciled. Similar names and collections in other libraries
+are not excluded. Avoid giving an unrelated collection the exact same name in
+the same library. Other collections sharing those movies remain protected.
+
 Agregarr-managed collections are ignored: Keeparr checks **collection labels**
 starting with `agregarr` (case-insensitive), not collection titles or labels on
 individual movies. Missing listing labels are read from collection metadata. A

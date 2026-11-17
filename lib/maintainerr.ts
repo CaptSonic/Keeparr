@@ -656,7 +656,12 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
           // Collection reads already have a bounded per-library pool; do not
           // multiply that concurrency across libraries.
           for (const sectionId of movieLibraries) {
-            groups.push(...await backend.movieCollections(sectionId, diagnostics.collectionReads));
+            // The hand-off destination is an operational queue, not a film
+            // collection: protecting it would make its members veto each other.
+            const excludedTitles = [...targetIds].map((id) => collections.get(id))
+              .filter((collection) => collection?.type === 'movie' && collection.libraryId === sectionId)
+              .map((collection) => collection!.title);
+            groups.push(...await backend.movieCollections(sectionId, diagnostics.collectionReads, excludedTitles));
           }
         }
         diagnostics.plexCollectionsRead = groups.length;

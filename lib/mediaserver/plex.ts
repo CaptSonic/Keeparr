@@ -49,9 +49,9 @@ export function isAvailableSectionItem(item: PlexMetadata, kind: LibraryKind): b
 
 /** Plex backend: thin adapter over lib/plex.ts so Plex behavior is unchanged. */
 export const plexBackend: MediaBackend = {
-  async movieCollections(sectionId, diagnostics) {
+  async movieCollections(sectionId, diagnostics, excludedTitles) {
     const { baseUrl, token } = creds();
-    return getMovieCollections(baseUrl, token, sectionId, diagnostics);
+    return getMovieCollections(baseUrl, token, sectionId, diagnostics, excludedTitles);
   },
   async listSections(): Promise<BackendSection[]> {
     const { baseUrl, token } = creds();

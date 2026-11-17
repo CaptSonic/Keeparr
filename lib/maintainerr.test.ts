@@ -670,6 +670,15 @@ describe('Maintainerr safe hand-off', () => {
     expect(preview.collections[0].add).toBe(0);
   });
 
+  it('passes only movie destinations in the current library as collection exclusions', async () => {
+    plexCollectionMedia();
+    const readCollections = vi.fn().mockResolvedValue([]);
+    fakeBackend.movieCollections = readCollections;
+    mockMaintainerr();
+    await previewMaintainerr();
+    expect(readCollections).toHaveBeenCalledWith('movies', expect.any(Object), ['Keeparr movies']);
+  });
+
   it('propagates protection across overlapping collections and allows explicit releases', async () => {
     plexCollectionMedia();
     fakeBackend.movieCollections = async () => [
