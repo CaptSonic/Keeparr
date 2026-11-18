@@ -346,8 +346,13 @@ The chrome is a Sonarr/Radarr-style left rail (logo → Keep; Keep / Browse[expa
   a live, read-only desired set from closed campaign snapshots + reviews, joins the
   current non-removed media ids, reapplies the global keep veto, and deduplicates a
   title appearing in multiple campaigns to its newest closed campaign record.
-- `lib/maintainerr.ts` is the optional non-destructive hand-off client. Settings
-  select multiple Maintainerr movie/show collections (one per media library) and the `maintainerr` job reconciles
+- `lib/maintainerr.ts` is the optional non-destructive hand-off client.
+  `maintainerr_require_mass_approval` defaults to true; only stored `false` opts
+  out. Admin settings expose `maintainerr.requireMassApproval` as a strict boolean.
+  Disabling skips only the mass-change approval gate for scheduled and manual
+  full reconciliations, including removals. Other vetoes, uncertain-write stops
+  and re-add approvals remain unchanged. Toggling clears one-time safety approvals.
+  Settings select multiple Maintainerr movie/show collections (one per media library) and the `maintainerr` job reconciles
   unprotected requester `user_deletes`, `listAutomationReleases()`, and matured
   persisted automatic watch-rule matches into Maintainerr's internal membership using only
   `POST /api/collections/add` and `/remove`. It validates every collection/member

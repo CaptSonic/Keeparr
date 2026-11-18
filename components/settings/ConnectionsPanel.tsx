@@ -300,6 +300,7 @@ export default function ConnectionsPanel() {
   const [radarr, setRadarr] = useState<ArrRow[]>([]);
   const [maintainerr, setMaintainerr] = useState<Parts>({ ssl: false, host: '', port: '', base: '' });
   const [maintainerrEnabled, setMaintainerrEnabled] = useState(false);
+  const [maintainerrRequireMassApproval, setMaintainerrRequireMassApproval] = useState(true);
   const [maintainerrMovieCollectionIds, setMaintainerrMovieCollectionIds] = useState<number[]>([]);
   const [maintainerrShowCollectionIds, setMaintainerrShowCollectionIds] = useState<number[]>([]);
   const [maintainerrWatchAgeDays, setMaintainerrWatchAgeDays] = useState(180);
@@ -352,6 +353,7 @@ export default function ConnectionsPanel() {
     setRadarr(toRows(d.radarr?.instances));
     setMaintainerr(parseUrl(d.maintainerr?.url));
     setMaintainerrEnabled(d.maintainerr?.enabled === true);
+    setMaintainerrRequireMassApproval(d.maintainerr?.requireMassApproval !== false);
     setMaintainerrMovieCollectionIds(d.maintainerr?.movieCollectionIds ?? (d.maintainerr?.movieCollectionId ? [d.maintainerr.movieCollectionId] : []));
     setMaintainerrShowCollectionIds(d.maintainerr?.showCollectionIds ?? (d.maintainerr?.showCollectionId ? [d.maintainerr.showCollectionId] : []));
     setMaintainerrWatchAgeDays(d.maintainerr?.watchAgeDays ?? 180);
@@ -592,6 +594,7 @@ export default function ConnectionsPanel() {
             automaticRules: maintainerrAutomaticRules,
             ratingProtection,
             enabled: maintainerrEnabled,
+            requireMassApproval: maintainerrRequireMassApproval,
           },
           managedSectionIds: allManaged ? [] : [...managed],
           storageMappings,
@@ -1096,6 +1099,17 @@ export default function ConnectionsPanel() {
                 ? 'Der Job läuft standardmäßig alle 5 Minuten. Nicht mehr freigegebene Titel werden zuerst aus der Collection entfernt.'
                 : 'The job runs every 5 minutes by default. Titles no longer released are removed from the collection first.'}
             </span>
+          </span>
+        </label>
+        <label className="mt-4 flex items-start gap-3 text-sm text-slate-300">
+          <input type="checkbox" className="mt-1 accent-violet-500"
+            checked={maintainerrRequireMassApproval}
+            onChange={(event) => setMaintainerrRequireMassApproval(event.target.checked)} />
+          <span>
+            <span className="font-medium text-slate-200">{de ? 'Massenänderungen müssen freigegeben werden' : 'Require approval for mass changes'}</span>
+            <span className="mt-1 block text-xs text-slate-500">{de
+              ? 'Standardmäßig aktiv. Deaktiviert: Auch große Abgleiche laufen ohne zusätzliche Freigabe – einschließlich geplanter Entfernungen aus Maintainerr-Collections. Dies kann nachgelagerte Maintainerr-Aktionen ermöglichen. Keeps, Bewertungs-, Wiedergabe- und Collection-Schutz sowie Re-Add- und Timeout-Sperren bleiben bestehen. Gilt auch für automatische Jobläufe.'
+              : 'Enabled by default. When disabled, large reconciliations run without additional approval, including planned removals from Maintainerr collections. This can enable downstream Maintainerr actions. Keeps, rating, playback and collection protection, re-add gates and uncertain-write stops remain active. Applies to scheduled jobs too.'}</span>
           </span>
         </label>
         <Link href="/settings/maintainerr" className={`${btnGhost} mt-4 inline-block`}>

@@ -190,6 +190,7 @@ interface PutBody {
     observationDays?: number;
     automaticRules?: unknown;
     ratingProtection?: unknown;
+    requireMassApproval?: boolean;
     enabled?: boolean;
   };
   archivePlaceholders?: {
@@ -309,6 +310,9 @@ export async function PUT(req: Request) {
 
     if (body.maintainerr && typeof body.maintainerr === 'object') {
       const current = getMaintainerrConfig();
+      if (body.maintainerr.requireMassApproval !== undefined && typeof body.maintainerr.requireMassApproval !== 'boolean') {
+        return NextResponse.json({ error: 'maintainerr_invalid_mass_approval' }, { status: 400 });
+      }
       let automaticRules = current.automaticRules;
       let ratingProtection = current.ratingProtection;
       if (body.maintainerr.ratingProtection !== undefined) {
@@ -329,6 +333,7 @@ export async function PUT(req: Request) {
             ? Number(value)
             : fallback;
       const nextMaintainerr = {
+        requireMassApproval: body.maintainerr.requireMassApproval ?? current.requireMassApproval ?? true,
         ratingProtection,
         ...(body.maintainerr.automaticRules !== undefined ? { automaticRules } : {}),
         url: typeof body.maintainerr.url === 'string'

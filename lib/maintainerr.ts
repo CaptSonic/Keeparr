@@ -959,7 +959,7 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
     ])
   ) as Record<MaintainerrPreviewStatus, number>;
   const hash = planHash(targets, config.url);
-  const massBlocked = !paused && isMassChange(targets);
+  const massBlocked = config.requireMassApproval !== false && !paused && isMassChange(targets);
   const massApproved = massBlocked && getMaintainerrApprovedPlanHash() === hash;
   const preview: MaintainerrPreview = {
     pendingWrites: pendingMemberships(config.url).length,

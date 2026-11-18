@@ -1,3 +1,14 @@
+# Maintainerr mass-change approval
+
+Settings → Connections → Maintainerr includes **Require approval for mass changes**,
+enabled by default. Disable it and save connections to let large reconciliations
+run without an additional Control Center approval, including scheduled runs and
+planned removals from Maintainerr collections. This is persistent, not a one-run
+exception, and adding memberships can enable downstream Maintainerr actions.
+Keeps, rating/watch/collection safeguards, re-add approval and uncertain-write
+stops remain active. This option does not fix API timeouts or retry ambiguous writes.
+Re-enable it after the initial hand-off if you want future large changes reviewed.
+
 # Optional IMDb/TMDB movie protection
 
 Settings → Connections → Maintainerr includes separate opt-in IMDb and TMDB

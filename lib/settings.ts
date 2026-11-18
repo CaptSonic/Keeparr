@@ -409,6 +409,7 @@ export const setAutomationBridgeEnabled = (enabled: boolean) =>
 
 // --- Maintainerr hand-off (membership sync only; no handling/deletion calls) ---
 export interface MaintainerrConfig {
+  requireMassApproval?: boolean;
   ratingProtection?: RatingProtectionConfig;
   url: string;
   movieCollectionId: number | null;
@@ -454,6 +455,7 @@ export function getMaintainerrConfig(): MaintainerrConfig {
   };
   return {
     url: readSetting('maintainerr_url') ?? '',
+    requireMassApproval: readSetting('maintainerr_require_mass_approval') !== 'false',
     ratingProtection: (() => {
       try { return mergeRatingProtection(JSON.parse(readSetting('maintainerr_rating_protection') ?? '{}')); }
       catch { return defaultRatingProtection(); }
@@ -482,6 +484,8 @@ export function setMaintainerrConfig(
 ): void {
   const url = config.url.trim().replace(/\/$/, '');
   const previous = getMaintainerrConfig();
+  const requireMassApproval = config.requireMassApproval ?? previous.requireMassApproval ?? true;
+  if (typeof requireMassApproval !== 'boolean') throw new Error('Maintainerr mass approval must be a boolean.');
   const ratingProtection = mergeRatingProtection(config.ratingProtection ?? previous.ratingProtection ?? {});
   const movieCollectionIds = config.movieCollectionIds ?? (config.movieCollectionId === null ? [] : [config.movieCollectionId]);
   const showCollectionIds = config.showCollectionIds ?? (config.showCollectionId === null ? [] : [config.showCollectionId]);
@@ -518,6 +522,7 @@ export function setMaintainerrConfig(
   writeSetting('maintainerr_watch_age_days', String(config.watchAgeDays));
   writeSetting('maintainerr_observation_days', String(observationDays));
   writeSetting('maintainerr_enabled', config.enabled ? 'true' : 'false');
+  writeSetting('maintainerr_require_mass_approval', String(requireMassApproval));
   writeSetting('maintainerr_automatic_rules', JSON.stringify(automaticRules));
   writeSetting('maintainerr_rating_protection', JSON.stringify(ratingProtection));
   const changedKinds = (['movie', 'show'] as const).filter((kind) =>
@@ -529,7 +534,7 @@ export function setMaintainerrConfig(
     JSON.stringify(previous.showCollectionIds) !== JSON.stringify(showCollectionIds) ||
     previous.watchAgeDays !== config.watchAgeDays ||
     previous.observationDays !== observationDays ||
-    previous.enabled !== config.enabled || changedKinds.length > 0 ||
+    previous.enabled !== config.enabled || previous.requireMassApproval !== requireMassApproval || changedKinds.length > 0 ||
     JSON.stringify(previous.ratingProtection) !== JSON.stringify(ratingProtection)
   ) {
     deleteSetting('maintainerr_safety_state');

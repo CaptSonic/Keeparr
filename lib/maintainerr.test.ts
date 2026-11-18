@@ -1144,6 +1144,63 @@ describe('Maintainerr safe hand-off', () => {
     expect((await previewMaintainerr()).massApproved).toBe(false);
   });
 
+  it('runs large additions without approval only when explicitly disabled, preserving Keep vetoes', async () => {
+    const ids = bulkRequesterReleases(12);
+    addKeep('protector', ids[0]);
+    setMaintainerrConfig({ ...getMaintainerrConfig(), requireMassApproval: false });
+    const remote = mockMaintainerr();
+    expect(await previewMaintainerr()).toMatchObject({ massBlocked: false, massApproved: false, totalChanges: 11 });
+    expect((await syncMaintainerr()).result).toBe(11);
+    expect([...remote.members.get(10)!].sort()).toEqual(ids.slice(1).sort());
+    expect(remote.writes.map((write) => (write.body.media as unknown[]).length)).toEqual([5, 5, 1]);
+  });
+
+  it('keeps mass approval enabled for absent or malformed persisted settings', async () => {
+    bulkRequesterReleases(12);
+    mockMaintainerr();
+    expect(getMaintainerrConfig().requireMassApproval).toBe(true);
+    for (const stored of ['garbage', '0', '', 'False']) {
+      writeSetting('maintainerr_require_mass_approval', stored);
+      expect(getMaintainerrConfig().requireMassApproval).toBe(true);
+      expect((await previewMaintainerr()).massBlocked).toBe(true);
+    }
+  });
+
+  it('does not bypass uncertain writes or re-add gates when mass approval is disabled', async () => {
+    const ids = bulkRequesterReleases(12);
+    setMaintainerrConfig({ ...getMaintainerrConfig(), requireMassApproval: false });
+    setMaintainerrManagedItems({ '10': [ids[0]] });
+    const remote = mockMaintainerr();
+    const preview = await previewMaintainerr();
+    expect(preview.items).toContainEqual(expect.objectContaining({ ratingKey: ids[0], status: 'readd_blocked' }));
+    journalMemberships('http://maintainerr:6246', 10, [ids[1]], 'add', 'uncertain');
+    await expect(syncMaintainerr()).rejects.toThrow('unconfirmed outcome');
+    expect(remote.writes).toEqual([]);
+    expect(pendingMemberships('http://maintainerr:6246')).toHaveLength(1);
+  });
+
+  it('clears approvals when toggled and restores mass blocking when re-enabled', async () => {
+    bulkRequesterReleases(12);
+    mockMaintainerr();
+    await approveCurrentMaintainerrPlan();
+    expect(getMaintainerrApprovedPlanHash()).not.toBeNull();
+    setMaintainerrConfig({ ...getMaintainerrConfig(), requireMassApproval: false });
+    expect(getMaintainerrApprovedPlanHash()).toBeNull();
+    expect((await previewMaintainerr()).massBlocked).toBe(false);
+    setMaintainerrConfig({ ...getMaintainerrConfig(), requireMassApproval: true });
+    expect(await previewMaintainerr()).toMatchObject({ massBlocked: true, massApproved: false });
+  });
+
+  it('runs large owned membership removals without mass approval when disabled', async () => {
+    const ids = bulkRequesterReleases(12);
+    setMaintainerrManagedItems({ '10': ids });
+    const remote = mockMaintainerr({ movieMembers: ids });
+    setMaintainerrConfig({ ...getMaintainerrConfig(), enabled: false, requireMassApproval: false });
+    expect(await previewMaintainerr()).toMatchObject({ massBlocked: false, totalChanges: 12 });
+    expect((await syncMaintainerr()).result).toBe(12);
+    expect([...remote.members.get(10)!]).toEqual([]);
+  });
+
   it('invalidates a mass approval when the planned operations change', async () => {
     bulkRequesterReleases(10);
     const remote = mockMaintainerr();

@@ -126,6 +126,7 @@ describe('/api/admin/settings', () => {
       movieCollectionIds: [10],
       showCollectionIds: [20, 30],
       watchAgeDays: 365,
+      requireMassApproval: true,
       ratingProtection: {
         imdb: { enabled: true, minimumScore: 8.2, minimumVotes: 15000 },
         tmdb: { enabled: false, minimumScore: 8, minimumVotes: 1000 },
@@ -167,6 +168,21 @@ describe('/api/admin/settings', () => {
     expect(duplicate.status).toBe(400);
     expect((await duplicate.json()).error).toBe('maintainerr_duplicate_collection');
     expect(getMaintainerrConfig().enabled).toBe(false);
+  });
+
+  it('defaults mass approval to enabled, round-trips opt-out and preserves it on partial updates', async () => {
+    await loginAs('admin', true);
+    expect(getMaintainerrConfig().requireMassApproval).toBe(true);
+    expect((await settingsPut(putReq({ maintainerr: { requireMassApproval: false } }))).status).toBe(200);
+    expect((await settingsGet().then((response) => response.json())).maintainerr.requireMassApproval).toBe(false);
+    expect((await settingsPut(putReq({ maintainerr: { watchAgeDays: 200 } }))).status).toBe(200);
+    expect(getMaintainerrConfig().requireMassApproval).toBe(false);
+    for (const value of [null, 'false', 0, {}, []]) {
+      expect((await settingsPut(putReq({ maintainerr: { requireMassApproval: value } }))).status).toBe(400);
+      expect(getMaintainerrConfig().requireMassApproval).toBe(false);
+    }
+    expect((await settingsPut(putReq({ maintainerr: { requireMassApproval: true } }))).status).toBe(200);
+    expect(getMaintainerrConfig().requireMassApproval).toBe(true);
   });
 
   it('validates and merges rating protection without resetting the other source', async () => {
