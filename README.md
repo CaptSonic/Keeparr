@@ -130,6 +130,10 @@ request, Keeparr persists the exact collection/title/action and plan hash in an
 instance-scoped SQLite journal. Confirmed batches save ownership and audit events
 transactionally. After errors and on the next run, a fresh membership read can
 confirm journaled additions/removals without sending the same request again.
+After a request timeout, the same run continues to the next batch only if that
+read confirms every pending change. Recovered changes are counted once and logged
+as recovered, not duplicated as ordinary additions/removals. Other request errors
+still stop the run even when their writes can be recovered.
 Previews remain read-only. Unconfirmed outcomes stop execution rather than
 blindly retrying; pending counts are shown in the Control Center. A changed
 Maintainerr URL is blocked while ownership or pending writes remain.

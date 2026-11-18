@@ -378,6 +378,10 @@ The chrome is a Sonarr/Radarr-style left rail (logo → Keep; Keep / Browse[expa
   adoption and direct selections. Sequential batches contain at most five ids.
   `maintainerr_pending_writes` records instance URL, collection, id, action and
   plan hash before requests. Ownership/history/journal completion is atomic.
+  Timeout recovery continues the same run only after fresh membership reads
+  confirm all pending outcomes. Recovery persists ownership/history/side effects
+  once; batch counters and in-memory target ownership are then updated without
+  another POST. Partial/failed reads and non-timeout errors stop execution.
   Only journaled writes with live-confirmed target state recover automatically;
   uncertain outcomes block retries and URL changes. GET never resolves journals.
   Admin-only `adopt-members` takes an explicit bounded list of existing members,

@@ -52,6 +52,7 @@ import { trackSonarrHandoff } from './sonarr-cleanup';
 const REQUEST_TIMEOUT_MS = 60_000;
 const HISTORY_DEDUPE_SECONDS = 6 * 3600;
 const MEMBERSHIP_BATCH_SIZE = 5;
+class MaintainerrTimeoutError extends Error {}
 // Interactive execution, adoption and scheduled execution share one mutation
 // lock. Previews remain read-only and never reconcile the durable journal.
 const mutationLocks = new WeakSet<ReturnType<typeof getDb>>();
@@ -114,7 +115,7 @@ async function maintainerrRequest(
       error instanceof DOMException &&
       (error.name === 'TimeoutError' || error.name === 'AbortError')
     ) {
-      throw new Error(`Maintainerr ${path} timed out after 60 seconds.`);
+      throw new MaintainerrTimeoutError(`Maintainerr ${path} timed out after 60 seconds.`);
     }
     throw error;
   }
@@ -1355,8 +1356,14 @@ async function executeMaintainerr(selection?: MaintainerrSelection): Promise<Job
       try { await changeMembership(config.url, target.collection.id, batch, 'remove'); }
       catch (error) {
         // Preserve the original request error if the follow-up read also fails.
-        try { await reconcilePendingMemberships(config.url); } catch { /* journal retained */ }
-        throw error;
+        try { await reconcilePendingMemberships(config.url); } catch { throw error; }
+        if (!(error instanceof MaintainerrTimeoutError)) throw error;
+        // Recovery already persisted ownership/history and cleared the journal.
+        // Keep this plan's in-memory state aligned without recording it twice.
+        for (const id of batch) target.managed.delete(id);
+        removed += batch.length;
+        progress('Timed-out removal confirmed by live read', 'Entfernung nach Timeout durch Live-Abfrage bestätigt');
+        continue;
       }
       getDb().transaction(() => {
         removed += batch.length;
@@ -1389,8 +1396,13 @@ async function executeMaintainerr(selection?: MaintainerrSelection): Promise<Job
       progress('Adding memberships; waiting for acknowledgement', 'Mitgliedschaften hinzufügen; auf Bestätigung warten');
       try { await changeMembership(config.url, target.collection.id, batch, 'add'); }
       catch (error) {
-        try { await reconcilePendingMemberships(config.url); } catch { /* journal retained */ }
-        throw error;
+        try { await reconcilePendingMemberships(config.url); } catch { throw error; }
+        if (!(error instanceof MaintainerrTimeoutError)) throw error;
+        // Do not repeat the POST or duplicate recovery history/side effects.
+        for (const id of batch) target.managed.add(id);
+        added += batch.length;
+        progress('Timed-out addition confirmed by live read', 'Hinzufügung nach Timeout durch Live-Abfrage bestätigt');
+        continue;
       }
       getDb().transaction(() => {
         added += batch.length;

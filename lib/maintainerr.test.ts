@@ -254,15 +254,19 @@ describe('Maintainerr safe hand-off', () => {
       if (String(input).endsWith('/add')) throw new DOMException('late response', 'TimeoutError');
       return response;
     });
-    await expect(syncMaintainerr()).rejects.toThrow('timed out');
-    expect(remote.writes).toHaveLength(1);
-    expect(getMaintainerrManagedItems()['10']).toHaveLength(5);
+    expect((await syncMaintainerr()).result).toBe(8);
+    expect(remote.writes).toHaveLength(2);
+    expect(getMaintainerrManagedItems()['10']).toHaveLength(8);
     expect(getMaintainerrManagedItems()['10']).not.toContain('foreign');
     expect(pendingMemberships('http://maintainerr:6246')).toEqual([]);
+    expect(getJobProgress('maintainerr')).toMatchObject({ status: 'complete', completed: 8, total: 8 });
     remote.fetchMock.mockImplementation(fetch);
-    await syncMaintainerr();
+    expect((await syncMaintainerr()).result).toBe(0);
     expect(remote.writes.map((write) => (write.body.media as unknown[]).length)).toEqual([5, 3]);
     expect(getMaintainerrManagedItems()['10']).toHaveLength(8);
+    expect(getJobProgress('maintainerr')).toMatchObject({ status: 'complete', completed: 0, total: 0 });
+    expect(recentMaintainerrHistory().filter((row) => row.eventType === 'membership_recovered')).toHaveLength(8);
+    expect(recentMaintainerrHistory().filter((row) => row.eventType === 'membership_added')).toHaveLength(0);
   });
 
   it('keeps successful progress and durable uncertain intents across a failed read and later run', async () => {
@@ -292,6 +296,95 @@ describe('Maintainerr safe hand-off', () => {
     expect(getMaintainerrManagedItems()['10']).toHaveLength(8);
     expect(remote.writes).toHaveLength(1);
     expect(pendingMemberships('http://maintainerr:6246')).toEqual([]);
+  });
+
+  it('continues recovered removals before additions without losing ownership across targets', async () => {
+    const ids = bulkRequesterReleases(8);
+    setMaintainerrManagedItems({ '10': ['old-movie'], '20': ['old-show'] });
+    const remote = mockMaintainerr({ movieMembers: ['old-movie', 'foreign'], showMembers: ['old-show'] });
+    const fetch = remote.fetchMock.getMockImplementation()!;
+    let additions = 0;
+    remote.fetchMock.mockImplementation(async (input, init) => {
+      const response = await fetch(input, init);
+      const url = String(input);
+      if (url.endsWith('/remove') || (url.endsWith('/add') && ++additions === 1)) {
+        throw new DOMException('late response', 'TimeoutError');
+      }
+      return response;
+    });
+    expect((await syncMaintainerr()).result).toBe(10);
+    expect(remote.writes.map((write) => write.path)).toEqual([
+      '/api/collections/remove', '/api/collections/remove', '/api/collections/add', '/api/collections/add',
+    ]);
+    expect([...remote.members.get(10)!].sort()).toEqual([...ids, 'foreign'].sort());
+    expect([...remote.members.get(20)!]).toEqual([]);
+    expect(getMaintainerrManagedItems()['10']?.sort()).toEqual(ids.sort());
+    expect(getMaintainerrManagedItems()['20'] ?? []).toEqual([]);
+    expect(pendingMemberships('http://maintainerr:6246')).toEqual([]);
+    expect(getJobProgress('maintainerr')).toMatchObject({ status: 'complete', completed: 10, total: 10 });
+    const history = recentMaintainerrHistory();
+    expect(history.filter((row) => row.eventType === 'membership_recovered')).toHaveLength(7);
+    expect(history.filter((row) => row.eventType === 'membership_added')).toHaveLength(3);
+    expect(history.filter((row) => row.eventType === 'membership_removed')).toHaveLength(0);
+  });
+
+  it('stops on partially applied timed-out additions and does not send the next batch', async () => {
+    const ids = bulkRequesterReleases(8);
+    const remote = mockMaintainerr();
+    const fetch = remote.fetchMock.getMockImplementation()!;
+    let posts = 0;
+    remote.fetchMock.mockImplementation(async (input, init) => {
+      if (String(input).endsWith('/add')) {
+        posts++;
+        remote.members.get(10)!.add(ids[0]);
+        throw new DOMException('partial response', 'TimeoutError');
+      }
+      return fetch(input, init);
+    });
+    await expect(syncMaintainerr()).rejects.toThrow('timed out');
+    expect(posts).toBe(1);
+    expect(getMaintainerrManagedItems()['10']).toEqual([ids[0]]);
+    expect(pendingMemberships('http://maintainerr:6246')).toHaveLength(4);
+    await expect(syncMaintainerr()).rejects.toThrow('unconfirmed outcome');
+    expect(posts).toBe(1);
+  });
+
+  it('does not continue after an HTTP failure even when a follow-up read confirms the write', async () => {
+    bulkRequesterReleases(8);
+    const remote = mockMaintainerr();
+    const fetch = remote.fetchMock.getMockImplementation()!;
+    remote.fetchMock.mockImplementation(async (input, init) => {
+      const response = await fetch(input, init);
+      return String(input).endsWith('/add') ? json({ error: 'server error' }, 500) : response;
+    });
+    await expect(syncMaintainerr()).rejects.toThrow('HTTP 500');
+    expect(remote.writes).toHaveLength(1);
+    expect(getMaintainerrManagedItems()['10']).toHaveLength(5);
+    expect(pendingMemberships('http://maintainerr:6246')).toEqual([]);
+  });
+
+  it('does not add any titles after a partially applied timed-out removal', async () => {
+    bulkRequesterReleases(8);
+    setMaintainerrManagedItems({ '10': ['old-a', 'old-b'] });
+    const remote = mockMaintainerr({ movieMembers: ['old-a', 'old-b'] });
+    await approveCurrentMaintainerrPlan();
+    const fetch = remote.fetchMock.getMockImplementation()!;
+    let removals = 0;
+    remote.fetchMock.mockImplementation(async (input, init) => {
+      if (String(input).endsWith('/remove')) {
+        removals++;
+        remote.members.get(10)!.delete('old-a');
+        throw new DOMException('partial response', 'TimeoutError');
+      }
+      return fetch(input, init);
+    });
+    await expect(syncMaintainerr()).rejects.toThrow('timed out');
+    expect(removals).toBe(1);
+    expect(remote.writes).toEqual([]);
+    expect(getMaintainerrManagedItems()['10']).toEqual(['old-b']);
+    expect(pendingMemberships('http://maintainerr:6246')).toEqual([
+      expect.objectContaining({ ratingKey: 'old-b', action: 'remove' }),
+    ]);
   });
 
   it('previews do not recover intents and recovery cannot bypass a new Keep', async () => {
