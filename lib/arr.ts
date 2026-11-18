@@ -6,6 +6,7 @@
  * `normalize*` functions are split from HTTP calls for network-free unit tests.
  */
 import { fetchJson } from './http';
+import { normalizeMovieRatings, type MovieRating } from './rating-protection';
 import type { ArrInstance } from './settings';
 
 export type ArrSource = 'sonarr' | 'radarr';
@@ -28,6 +29,7 @@ export interface ArrRecord {
   rootFolder: string | null;
   sizeOnDisk: number;
   tags: string[];
+  ratings?: MovieRating[];
 }
 
 // --- Raw payload shapes (only the fields we read) ---
@@ -47,6 +49,7 @@ export interface SonarrSeries {
   seasons?: { seasonNumber: number; monitored?: boolean }[];
 }
 interface RadarrMovie {
+  ratings?: unknown;
   id: number;
   title: string;
   tmdbId?: number;
@@ -121,6 +124,7 @@ export function normalizeRadarr(
     rootFolder: m.rootFolderPath ?? null,
     sizeOnDisk: m.sizeOnDisk ?? 0,
     tags: labelsFor(m.tags, tagMap),
+    ratings: normalizeMovieRatings(m.ratings),
   };
 }
 

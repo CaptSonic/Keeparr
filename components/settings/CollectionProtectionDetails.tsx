@@ -25,7 +25,7 @@ export function CollectionProtectionDetails({ item, locale }: {
       <ul className="max-h-64 overflow-y-auto divide-y divide-slate-800 px-2" aria-label={de ? 'Schutzgründe' : 'Protection reasons'}>
         {blockers.map((blocker) => <li key={blocker.ratingKey} className="py-2">
           <p className="break-words font-medium text-slate-200">{blocker.title}{blocker.year !== null ? ` (${blocker.year})` : ''}</p>
-          <p className="mt-1 whitespace-normal leading-relaxed text-slate-400">{decisionReasonLabel({ reason: blocker.reason, libraryKind: 'movie' }, locale)}</p>
+          <p className="mt-1 whitespace-normal leading-relaxed text-slate-400">{decisionReasonLabel({ reason: blocker.reason, ratings: blocker.ratings, libraryKind: 'movie' }, locale)}</p>
           <p className="mt-1 break-all text-slate-500">{de ? 'Medien-ID' : 'Media ID'}: {blocker.ratingKey}</p>
         </li>)}
       </ul>

@@ -15,11 +15,13 @@ import { pollJob } from '@/lib/job-polling';
 import { CollectionProtectionDetails } from './CollectionProtectionDetails';
 
 const statuses: MaintainerrPreviewStatus[] = [
+  'blocked_rating',
   'add', 'remove', 'managed', 'manual', 'blocked_keep', 'blocked_collection',
   'blocked_recent', 'tracking', 'missing', 'outside', 'readd_blocked', 'paused',
 ];
 
 const colors: Record<MaintainerrPreviewStatus, string> = {
+  blocked_rating: 'bg-indigo-500/15 text-indigo-300',
   add: 'bg-emerald-500/15 text-emerald-300',
   remove: 'bg-red-500/15 text-red-300',
   managed: 'bg-blue-500/15 text-blue-300',
@@ -48,7 +50,7 @@ const labels = {
     approveMass: 'Approve entire exact plan once', approving: 'Approving…', approveReadd: 'Allow re-add once',
     history: 'Recent hand-off history', noHistory: 'No hand-off events recorded yet.', action: 'Action', time: 'Time',
     historyFilter: 'Filter history by title or media id',
-    statuses: { add: 'Add', remove: 'Remove', managed: 'Managed', manual: 'Manual', blocked_keep: 'Keep blocked', blocked_collection: 'Collection protected', blocked_recent: 'Recently watched', tracking: 'Observing', missing: 'Missing', outside: 'Outside', readd_blocked: 'Re-add blocked', paused: 'Paused' },
+    statuses: { blocked_rating: 'Rating protected', add: 'Add', remove: 'Remove', managed: 'Managed', manual: 'Manual', blocked_keep: 'Keep blocked', blocked_collection: 'Collection protected', blocked_recent: 'Recently watched', tracking: 'Observing', missing: 'Missing', outside: 'Outside', readd_blocked: 'Re-add blocked', paused: 'Paused' },
     reasons: { never_watched: 'Never watched', watch_age_met: 'Watch-age threshold met', requester_unwatched_180d: 'A requester has not watched in 6 months', global_unwatched_540d: 'Not watched by anyone in 18 months', automatic_rules_met: 'Both automatic watch rules matured', observing_requester_unwatched_180d: 'Tracking: a requester has not watched in 6 months', observing_global_unwatched_540d: 'Tracking: not watched by anyone in 18 months', observing_automatic_rules: 'Tracking both automatic watch rules', readd_approved: 'One-time re-add approved', already_managed: 'Already managed by Keeparr', existing_foreign_member: 'Existing manual member; Keeparr will not touch it', global_keep: 'Protected by a global Keep', watched_too_recently: 'Watched within the configured age', missing_from_media_server: 'No longer available on the media server', watch_cache_untrusted: 'No trusted watch cache for the current source', outside_selected_library: 'Outside the selected Maintainerr libraries', inventory_unavailable: 'Live media availability could not be verified', unexpected_remote_removal: 'Maintainerr removed a Keeparr-owned member unexpectedly', mass_change: 'Mass-change safety threshold reached', sonarr_archive_workflow: 'Excluded because Sonarr archives episode files without removing the series', release_revoked: 'Release is no longer active', ownership_stale: 'Ownership record exists but remote member is absent' },
   },
   de: {
@@ -64,7 +66,7 @@ const labels = {
     approveMass: 'Gesamten exakten Plan einmalig freigeben', approving: 'Freigabe läuft…', approveReadd: 'Re-Add einmalig erlauben',
     history: 'Letzte Übergabe-Historie', noHistory: 'Noch keine Übergabe-Ereignisse gespeichert.', action: 'Aktion', time: 'Zeitpunkt',
     historyFilter: 'Historie nach Titel oder Medien-ID filtern',
-    statuses: { add: 'Hinzufügen', remove: 'Entfernen', managed: 'Verwaltet', manual: 'Manuell', blocked_keep: 'Durch Keep blockiert', blocked_collection: 'Durch Collection geschützt', blocked_recent: 'Kürzlich angesehen', tracking: 'Beobachtung', missing: 'Nicht vorhanden', outside: 'Außerhalb', readd_blocked: 'Re-Add blockiert', paused: 'Pausiert' },
+    statuses: { blocked_rating: 'Durch Bewertung geschützt', add: 'Hinzufügen', remove: 'Entfernen', managed: 'Verwaltet', manual: 'Manuell', blocked_keep: 'Durch Keep blockiert', blocked_collection: 'Durch Collection geschützt', blocked_recent: 'Kürzlich angesehen', tracking: 'Beobachtung', missing: 'Nicht vorhanden', outside: 'Außerhalb', readd_blocked: 'Re-Add blockiert', paused: 'Pausiert' },
     reasons: { never_watched: 'Noch nie angesehen', watch_age_met: 'Watch-Alter erreicht', requester_unwatched_180d: 'Ein Anfragender hat den Titel seit 6 Monaten nicht angesehen', global_unwatched_540d: 'Seit 18 Monaten von niemandem angesehen', automatic_rules_met: 'Beide automatischen Watch-Regeln sind ausgereift', observing_requester_unwatched_180d: 'Beobachtung: Ein Anfragender hat den Titel seit 6 Monaten nicht angesehen', observing_global_unwatched_540d: 'Beobachtung: Seit 18 Monaten von niemandem angesehen', observing_automatic_rules: 'Beide automatischen Watch-Regeln werden beobachtet', readd_approved: 'Einmaliges Re-Add freigegeben', already_managed: 'Bereits von Keeparr verwaltet', existing_foreign_member: 'Manuelles Mitglied; Keeparr verändert es nicht', global_keep: 'Durch ein globales Keep geschützt', watched_too_recently: 'Innerhalb des konfigurierten Zeitraums angesehen', missing_from_media_server: 'Auf dem Medienserver nicht mehr verfügbar', watch_cache_untrusted: 'Kein vertrauenswürdiger Watch-Cache für die aktuelle Quelle', outside_selected_library: 'Außerhalb der ausgewählten Maintainerr-Bibliotheken', inventory_unavailable: 'Live-Verfügbarkeit konnte nicht geprüft werden', unexpected_remote_removal: 'Maintainerr hat ein Keeparr-eigenes Mitglied unerwartet entfernt', mass_change: 'Massenschwellwert erreicht', sonarr_archive_workflow: 'Ausgeschlossen, weil Sonarr Episodendateien archiviert, ohne die Serie zu entfernen', release_revoked: 'Freigabe ist nicht mehr aktiv', ownership_stale: 'Ownership-Eintrag vorhanden, Remote-Mitglied fehlt' },
   },
 } as const;

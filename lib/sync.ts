@@ -1,4 +1,5 @@
 import { getBackend, type BackendItem } from './mediaserver';
+import { refreshMovieRatings } from './rating-cache';
 import {
   isServerConfigured,
   isTautulliConfigured,
@@ -408,7 +409,12 @@ export async function syncArr(): Promise<JobResult> {
   }
   for (const inst of getRadarrInstances()) {
     try {
-      ingest(await fetchRadarr(inst), tmdbMap);
+      const records = await fetchRadarr(inst);
+      refreshMovieRatings(inst.id, records.flatMap((record) => {
+        const ratingKey = tmdbMap.get(record.matchId) ?? (record.imdbId ? imdbMap.get(record.imdbId) : undefined);
+        return ratingKey ? [{ ratingKey, ratings: record.ratings ?? [] }] : [];
+      }));
+      ingest(records, tmdbMap);
       ok++;
     } catch {
       errors++;

@@ -3,6 +3,7 @@ import type { MaintainerrAutomaticRules } from './maintainerr-rules';
 import type { MaintainerrPreviewItem } from './maintainerr';
 
 const reasons: Record<string, [string, string]> = {
+  rating_protected: ['Protected by IMDb/TMDB rating', 'Durch IMDb-/TMDB-Bewertung geschützt'],
   never_watched: ['Never watched', 'Noch nie angesehen'],
   watch_age_met: ['Watch-age threshold met', 'Watch-Alter erreicht'],
   automatic_rules_met: ['Both automatic watch rules matured', 'Beide automatischen Watch-Regeln sind ausgereift'],
@@ -30,11 +31,15 @@ const reasons: Record<string, [string, string]> = {
 
 /** Presentation only. Rules and decisions always come from the actual plan. */
 export function decisionReasonLabel(
-  item: Pick<MaintainerrPreviewItem, 'reason' | 'libraryKind'>,
+  item: Pick<MaintainerrPreviewItem, 'reason' | 'libraryKind' | 'ratings'>,
   locale: Locale,
   automaticRules?: MaintainerrAutomaticRules,
 ): string {
   const de = locale === 'de';
+  if (item.reason === 'rating_protected' && item.ratings?.length) {
+    return `${de ? 'Bewertungsschutz' : 'Rating protection'}: ` + item.ratings.map((rating) =>
+      `${rating.source === 'imdb' ? 'IMDb' : 'TMDB'} ${rating.score.toLocaleString(de ? 'de-DE' : 'en-US')}/10 · ${rating.votes.toLocaleString(de ? 'de-DE' : 'en-US')} ${de ? 'Stimmen' : 'votes'} (${de ? 'Radarr-Abruf' : 'Radarr fetched'} ${new Date(rating.fetchedAt * 1000).toISOString().slice(0, 10)})`).join('; ');
+  }
   const rules = automaticRules?.[item.libraryKind];
   const observing = item.reason.startsWith('observing_');
   const rule = observing ? item.reason.slice('observing_'.length) : item.reason;
@@ -58,6 +63,7 @@ export function decisionStatusLabel(status: MaintainerrPreviewItem['status'], lo
     remove: ['Planned membership removal', 'Mitgliedschaft entfernen geplant'],
     managed: ['Managed', 'Verwaltet'], manual: ['Not managed by Keeparr', 'Nicht von Keeparr verwaltet'],
     blocked_keep: ['Keep blocked', 'Durch Keep blockiert'],
+    blocked_rating: ['Rating protected', 'Durch Bewertung geschützt'],
     blocked_collection: ['Collection protected', 'Durch Collection geschützt'], blocked_recent: ['Recently watched', 'Kürzlich angesehen'],
     tracking: ['Observing', 'Beobachtung'], missing: ['Missing', 'Nicht vorhanden'],
     outside: ['Outside selected libraries', 'Außerhalb ausgewählter Bibliotheken'],
@@ -73,6 +79,6 @@ export function collectionProtectionTooltip(
   if (!item.collectionBlockers?.length) return undefined;
   return [locale === 'de' ? 'Schützende Filme der Plex-Collection:' : 'Protecting movies in the Plex collection:',
     ...item.collectionBlockers.map((blocker) =>
-      `${blocker.title}${blocker.year !== null ? ` (${blocker.year})` : ''} — ${decisionReasonLabel({ reason: blocker.reason, libraryKind: 'movie' }, locale)}`),
+      `${blocker.title}${blocker.year !== null ? ` (${blocker.year})` : ''} — ${decisionReasonLabel({ reason: blocker.reason, ratings: blocker.ratings, libraryKind: 'movie' }, locale)}`),
   ].join('\n');
 }

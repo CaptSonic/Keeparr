@@ -1,3 +1,32 @@
+# Optional IMDb/TMDB movie protection
+
+Settings → Connections → Maintainerr includes separate opt-in IMDb and TMDB
+protection. Both sources default to disabled. Suggested thresholds are prefilled:
+IMDb ≥ 8.0 with ≥ 10,000 votes; TMDB ≥ 8.0 with ≥ 1,000 votes. Either enabled
+source meeting both thresholds protects a movie from automatic hand-off.
+Ratings are read from Radarr during the Sonarr/Radarr job; no IMDb/TMDB API keys,
+user Keeps, or Radarr tags are created.
+
+A highly rated movie also protects the other movies in its real Plex collections,
+including protection propagated through overlapping collections. Maintainerr
+destination queues and the existing excluded collection types remain excluded.
+The Control Center distinguishes rating protection from Keeps and lists the
+protecting movie, source, score, votes, and Radarr retrieval date in collection details.
+The retrieval date is not the provider's rating-update date.
+
+Ratings are cached separately per Radarr instance. Any configured instance can
+confirm protection; score and votes are never mixed across instances. A failed
+refresh or missing/malformed rating retains the last valid value without expiry.
+A valid newer pair replaces it, even if below the protection thresholds. A
+successful full instance read that no longer contains a movie removes that
+instance's cached ratings for it. Removed instances do not contribute protection.
+Before the first successful rating sync, an unknown score grants no rating protection.
+
+As with existing collection protection, an explicit manual release bypasses rating
+protection for that title only, subject to the existing watch-age checks. A real
+user Keep always wins. Disabling rating protection does not create a release;
+normal rules and safeguards still apply.
+
 # Maintainerr: Sonarr → Sonarr4k follow-up deletion
 
 Follow-up cleanup rechecks its durable authorization immediately before deletion,

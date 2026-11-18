@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { defaultRatingProtection, type RatingProtectionConfig } from '@/lib/rating-protection';
 import { defaultMaintainerrRules, type MaintainerrAutomaticRules } from '@/lib/maintainerr-rules';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { formatBytes, formatNumber } from '@/lib/i18n';
@@ -304,6 +305,7 @@ export default function ConnectionsPanel() {
   const [maintainerrWatchAgeDays, setMaintainerrWatchAgeDays] = useState(180);
   const [maintainerrObservationDays, setMaintainerrObservationDays] = useState(30);
   const [maintainerrAutomaticRules, setMaintainerrAutomaticRules] = useState<MaintainerrAutomaticRules>(defaultMaintainerrRules);
+  const [ratingProtection, setRatingProtection] = useState<RatingProtectionConfig>(defaultRatingProtection);
   const [maintainerrCollections, setMaintainerrCollections] = useState<MaintainerrCollection[]>([]);
 
   const [servers, setServers] = useState<DiscoveredServer[] | null>(null);
@@ -355,6 +357,7 @@ export default function ConnectionsPanel() {
     setMaintainerrWatchAgeDays(d.maintainerr?.watchAgeDays ?? 180);
     setMaintainerrObservationDays(d.maintainerr?.observationDays ?? 30);
     setMaintainerrAutomaticRules(d.maintainerr?.automaticRules ?? defaultMaintainerrRules(d.maintainerr?.observationDays ?? 30));
+    setRatingProtection(d.maintainerr?.ratingProtection ?? defaultRatingProtection());
     setSections(d.sections ?? []);
     const mgd: string[] = d.managedSectionIds ?? [];
     setAllManaged(mgd.length === 0);
@@ -587,6 +590,7 @@ export default function ConnectionsPanel() {
             watchAgeDays: maintainerrWatchAgeDays,
             observationDays: maintainerrObservationDays,
             automaticRules: maintainerrAutomaticRules,
+            ratingProtection,
             enabled: maintainerrEnabled,
           },
           managedSectionIds: allManaged ? [] : [...managed],
@@ -1056,6 +1060,26 @@ export default function ConnectionsPanel() {
         <p className="mt-2 text-xs text-slate-500">{de
           ? 'Eine aktivierte Regel genügt. Noch nie angesehene Titel zählen ebenfalls. Keep bleibt immer geschützt. Änderungen starten die Beobachtung der betroffenen Medienart neu und verwerfen Einmalfreigaben. Sonarr-Archivserien bleiben ausgeschlossen.'
           : 'Either enabled rule can qualify a title. Never-watched titles also qualify. Keep always wins. Changes restart observation for the affected media type and clear one-time approvals. Sonarr archive shows remain excluded.'}</p>
+        <fieldset className="mt-4 rounded border border-slate-700 p-3">
+          <legend className="px-2 text-sm font-medium">{de ? 'Bewertungsschutz für Filme' : 'Movie rating protection'}</legend>
+          {(['imdb', 'tmdb'] as const).map((source) => {
+            const rule = ratingProtection[source];
+            const update = (patch: Partial<typeof rule>) => setRatingProtection((previous) => ({ ...previous, [source]: { ...previous[source], ...patch } }));
+            return <div key={source} className="mt-2 flex flex-wrap items-end gap-3">
+              <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={rule.enabled}
+                onChange={(event) => update({ enabled: event.target.checked })} />{source === 'imdb' ? 'IMDb' : 'TMDB'}</label>
+              <label className="text-xs text-slate-400">{de ? 'Mindestbewertung (0–10)' : 'Minimum score (0–10)'}
+                <input className={`${inputCls} mt-1 w-28`} type="number" min={0} max={10} step={0.1} disabled={!rule.enabled}
+                  value={rule.minimumScore} onChange={(event) => update({ minimumScore: Number(event.target.value) })} /></label>
+              <label className="text-xs text-slate-400">{de ? 'Mindeststimmen' : 'Minimum votes'}
+                <input className={`${inputCls} mt-1 w-32`} type="number" min={1} step={1} disabled={!rule.enabled}
+                  value={rule.minimumVotes} onChange={(event) => update({ minimumVotes: Number(event.target.value) })} /></label>
+            </div>;
+          })}
+          <p className="mt-3 text-xs text-slate-500">{de
+            ? 'Eine Quelle genügt. Bewertungen kommen beim Sonarr/Radarr-Sync aus Radarr. Geschützte Filme schützen auch ihre Plex-Collections einschließlich Überlappungen. Keine Keeps oder Tags werden angelegt. Fehlende Werte behalten den letzten gültigen Stand. Ausdrückliche manuelle Freigaben übergehen diesen Schutz nur für den freigegebenen Titel; Keeps bleiben vorrangig.'
+            : 'Either source qualifies. Ratings arrive from Radarr during Sonarr/Radarr sync. Protected movies also protect their Plex collections, including overlaps. No Keeps or tags are created. Missing values retain the last valid data. Explicit manual releases bypass this protection only for the released title; Keeps still win.'}</p>
+        </fieldset>
         <label className="mt-4 flex items-start gap-3 text-sm text-slate-300">
           <input
             type="checkbox"

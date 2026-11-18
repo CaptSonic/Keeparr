@@ -1,6 +1,9 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { __closeDb, __setTestDbToMemory } from './db';
 import { getJobProgress } from './job-progress';
+import { refreshMovieRatings } from './rating-cache';
+import { mergeRatingProtection } from './rating-protection';
+import { setRadarrInstances } from './settings';
 import {
   addKeep,
   addDelete,
@@ -640,6 +643,51 @@ describe('Maintainerr safe hand-off', () => {
     vi.setSystemTime((BASE + 571 * 86400) * 1000);
     await syncMaintainerr();
     expect([...remote.members.get(10)!].sort()).toEqual(['movie-1', 'requester-movie']);
+  });
+
+  it('propagates rating protection through overlapping collections without creating Keeps', async () => {
+    plexCollectionMedia();
+    setRadarrInstances([{ id: 'r1', name: 'Radarr', url: 'http://radarr', apiKey: 'key' }]);
+    setMaintainerrConfig({ ...getMaintainerrConfig(), ratingProtection: mergeRatingProtection({ imdb: { enabled: true } }) });
+    refreshMovieRatings('r1', [{ ratingKey: 'movie-1', ratings: [{ source: 'imdb', score: 8.4, votes: 25000 }] }]);
+    fakeBackend.movieCollections = async () => [['requester-movie', 'bridge'], ['bridge', 'movie-1']];
+    const remote = mockMaintainerr();
+    await syncMaintainerr();
+    vi.setSystemTime((BASE + 30 * 86400) * 1000);
+    const preview = await previewMaintainerr();
+    expect(preview.items).toContainEqual(expect.objectContaining({ ratingKey: 'movie-1', status: 'blocked_rating', reason: 'rating_protected' }));
+    expect(preview.items).toContainEqual(expect.objectContaining({
+      ratingKey: 'requester-movie', status: 'blocked_collection',
+      collectionBlockers: expect.arrayContaining([expect.objectContaining({
+        ratingKey: 'movie-1', reason: 'rating_protected', ratings: [expect.objectContaining({ score: 8.4, votes: 25000, source: 'imdb' })],
+      })]),
+    }));
+    await syncMaintainerr();
+    expect([...remote.members.get(10)!]).toEqual([]);
+  });
+
+  it('allows explicit releases to bypass ratings, but never real Keeps', async () => {
+    requesterReleasedMedia();
+    setRadarrInstances([{ id: 'r1', name: 'Radarr', url: 'http://radarr', apiKey: 'key' }]);
+    setMaintainerrConfig({ ...getMaintainerrConfig(), ratingProtection: mergeRatingProtection({ imdb: { enabled: true } }) });
+    refreshMovieRatings('r1', [{ ratingKey: 'requester-movie', ratings: [{ source: 'imdb', score: 9, votes: 50000 }] }]);
+    mockMaintainerr();
+    expect((await previewMaintainerr()).items).toContainEqual(expect.objectContaining({ ratingKey: 'requester-movie', status: 'add' }));
+    addKeep('protector', 'requester-movie');
+    expect((await previewMaintainerr()).items).toContainEqual(expect.objectContaining({ ratingKey: 'requester-movie', status: 'blocked_keep' }));
+  });
+
+  it('withdraws rating-protected automatic owned members but not foreign members', async () => {
+    plexCollectionMedia();
+    fakeBackend.movieCollections = async () => [];
+    setRadarrInstances([{ id: 'r1', name: 'Radarr', url: 'http://radarr', apiKey: 'key' }]);
+    setMaintainerrConfig({ ...getMaintainerrConfig(), ratingProtection: mergeRatingProtection({ tmdb: { enabled: true } }) });
+    refreshMovieRatings('r1', [{ ratingKey: 'requester-movie', ratings: [{ source: 'tmdb', score: 8, votes: 1000 }] }]);
+    setMaintainerrManagedItems({ '10': ['requester-movie'] });
+    const remote = mockMaintainerr({ movieMembers: ['requester-movie', 'movie-1'] });
+    expect((await previewMaintainerr()).items).toContainEqual(expect.objectContaining({ ratingKey: 'requester-movie', status: 'remove', reason: 'rating_protected' }));
+    await syncMaintainerr();
+    expect([...remote.members.get(10)!]).toEqual(['movie-1']);
   });
 
   it('withdraws owned automatic members but leaves foreign members untouched', async () => {

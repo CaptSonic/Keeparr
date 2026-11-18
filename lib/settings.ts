@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { defaultRatingProtection, mergeRatingProtection, type RatingProtectionConfig } from './rating-protection';
 import { deleteSetting, getSetting, setSetting, resetMaintainerrRuleTracking } from './queries';
 import { defaultMaintainerrRules, mergeMaintainerrRules, type MaintainerrAutomaticRules } from './maintainerr-rules';
 import { decryptSecret, encryptSecret } from './crypto';
@@ -408,6 +409,7 @@ export const setAutomationBridgeEnabled = (enabled: boolean) =>
 
 // --- Maintainerr hand-off (membership sync only; no handling/deletion calls) ---
 export interface MaintainerrConfig {
+  ratingProtection?: RatingProtectionConfig;
   url: string;
   movieCollectionId: number | null;
   showCollectionId: number | null;
@@ -452,6 +454,10 @@ export function getMaintainerrConfig(): MaintainerrConfig {
   };
   return {
     url: readSetting('maintainerr_url') ?? '',
+    ratingProtection: (() => {
+      try { return mergeRatingProtection(JSON.parse(readSetting('maintainerr_rating_protection') ?? '{}')); }
+      catch { return defaultRatingProtection(); }
+    })(),
     movieCollectionId: positiveId(readSetting('maintainerr_movie_collection_id')),
     showCollectionId: positiveId(readSetting('maintainerr_show_collection_id')),
     movieCollectionIds: collectionIds('movie'),
@@ -476,6 +482,7 @@ export function setMaintainerrConfig(
 ): void {
   const url = config.url.trim().replace(/\/$/, '');
   const previous = getMaintainerrConfig();
+  const ratingProtection = mergeRatingProtection(config.ratingProtection ?? previous.ratingProtection ?? {});
   const movieCollectionIds = config.movieCollectionIds ?? (config.movieCollectionId === null ? [] : [config.movieCollectionId]);
   const showCollectionIds = config.showCollectionIds ?? (config.showCollectionId === null ? [] : [config.showCollectionId]);
   const ids = [...movieCollectionIds, ...showCollectionIds];
@@ -512,6 +519,7 @@ export function setMaintainerrConfig(
   writeSetting('maintainerr_observation_days', String(observationDays));
   writeSetting('maintainerr_enabled', config.enabled ? 'true' : 'false');
   writeSetting('maintainerr_automatic_rules', JSON.stringify(automaticRules));
+  writeSetting('maintainerr_rating_protection', JSON.stringify(ratingProtection));
   const changedKinds = (['movie', 'show'] as const).filter((kind) =>
     JSON.stringify(previous.automaticRules[kind]) !== JSON.stringify(automaticRules[kind]));
   if (changedKinds.length > 0) resetMaintainerrRuleTracking(changedKinds);
@@ -521,7 +529,8 @@ export function setMaintainerrConfig(
     JSON.stringify(previous.showCollectionIds) !== JSON.stringify(showCollectionIds) ||
     previous.watchAgeDays !== config.watchAgeDays ||
     previous.observationDays !== observationDays ||
-    previous.enabled !== config.enabled || changedKinds.length > 0
+    previous.enabled !== config.enabled || changedKinds.length > 0 ||
+    JSON.stringify(previous.ratingProtection) !== JSON.stringify(ratingProtection)
   ) {
     deleteSetting('maintainerr_safety_state');
   }

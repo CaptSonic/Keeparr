@@ -1,4 +1,7 @@
 import { createHash } from 'node:crypto';
+import { protectedMovieRatings, type CachedMovieRating } from './rating-cache';
+import { defaultRatingProtection } from './rating-protection';
+import { getRadarrInstances } from './settings';
 import { performance } from 'node:perf_hooks';
 import { mapConcurrent } from './concurrency';
 import { PreviewCache } from './preview-cache';
@@ -262,6 +265,7 @@ export type MaintainerrPreviewStatus =
   | 'manual'
   | 'blocked_keep'
   | 'blocked_collection'
+  | 'blocked_rating'
   | 'blocked_recent'
   | 'tracking'
   | 'missing'
@@ -281,7 +285,8 @@ export interface MaintainerrPreviewItem {
   reason: string;
   lastWatched: number | null;
   dueAt: number | null;
-  collectionBlockers?: Array<{ ratingKey: string; title: string; year: number | null; reason: string }>;
+  ratings?: CachedMovieRating[];
+  collectionBlockers?: Array<{ ratingKey: string; title: string; year: number | null; reason: string; ratings?: CachedMovieRating[] }>;
 }
 
 export interface MaintainerrPreviewCollection {
@@ -455,6 +460,7 @@ async function liveInventoryCandidates(
 }
 
 const previewStatuses: MaintainerrPreviewStatus[] = [
+  'blocked_rating',
   'add', 'remove', 'managed', 'manual', 'blocked_keep', 'blocked_collection',
   'blocked_recent', 'tracking', 'missing', 'outside', 'readd_blocked', 'paused',
 ];
@@ -677,6 +683,7 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
   const latest = latestWatchedAtByItem();
   for (const id of activeTitles) latest.set(id, generatedAt);
   const cutoff = generatedAt - config.watchAgeDays * 86400;
+  const ratingProtected = protectedMovieRatings(config.ratingProtection ?? defaultRatingProtection(), getRadarrInstances().map((instance) => instance.id));
   const eligibleBeforeCollection = inventory.items.filter((item) => {
     if (archiveExclusions.has(item.ratingKey)) return false;
     const watchedAt = latest.get(item.ratingKey);
@@ -684,7 +691,7 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
     const explicitEligible = item.explicitRelease &&
       (watchedAt == null || watchedAt <= cutoff);
     const automaticEligible = item.dueAt !== null && item.dueAt <= generatedAt;
-    return watchReady && (explicitEligible || automaticEligible);
+    return watchReady && (explicitEligible || (automaticEligible && !ratingProtected.has(item.ratingKey)));
   });
   const collectionBlocked = new Set<string>();
   const collectionCauses = new Map<string, Set<string>>();
@@ -811,6 +818,8 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
       status = 'remove';
       reason = item.kept
         ? 'global_keep'
+        : !explicitEligible && ratingProtected.has(item.ratingKey)
+          ? 'rating_protected'
         : !watchReady
           ? 'watch_cache_untrusted'
           : !inventoryIds.has(item.ratingKey)
@@ -821,6 +830,9 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
     } else if (item.kept) {
       status = 'blocked_keep';
       reason = 'global_keep';
+    } else if (!explicitEligible && ratingProtected.has(item.ratingKey)) {
+      status = 'blocked_rating';
+      reason = 'rating_protected';
     } else if (!inventoryIds.has(item.ratingKey)) {
       status = 'missing';
       reason = 'missing_from_media_server';
@@ -872,6 +884,7 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
       reason,
       lastWatched,
       dueAt: item.dueAt,
+      ...(reason === 'rating_protected' ? { ratings: ratingProtected.get(item.ratingKey) } : {}),
       ...(reason === 'plex_collection_protected' ? {
         collectionBlockers: [...(collectionCauses.get(item.ratingKey) ?? [])]
           .filter((id) => id !== item.ratingKey).sort().map((id) => {
@@ -881,12 +894,14 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
             return {
               ratingKey: id, title: detail?.title ?? candidate?.title ?? `Media ${id}`, year: detail?.year ?? candidate?.year ?? null,
               reason: detail?.kept ? 'global_keep'
+                : ratingProtected.has(id) ? 'rating_protected'
                 : archiveExclusions.has(id) ? 'sonarr_archive_workflow'
                   : watched != null && watched > cutoff ? 'watched_too_recently'
                     : !watchReady ? 'watch_cache_untrusted'
                       : candidate && !inventoryIds.has(id) ? 'missing_from_media_server'
                         : candidate?.dueAt != null && candidate.dueAt > generatedAt ? 'collection_member_observing'
                           : 'collection_member_ineligible',
+              ...(ratingProtected.has(id) ? { ratings: ratingProtected.get(id) } : {}),
             };
           }),
       } : {}),

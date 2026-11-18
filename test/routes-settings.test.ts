@@ -126,6 +126,10 @@ describe('/api/admin/settings', () => {
       movieCollectionIds: [10],
       showCollectionIds: [20, 30],
       watchAgeDays: 365,
+      ratingProtection: {
+        imdb: { enabled: true, minimumScore: 8.2, minimumVotes: 15000 },
+        tmdb: { enabled: false, minimumScore: 8, minimumVotes: 1000 },
+      },
       observationDays: 45,
       automaticRules: {
         movie: { requesterEnabled: true, requesterDays: 90, globalEnabled: false, globalDays: 365, observationDays: 14 },
@@ -163,6 +167,19 @@ describe('/api/admin/settings', () => {
     expect(duplicate.status).toBe(400);
     expect((await duplicate.json()).error).toBe('maintainerr_duplicate_collection');
     expect(getMaintainerrConfig().enabled).toBe(false);
+  });
+
+  it('validates and merges rating protection without resetting the other source', async () => {
+    await loginAs('admin', true);
+    expect((await settingsPut(putReq({ maintainerr: { ratingProtection: { imdb: { enabled: true } } } }))).status).toBe(200);
+    expect(getMaintainerrConfig().ratingProtection?.imdb).toEqual({ enabled: true, minimumScore: 8, minimumVotes: 10000 });
+    expect((await settingsPut(putReq({ maintainerr: { ratingProtection: { tmdb: { enabled: true, minimumScore: 8.5 } } } }))).status).toBe(200);
+    const before = getMaintainerrConfig();
+    for (const value of [null, [], { imdb: { minimumScore: 11 } }, { tmdb: { minimumVotes: 1.5 } }, { imdb: { enabled: 'false' } }]) {
+      expect((await settingsPut(putReq({ maintainerr: { ratingProtection: value } }))).status).toBe(400);
+      expect(getMaintainerrConfig()).toEqual(before);
+    }
+    expect(before.ratingProtection?.imdb.enabled).toBe(true);
   });
 
   it('rejects an invalid Maintainerr watch age', async () => {

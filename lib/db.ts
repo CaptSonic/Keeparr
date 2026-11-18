@@ -34,6 +34,16 @@ export function applySchema(database: Database.Database): void {
 
     -- Per-user keeps. An item is "kept" (protected) if ANYONE keeps it; each user
     -- manages their own keep and can't remove another user's.
+    CREATE TABLE IF NOT EXISTS movie_ratings (
+      rating_key TEXT NOT NULL REFERENCES media_items(rating_key) ON DELETE CASCADE,
+      instance_id TEXT NOT NULL,
+      source TEXT NOT NULL CHECK (source IN ('imdb', 'tmdb')),
+      score REAL NOT NULL CHECK (score >= 0 AND score <= 10),
+      votes INTEGER NOT NULL CHECK (votes > 0),
+      fetched_at INTEGER NOT NULL,
+      PRIMARY KEY (rating_key, instance_id, source)
+    );
+
     CREATE TABLE IF NOT EXISTS keeps (
       plex_user_id TEXT NOT NULL,
       rating_key   TEXT NOT NULL REFERENCES media_items(rating_key) ON DELETE CASCADE,

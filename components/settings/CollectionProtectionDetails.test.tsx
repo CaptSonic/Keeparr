@@ -9,6 +9,18 @@ const item = { title: 'Affected film', collectionBlockers: [
 ] };
 
 describe('CollectionProtectionDetails', () => {
+  it('renders rating evidence and retrieval date for the protecting movie', () => {
+    const html = renderToStaticMarkup(<CollectionProtectionDetails item={{ title: 'Sequel', collectionBlockers: [
+      { ratingKey: 'rated', title: 'Original film', year: 2001, reason: 'rating_protected', ratings: [
+        { source: 'imdb', score: 8.4, votes: 25000, instanceId: 'r1', fetchedAt: 1800000000 },
+      ] },
+    ] }} locale="en" />);
+    expect(html).toContain('Original film (2001)');
+    expect(html).toContain('IMDb 8.4/10');
+    expect(html).toContain('25,000 votes');
+    expect(html).toContain('Radarr fetched 2027-01-15');
+    expect(html).not.toContain('Protected by a global Keep');
+  });
   it('renders collapsed native details with German causes and an item-specific accessible name', () => {
     const html = renderToStaticMarkup(<CollectionProtectionDetails item={item} locale="de" />);
     expect(html).toContain('<details');

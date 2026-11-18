@@ -247,6 +247,22 @@ describe('syncArr per-instance replace', () => {
     ]);
   });
 
+  it('retains Radarr rating protection after a failed or unknown refresh', async () => {
+    vi.mocked(fetchSonarr).mockResolvedValue([]);
+    vi.mocked(fetchRadarr).mockResolvedValue([rec({ ratings: [{ source: 'imdb', score: 9, votes: 50000 }] })]);
+    await syncArr();
+    expect(getDb().prepare('SELECT score, votes FROM movie_ratings WHERE rating_key = ?').get('m1')).toEqual({ score: 9, votes: 50000 });
+    vi.mocked(fetchRadarr).mockRejectedValue(new Error('offline'));
+    await syncArr();
+    expect(getDb().prepare('SELECT score FROM movie_ratings WHERE rating_key = ?').get('m1')).toEqual({ score: 9 });
+    vi.mocked(fetchRadarr).mockResolvedValue([rec({ ratings: [] })]);
+    await syncArr();
+    expect(getDb().prepare('SELECT score FROM movie_ratings WHERE rating_key = ?').get('m1')).toEqual({ score: 9 });
+    vi.mocked(fetchRadarr).mockResolvedValue([]);
+    await syncArr();
+    expect(getDb().prepare('SELECT * FROM movie_ratings').all()).toEqual([]);
+  });
+
   it('keeps a failed instance\'s cached rows while refreshing the healthy one', async () => {
     vi.mocked(fetchSonarr).mockRejectedValue(new Error('down'));
     vi.mocked(fetchRadarr).mockResolvedValue([rec({})]);
