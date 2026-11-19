@@ -1,10 +1,11 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { cookieJar, previewMock, savedMock, pendingMock, approveMassMock, approveReaddMock, syncMock, adoptMock } = vi.hoisted(() => ({
+const { cookieJar, previewMock, savedMock, pendingMock, reviewMock, approveMassMock, approveReaddMock, syncMock, adoptMock } = vi.hoisted(() => ({
   cookieJar: new Map<string, string>(),
   previewMock: vi.fn(),
   savedMock: vi.fn(),
   pendingMock: vi.fn(),
+  reviewMock: vi.fn(),
   approveMassMock: vi.fn(),
   approveReaddMock: vi.fn(),
   syncMock: vi.fn(),
@@ -22,6 +23,7 @@ vi.mock('@/lib/maintainerr', () => ({
   previewMaintainerr: previewMock,
   savedMaintainerrPreview: savedMock,
   listMaintainerrPendingWrites: pendingMock,
+  reviewMaintainerrPendingWrite: reviewMock,
   approveCurrentMaintainerrPlan: approveMassMock,
   approveCurrentMaintainerrReadd: approveReaddMock,
   approveCurrentMaintainerrReadds: approveReaddMock,
@@ -44,6 +46,7 @@ beforeEach(() => {
   previewMock.mockReset();
   savedMock.mockReset();
   pendingMock.mockReset();
+  reviewMock.mockReset();
   approveMassMock.mockReset();
   approveReaddMock.mockReset();
   syncMock.mockReset();
@@ -55,6 +58,28 @@ describe('POST /api/admin/maintainerr-preview', () => {
   const request = (body: unknown) => new Request('http://localhost/api/admin/maintainerr-preview', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+  });
+
+  it('requires an admin, exact intent id and confirmation to close a pending write', async () => {
+    const intentId = 'a'.repeat(64);
+    const close = { action: 'close-pending', intentId, confirmed: true };
+    expect((await POST(request(close))).status).toBe(401);
+    await loginAs('member', false);
+    expect((await POST(request(close))).status).toBe(403);
+    await loginAs('admin', true);
+    expect((await POST(request({ ...close, intentId: 'invalid' }))).status).toBe(400);
+    expect((await POST(request({ ...close, confirmed: false }))).status).toBe(400);
+    expect(reviewMock).not.toHaveBeenCalled();
+    reviewMock.mockResolvedValueOnce({ status: 'not_applied' });
+    expect((await POST(request({ action: 'check-pending', intentId }))).status).toBe(200);
+    expect(reviewMock).toHaveBeenLastCalledWith(intentId, false);
+    reviewMock.mockResolvedValueOnce({ status: 'inconsistent' });
+    const conflict = await POST(request(close));
+    expect(conflict.status).toBe(409);
+    expect(await conflict.json()).toEqual({ status: 'inconsistent' });
+    reviewMock.mockResolvedValueOnce({ status: 'closed' });
+    expect((await POST(request(close))).status).toBe(200);
+    expect(reviewMock).toHaveBeenLastCalledWith(intentId, true);
   });
 
   it('requires admin and a bounded valid explicit adoption selection', async () => {

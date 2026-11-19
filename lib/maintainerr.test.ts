@@ -36,6 +36,7 @@ import {
   approveCurrentMaintainerrReadds,
   previewMaintainerr,
   listMaintainerrPendingWrites,
+  reviewMaintainerrPendingWrite,
   savedMaintainerrPreview,
   syncMaintainerr,
   adoptMaintainerrMembers,
@@ -250,10 +251,80 @@ describe('Maintainerr safe hand-off', () => {
     journalMemberships('http://maintainerr:6246', 10, ['movie-1'], 'add', 'old-plan');
     journalMemberships('http://other:6246', 10, ['foreign'], 'add', 'old-plan');
     expect(listMaintainerrPendingWrites()).toEqual([
-      { ratingKey: 'movie-1', title: 'Movie', year: 2020, collectionId: 10, collectionTitle: null, action: 'add' },
+      { ratingKey: 'movie-1', title: 'Movie', year: 2020, collectionId: 10, collectionTitle: null, action: 'add', intentId: expect.stringMatching(/^[a-f0-9]{64}$/) },
     ]);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(pendingMemberships('http://maintainerr:6246')).toHaveLength(1);
+  });
+
+  it('checks and closes exactly one unapplied intent without remote writes or ownership changes', async () => {
+    const url = 'http://maintainerr:6246';
+    setMaintainerrManagedItems({ '10': ['kept-ownership'] });
+    journalMemberships(url, 10, ['220861', '220862'], 'add', 'old-plan');
+    const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
+      expect(init?.method ?? 'GET').toBe('GET');
+      if (new URL(input).pathname === '/api/collections/collection/10') return json({ ...collections[0], mediaServerId: null, manualCollection: false });
+      return json([]);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const intent = listMaintainerrPendingWrites().find((item) => item.ratingKey === '220861')!;
+    expect(await reviewMaintainerrPendingWrite(intent.intentId, false)).toEqual({ status: 'not_applied' });
+    expect(pendingMemberships(url)).toHaveLength(2);
+    expect(recentMaintainerrHistory()).toEqual([]);
+    expect(await reviewMaintainerrPendingWrite(intent.intentId, true)).toEqual({ status: 'closed' });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(pendingMemberships(url).map((entry) => entry.ratingKey)).toEqual(['220862']);
+    expect(getMaintainerrManagedItems()).toEqual({ '10': ['kept-ownership'] });
+    expect(recentMaintainerrHistory()).toMatchObject([{ eventType: 'pending_closed', ratingKey: '220861' }]);
+    journalMemberships(url, 10, ['220861'], 'add', 'old-plan');
+    await expect(reviewMaintainerrPendingWrite(intent.intentId, true)).rejects.toThrow('stale');
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(pendingMemberships(url)).toHaveLength(2);
+  });
+
+  it.each([
+    [false, false, 'closed'],
+    [true, true, 'applied'],
+    [false, true, 'inconsistent'],
+    [true, false, 'inconsistent'],
+    [false, null, 'unverifiable'],
+  ] as const)('rechecks linked collection on close: Maintainerr %s, Plex %s → %s', async (maintainerrPresent, plexPresent, expected) => {
+    const url = 'http://maintainerr:6246';
+    writeSetting('plex_base_url', 'http://plex:32400');
+    writeSetting('plex_server_token', 'test-plex-token');
+    journalMemberships(url, 10, ['220861'], 'add', 'old-plan');
+    const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
+      expect(init?.method ?? 'GET').toBe('GET');
+      const path = new URL(input).pathname;
+      if (path === '/api/collections/collection/10') return json({
+        ...collections[0], libraryId: '7', keepInMaintainerrOnly: false, mediaServerId: '275807', mediaServerType: 'plex',
+      });
+      if (path === '/api/collections/media/') return json(maintainerrPresent ? [{ mediaServerId: '220861' }] : []);
+      if (path === '/library/metadata/275807') return json({ MediaContainer: {
+        librarySectionID: 7, Metadata: [{ ratingKey: '275807', type: 'collection' }],
+      } });
+      if (path === '/library/collections/275807/children') return json({ MediaContainer: {
+        size: plexPresent ? 1 : 0, totalSize: plexPresent === false ? 0 : 1,
+        ...(plexPresent && { Metadata: [{ ratingKey: '220861' }] }),
+      } });
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await reviewMaintainerrPendingWrite(listMaintainerrPendingWrites()[0].intentId, true)).toEqual({ status: expected });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(pendingMemberships(url)).toHaveLength(expected === 'closed' ? 0 : 1);
+    expect(getMaintainerrManagedItems()).toEqual({});
+  });
+
+  it('leaves a pending removal and its ownership unchanged when Maintainerr is offline', async () => {
+    const url = 'http://maintainerr:6246';
+    setMaintainerrManagedItems({ '10': ['220861'] });
+    journalMemberships(url, 10, ['220861'], 'remove', 'old-plan');
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Maintainerr offline')));
+    expect(await reviewMaintainerrPendingWrite(listMaintainerrPendingWrites()[0].intentId, true)).toEqual({ status: 'unverifiable' });
+    expect(pendingMemberships(url)).toHaveLength(1);
+    expect(getMaintainerrManagedItems()).toEqual({ '10': ['220861'] });
+    expect(recentMaintainerrHistory()).toEqual([]);
   });
 
   it('keeps pending ids visible when the hand-off is not configured', async () => {

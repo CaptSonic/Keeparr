@@ -292,6 +292,7 @@ export function applySchema(database: Database.Database): void {
       action TEXT NOT NULL CHECK (action IN ('add', 'remove')),
       plan_hash TEXT NOT NULL,
       created_at INTEGER NOT NULL,
+      intent_nonce TEXT,
       PRIMARY KEY (instance_url, collection_id, rating_key)
     );
 
@@ -376,6 +377,10 @@ export function applySchema(database: Database.Database): void {
 
 /** Idempotent column migrations for databases created before a column existed. */
 function migrate(database: Database.Database): void {
+  const pendingColumns = database.prepare('PRAGMA table_info(maintainerr_pending_writes)').all() as { name: string }[];
+  if (!pendingColumns.some((column) => column.name === 'intent_nonce')) {
+    database.exec('ALTER TABLE maintainerr_pending_writes ADD COLUMN intent_nonce TEXT');
+  }
   const cols = database
     .prepare(`PRAGMA table_info(users)`)
     .all() as { name: string }[];

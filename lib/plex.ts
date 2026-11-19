@@ -546,6 +546,49 @@ export async function getSectionItems(
 
 /** Read actual collection membership, including smart collections, without
  * relying on movie tags (which do not describe smart collection membership). */
+/** Read one explicitly linked Plex collection. Incomplete data cannot prove absence. */
+export async function plexCollectionHasMember(
+  baseUrl: string, token: string, collectionId: string, sectionId: string, ratingKey: string,
+): Promise<boolean> {
+  const root = `/library/metadata/${encodeURIComponent(collectionId)}`;
+  const metadata = await pmsGet<{ MediaContainer?: { librarySectionID?: string | number; Metadata?: Array<{
+    ratingKey?: string | number; type?: string; librarySectionID?: string | number; childCount?: number;
+  }> } }>(baseUrl, root, token);
+  const rows = metadata.MediaContainer?.Metadata;
+  const collection = rows?.[0];
+  if (!Array.isArray(rows) || rows.length !== 1 || !collection || collection.type !== 'collection' ||
+      String(collection.ratingKey) !== collectionId ||
+      String(collection.librarySectionID ?? metadata.MediaContainer?.librarySectionID) !== sectionId) {
+    throw new Error('Plex collection identity could not be verified.');
+  }
+  const path = `/library/collections/${encodeURIComponent(collectionId)}/children`;
+  const seen = new Set<string>();
+  let expectedTotal: number | undefined;
+  for (let page = 0; page < 100; page++) {
+    const offset = seen.size;
+    const { MediaContainer: container } = await pmsGet<{ MediaContainer?: {
+      size?: number; totalSize?: number; offset?: number; Metadata?: Array<{ ratingKey?: string | number }>;
+    } }>(baseUrl, `${path}?X-Plex-Container-Start=${offset}&X-Plex-Container-Size=200`, token);
+    const batch = container?.Metadata === undefined ? [] : container.Metadata;
+    const total = container?.totalSize ?? collection.childCount;
+    if (!container || !Array.isArray(batch) || typeof total !== 'number' || !Number.isSafeInteger(total) || total < offset + batch.length ||
+        (container.size !== undefined && container.size !== batch.length) ||
+        (container.offset !== undefined && container.offset !== offset) ||
+        (expectedTotal !== undefined && expectedTotal !== total)) {
+      throw new Error('Plex returned incomplete collection membership.');
+    }
+    expectedTotal = total;
+    for (const member of batch) {
+      const id = String(member?.ratingKey ?? '');
+      if (!/^\d+$/.test(id) || seen.has(id)) throw new Error('Plex returned invalid collection membership.');
+      seen.add(id);
+    }
+    if (seen.size === total) return seen.has(ratingKey);
+    if (batch.length === 0) break;
+  }
+  throw new Error('Plex returned incomplete collection membership.');
+}
+
 export async function getMovieCollections(
   baseUrl: string, token: string, sectionId: string, diagnostics?: CollectionReadDiagnostics,
   excludedTitles: readonly string[] = [],

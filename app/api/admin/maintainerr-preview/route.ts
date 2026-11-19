@@ -5,6 +5,7 @@ import {
   approveCurrentMaintainerrReadd,
   approveCurrentMaintainerrReadds,
   listMaintainerrPendingWrites,
+  reviewMaintainerrPendingWrite,
   previewMaintainerr,
   savedMaintainerrPreview,
   syncMaintainerr,
@@ -49,7 +50,21 @@ export async function POST(request: Request) {
       planHash?: unknown;
       operations?: unknown;
       members?: unknown;
+      intentId?: unknown;
+      confirmed?: unknown;
     };
+    if (body.action === 'check-pending' || body.action === 'close-pending') {
+      const close = body.action === 'close-pending';
+      if (typeof body.intentId !== 'string' || !/^[a-f0-9]{64}$/.test(body.intentId) ||
+          (close && body.confirmed !== true)) {
+        return NextResponse.json({ error: 'bad_request' }, { status: 400 });
+      }
+      const result = await reviewMaintainerrPendingWrite(body.intentId, close);
+      return NextResponse.json(result, {
+        status: close && result.status !== 'closed' ? 409 : 200,
+        headers: { 'Cache-Control': 'no-store' },
+      });
+    }
     if (body.action === 'adopt-members' || body.action === 'approve-readds') {
       if (!Array.isArray(body.members) || body.members.length === 0 || body.members.length > 10000 ||
           !body.members.every((member) => member && Number.isSafeInteger(member.collectionId) &&
@@ -107,6 +122,7 @@ export async function POST(request: Request) {
       error.message === 'Maintainerr adoption is stale.' ||
       error.message === 'Maintainerr mutation already running.' ||
       error.message === 'Maintainerr mass approval is stale.' ||
+      error.message === 'Maintainerr pending intent is stale.' ||
       error.message === 'Maintainerr plan is not mass-blocked.' ||
       error.message === 'Maintainerr re-add is not currently blocked.'
     )) {

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { getDb } from './db';
 
 export interface PendingMembership {
@@ -5,11 +6,15 @@ export interface PendingMembership {
   ratingKey: string;
   action: 'add' | 'remove';
   planHash: string;
+  createdAt: number;
+  rowId: number;
+  nonce: string | null;
 }
 
 export function pendingMemberships(url: string): PendingMembership[] {
   return getDb().prepare(`SELECT collection_id AS collectionId, rating_key AS ratingKey,
-    action, plan_hash AS planHash FROM maintainerr_pending_writes WHERE instance_url = ?`)
+    action, plan_hash AS planHash, created_at AS createdAt, rowid AS rowId, intent_nonce AS nonce
+    FROM maintainerr_pending_writes WHERE instance_url = ?`)
     .all(url) as PendingMembership[];
 }
 
@@ -17,10 +22,10 @@ export function journalMemberships(url: string, collectionId: number, ids: strin
   action: 'add' | 'remove', planHash: string): void {
   const db = getDb();
   const insert = db.prepare(`INSERT INTO maintainerr_pending_writes
-    (instance_url, collection_id, rating_key, action, plan_hash, created_at)
-    VALUES (?, ?, ?, ?, ?, ?)`);
+    (instance_url, collection_id, rating_key, action, plan_hash, created_at, intent_nonce)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`);
   db.transaction(() => {
-    for (const id of ids) insert.run(url, collectionId, id, action, planHash, Math.floor(Date.now() / 1000));
+    for (const id of ids) insert.run(url, collectionId, id, action, planHash, Math.floor(Date.now() / 1000), randomUUID());
   })();
 }
 

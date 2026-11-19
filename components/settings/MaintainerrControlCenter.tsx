@@ -5,7 +5,8 @@ import { formatDate, formatNumber, formatRelativeTime } from '@/lib/i18n';
 import { collectionProtectionTooltip, decisionReasonLabel } from '@/lib/decision-labels';
 import type {
   MaintainerrPreview,
-  MaintainerrPendingWrite,
+  MaintainerrJournalItem,
+  MaintainerrPendingCheck,
   MaintainerrPreviewItem,
   MaintainerrPreviewStatus,
 } from '@/lib/maintainerr';
@@ -83,6 +84,7 @@ function actionLabel(action: string, de: boolean): string {
   const labels: Record<string, [string, string]> = {
     add: ['Add', 'Hinzufügen'],
     remove: ['Remove', 'Entfernen'],
+    close: ['Close intent', 'Auftrag schließen'],
     approve: ['Approve', 'Freigeben'],
     adopt: ['Adopt management', 'Verwaltung übernehmen'],
     none: ['Blocked', 'Blockiert'],
@@ -95,8 +97,10 @@ export default function MaintainerrControlCenter() {
   const { locale } = useLocale();
   const text = labels[locale];
   const [data, setData] = useState<MaintainerrPreview | null>(null);
-  const [pendingWrites, setPendingWrites] = useState<MaintainerrPendingWrite[]>([]);
+  const [pendingWrites, setPendingWrites] = useState<MaintainerrJournalItem[]>([]);
   const [pendingUnavailable, setPendingUnavailable] = useState(false);
+  const [pendingBusy, setPendingBusy] = useState(false);
+  const [pendingResult, setPendingResult] = useState<{ id: string; status: MaintainerrPendingCheck | 'closed' | 'failed' } | null>(null);
   const [filter, setFilter] = useState<'all' | MaintainerrPreviewStatus>('all');
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
@@ -118,6 +122,7 @@ export default function MaintainerrControlCenter() {
     const id = ++loadId.current;
     let liveFinished = false;
     setLoading(true);
+    setPendingResult(null);
     setError('');
     setSelected(new Set());
     setAdoptSelected(new Set());
@@ -167,6 +172,32 @@ export default function MaintainerrControlCenter() {
       pollRef.current = null;
     };
   }, [load]);
+
+  async function reviewPending(entry: MaintainerrJournalItem, close: boolean) {
+    if (pendingBusy || pendingUnavailable || running || approving) return;
+    if (close && !window.confirm(locale === 'de'
+      ? `Auftrag für ${entry.title ?? entry.ratingKey} nach erneuter Live-Prüfung schließen? Bestätige nur, wenn die frühere Verarbeitung beendet ist. Es wird nichts hinzugefügt, entfernt oder als erfolgreich verbucht.`
+      : `Close the intent for ${entry.title ?? entry.ratingKey} after another live check? Confirm only once the previous operation has finished processing. Nothing is added, removed, or recorded as successful.`)) return;
+    setPendingBusy(true);
+    setPendingResult(null);
+    try {
+      const response = await fetch('/api/admin/maintainerr-preview', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: close ? 'close-pending' : 'check-pending', intentId: entry.intentId, confirmed: close }),
+      });
+      const { status } = await response.json();
+      if (!['applied', 'not_applied', 'inconsistent', 'unverifiable', 'closed'].includes(status)) throw new Error('pending_review_failed');
+      if (status === 'closed') {
+        setPendingWrites((previous) => previous.filter((item) => item.intentId !== entry.intentId));
+        void load();
+      }
+      setPendingResult({ id: entry.intentId, status });
+    } catch {
+      setPendingResult({ id: entry.intentId, status: 'failed' });
+    } finally {
+      setPendingBusy(false);
+    }
+  }
 
   async function runNow() {
     if (!data || data.snapshot || loading || running || approving) return;
@@ -332,6 +363,9 @@ export default function MaintainerrControlCenter() {
         </div>
       </div>
       {error && <div className="mb-4 rounded-lg border border-red-800 bg-red-950/30 p-3 text-sm text-red-300">{error}</div>}
+      {pendingResult?.status === 'closed' && <p role="status" className="mb-4 text-sm text-emerald-300">{locale === 'de'
+        ? 'Auftrag geschlossen. Eine neue Übergabe muss die normalen Schutzprüfungen durchlaufen.'
+        : 'Intent closed. A new hand-off must pass the normal safety checks.'}</p>}
       <div className="mb-4"><MaintainerrJobProgress /></div>
       {data?.snapshot && <div className="mb-4 rounded-lg border border-cyan-800 bg-cyan-950/30 p-3 text-sm text-cyan-300">
         {locale === 'de'
@@ -351,6 +385,19 @@ export default function MaintainerrControlCenter() {
           {pendingWrites.map((entry) => <li key={`${entry.collectionId}:${entry.ratingKey}`} className="rounded border border-amber-800/60 p-2">
             <div className="font-medium">{entry.title || (locale === 'de' ? 'Unbekannter Titel' : 'Unknown title')}{entry.year != null ? ` (${entry.year})` : ''}</div>
             <div className="break-words text-xs">{actionLabel(entry.action, locale === 'de')} · {(!data?.snapshot && data?.pendingWriteItems?.find((item) => item.collectionId === entry.collectionId)?.collectionTitle) || text.collection} (#{entry.collectionId}) · {locale === 'de' ? 'Medien-ID' : 'Media ID'}: {entry.ratingKey}</div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button type="button" className={btnGhost} disabled={pendingBusy || pendingUnavailable || running || approving} onClick={() => void reviewPending(entry, false)}>{locale === 'de' ? 'Erneut prüfen' : 'Check again'}</button>
+              {pendingResult?.id === entry.intentId && pendingResult.status === 'not_applied' &&
+                <button type="button" className={btnGhost} disabled={pendingBusy || pendingUnavailable || running || approving} onClick={() => void reviewPending(entry, true)}>{locale === 'de' ? 'Auftrag schließen' : 'Close intent'}</button>}
+            </div>
+            {pendingResult?.id === entry.intentId && <p role="status" className="mt-2 text-xs">{({
+              applied: locale === 'de' ? 'Erwarteter Zustand sichtbar. Der nächste Übergabejob kann den Eintrag abgleichen.' : 'Expected state observed. The next hand-off can reconcile this intent.',
+              not_applied: locale === 'de' ? 'Der erwartete Zustand war bei der Prüfung nicht sichtbar.' : 'The expected state was not observed.',
+              inconsistent: locale === 'de' ? 'Maintainerr und Plex melden unterschiedliche Zustände. Der Auftrag bleibt offen.' : 'Maintainerr and Plex disagree. The intent stays open.',
+              unverifiable: locale === 'de' ? 'Zustand konnte nicht sicher geprüft werden. Der Auftrag bleibt offen.' : 'Could not verify the state. The intent stays open.',
+              failed: locale === 'de' ? 'Auftrag konnte nicht geprüft werden. Bitte das Journal aktualisieren.' : 'Could not review the intent. Refresh the journal.',
+              closed: '',
+            })[pendingResult.status]}</p>}
           </li>)}
         </ul></>}
       </div>}
@@ -495,7 +542,7 @@ export default function MaintainerrControlCenter() {
       </Card>
       <Card title={text.history}>
         <input value={historyFilter} onChange={(event) => setHistoryFilter(event.target.value)} placeholder={text.historyFilter} className="mb-3 w-full rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-sm focus:border-brand focus:outline-none" />
-        {history.length === 0 ? <p className="text-sm text-slate-500">{text.noHistory}</p> : <div className="max-h-96 overflow-y-auto divide-y divide-slate-800 text-sm">{history.map((event) => <div key={event.id} className="grid gap-1 py-2 sm:grid-cols-[10rem_1fr_8rem_10rem_12rem]"><span className="text-slate-500">{formatDate(event.ts * 1000, locale, { dateStyle: 'short', timeStyle: 'medium' })}</span><span className="text-slate-200">{event.title ?? event.ratingKey ?? event.eventType}</span><span className="text-slate-400">{actionLabel(event.action, locale === 'de')}</span><span className="text-slate-400">{event.collectionTitle ?? '—'}</span><span className="text-slate-400">{text.reasons[event.reason as keyof typeof text.reasons] ?? event.reason}</span></div>)}</div>}
+        {history.length === 0 ? <p className="text-sm text-slate-500">{text.noHistory}</p> : <div className="max-h-96 overflow-y-auto divide-y divide-slate-800 text-sm">{history.map((event) => <div key={event.id} className="grid gap-1 py-2 sm:grid-cols-[10rem_1fr_8rem_10rem_12rem]"><span className="text-slate-500">{formatDate(event.ts * 1000, locale, { dateStyle: 'short', timeStyle: 'medium' })}</span><span className="text-slate-200">{event.title ?? event.ratingKey ?? event.eventType}</span><span className="text-slate-400">{actionLabel(event.action, locale === 'de')}</span><span className="text-slate-400">{event.collectionTitle ?? '—'}</span><span className="text-slate-400">{event.eventType === 'pending_closed' ? (locale === 'de' ? 'Nicht ausgeführten Auftrag geschlossen' : 'Unapplied intent closed') : text.reasons[event.reason as keyof typeof text.reasons] ?? event.reason}</span></div>)}</div>}
       </Card>
     </div>
   );

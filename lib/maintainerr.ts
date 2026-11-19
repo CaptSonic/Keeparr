@@ -33,6 +33,9 @@ import {
   getMaintainerrApprovedPlanHash,
   getMaintainerrApprovedReadds,
   getMaintainerrManagedItems,
+  getMediaServerType,
+  getPlexBaseUrl,
+  getServerToken,
   isMaintainerrReaddApproved,
   isMaintainerrConfigured,
   setMaintainerrManagedItems,
@@ -42,7 +45,8 @@ import type { MaintainerrHistoryEvent } from './types';
 import { getReclaimSignalReadiness } from './reclaim-readiness';
 import { getBackend } from './mediaserver';
 import { activePlaybackTitles } from './watch-source';
-import { pendingMemberships, journalMemberships, clearPendingMembership } from './maintainerr-journal';
+import { pendingMemberships, journalMemberships, clearPendingMembership, type PendingMembership } from './maintainerr-journal';
+import { plexCollectionHasMember } from './plex';
 import { reportJobProgress, finishJobProgress } from './job-progress';
 import { trackSonarrHandoff } from './sonarr-cleanup';
 
@@ -198,10 +202,11 @@ async function ruleGroupForCollection(
   return body as MaintainerrRuleGroup;
 }
 
-async function collectionMembers(url: string, collectionId: number): Promise<Set<string>> {
+async function collectionMembers(url: string, collectionId: number, init?: RequestInit): Promise<Set<string>> {
   const body = await maintainerrRequest(
     url,
-    `/api/collections/media/?collectionId=${collectionId}`
+    `/api/collections/media/?collectionId=${collectionId}`,
+    init
   );
   if (!Array.isArray(body)) {
     throw new Error(`Maintainerr returned invalid members for collection #${collectionId}.`);
@@ -311,6 +316,15 @@ export interface MaintainerrPendingWrite {
   action: 'add' | 'remove';
 }
 
+export type MaintainerrJournalItem = MaintainerrPendingWrite & { intentId: string };
+export type MaintainerrPendingCheck = 'applied' | 'not_applied' | 'inconsistent' | 'unverifiable';
+
+function pendingIntentId(url: string, entry: PendingMembership): string {
+  return createHash('sha256').update(JSON.stringify([
+    url, entry.collectionId, entry.ratingKey, entry.action, entry.planHash, entry.nonce ?? [entry.createdAt, entry.rowId],
+  ])).digest('hex');
+}
+
 function pendingWriteDetails(url: string): MaintainerrPendingWrite[] {
   const pending = pendingMemberships(url);
   const details = maintainerrMemberDetails(pending.map((entry) => entry.ratingKey));
@@ -325,8 +339,68 @@ function pendingWriteDetails(url: string): MaintainerrPendingWrite[] {
 }
 
 /** Local-only diagnostic read, independent of live planning and preview caches. */
-export function listMaintainerrPendingWrites(): MaintainerrPendingWrite[] {
-  return pendingWriteDetails(getMaintainerrConfig().url);
+export function listMaintainerrPendingWrites(): MaintainerrJournalItem[] {
+  const { url } = getMaintainerrConfig();
+  const intents = pendingMemberships(url);
+  const details = maintainerrMemberDetails(intents.map((entry) => entry.ratingKey));
+  return intents.map((entry) => ({
+    ratingKey: entry.ratingKey, title: details.get(entry.ratingKey)?.title ?? null,
+    year: details.get(entry.ratingKey)?.year ?? null, collectionId: entry.collectionId,
+    collectionTitle: null, action: entry.action, intentId: pendingIntentId(url, entry),
+  }));
+}
+
+/** Inspect or explicitly close one exact intent. Never sends a remote write. */
+export async function reviewMaintainerrPendingWrite(intentId: string, close: boolean): Promise<{
+  status: MaintainerrPendingCheck | 'closed';
+}> {
+  return withMembershipLock(async () => {
+    const { url } = getMaintainerrConfig();
+    const findIntent = () => pendingMemberships(url).find((entry) => pendingIntentId(url, entry) === intentId);
+    const entry = url ? findIntent() : undefined;
+    if (!entry) throw new Error('Maintainerr pending intent is stale.');
+    let status: MaintainerrPendingCheck;
+    let collectionTitle: string;
+    const backend = getMediaServerType();
+    const plexUrl = getPlexBaseUrl();
+    const token = getServerToken();
+    try {
+      const raw = await maintainerrRequest(url, `/api/collections/collection/${entry.collectionId}`, { cache: 'no-store' });
+      if (!raw || typeof raw !== 'object') return { status: 'unverifiable' };
+      const row = raw as Record<string, unknown>;
+      const collection = parseCollection(row);
+      if (!collection || collection.id !== entry.collectionId) return { status: 'unverifiable' };
+      collectionTitle = collection.title;
+      const present = (await collectionMembers(url, entry.collectionId, { cache: 'no-store' })).has(entry.ratingKey);
+      // A retained link must still be checked even if internal-only was subsequently enabled.
+      if (row.mediaServerId != null) {
+        if (backend !== 'plex' || row.mediaServerType !== 'plex' || !plexUrl || !token ||
+            typeof row.mediaServerId !== 'string' || !/^\d+$/.test(row.mediaServerId) ||
+            !/^\d+$/.test(collection.libraryId) || !/^\d+$/.test(entry.ratingKey)) return { status: 'unverifiable' };
+        const plexPresent = await plexCollectionHasMember(plexUrl, token, row.mediaServerId, collection.libraryId, entry.ratingKey);
+        if (plexPresent !== present) return { status: 'inconsistent' };
+      } else if (row.mediaServerId !== null || !collection.keepInMaintainerrOnly || row.manualCollection !== false) {
+        return { status: 'unverifiable' };
+      }
+      status = present === (entry.action === 'add') ? 'applied' : 'not_applied';
+    } catch {
+      return { status: 'unverifiable' };
+    }
+    return getDb().transaction(() => {
+      if (getMaintainerrConfig().url !== url || getMediaServerType() !== backend ||
+          getPlexBaseUrl() !== plexUrl || getServerToken() !== token || !findIntent()) {
+        throw new Error('Maintainerr pending intent is stale.');
+      }
+      if (!close || status !== 'not_applied') return { status };
+      const item = maintainerrMemberDetails([entry.ratingKey]).get(entry.ratingKey);
+      recordMaintainerrHistory({ eventType: 'pending_closed', action: 'close',
+        reason: 'admin_closed_unapplied_intent', planHash: entry.planHash, ratingKey: entry.ratingKey,
+        title: item?.title, year: item?.year, collectionId: entry.collectionId, collectionTitle });
+      clearPendingMembership(url, entry.collectionId, entry.ratingKey);
+      previewCaches.delete(getDb());
+      return { status: 'closed' as const };
+    })();
+  });
 }
 
 export interface MaintainerrPreview {
