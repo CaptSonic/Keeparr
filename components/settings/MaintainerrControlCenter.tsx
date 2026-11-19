@@ -320,7 +320,14 @@ export default function MaintainerrControlCenter() {
       {data && !data.paused && !data.watchReady && <div className="mb-4 rounded-lg border border-amber-700 bg-amber-950/30 p-3 text-sm text-amber-300">{text.watchWarning}</div>}
       {!!data?.pendingWrites && <div className="mb-4 rounded-lg border border-amber-700 bg-amber-950/30 p-3 text-sm text-amber-300">{locale === 'de'
         ? `${data.pendingWrites} protokollierte Änderungen sind noch unbestätigt. Der nächste Übergabe-Job prüft Maintainerr erneut. Unklare Anfragen werden nicht automatisch wiederholt. Nicht alles entfernen und neu hinzufügen; bei dauerhaft unklarem Ergebnis zuerst Maintainerr prüfen.`
-        : `${data.pendingWrites} journaled changes remain unconfirmed. The next hand-off job reads Maintainerr again. Ambiguous requests are never automatically retried. Do not remove everything and re-add it; inspect Maintainerr first if the outcome remains unclear.`}</div>}
+        : `${data.pendingWrites} journaled changes remain unconfirmed. The next hand-off job reads Maintainerr again. Ambiguous requests are never automatically retried. Do not remove everything and re-add it; inspect Maintainerr first if the outcome remains unclear.`}
+        {!!data.pendingWriteItems?.length && <ul className="mt-3 space-y-2">
+          {data.pendingWriteItems.map((entry) => <li key={`${entry.collectionId}:${entry.ratingKey}`} className="rounded border border-amber-800/60 p-2">
+            <div className="font-medium">{entry.title || (locale === 'de' ? 'Unbekannter Titel' : 'Unknown title')}{entry.year != null ? ` (${entry.year})` : ''}</div>
+            <div className="break-words text-xs">{actionLabel(entry.action, locale === 'de')} · {entry.collectionTitle || text.collection} (#{entry.collectionId}) · {locale === 'de' ? 'Medien-ID' : 'Media ID'}: {entry.ratingKey}</div>
+          </li>)}
+        </ul>}
+      </div>}
       {data?.massBlocked && !data.massApproved && <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-red-700 bg-red-950/30 p-3 text-sm text-red-300"><span className="min-w-0 flex-1">{text.massBlocked.replace('{count}', formatNumber(data.totalChanges, locale))}</span><button type="button" className={btnGhost} disabled={loading || running || approving || data.snapshot} onClick={() => approve('approve-mass')}>{approving ? text.approving : text.approveMass}</button></div>}
       {data && <p className="mb-4 text-xs text-slate-500">{text.generated}: {formatDate(data.generatedAt * 1000, locale, { dateStyle: 'medium', timeStyle: 'medium' })} · Watch age: {formatNumber(data.watchAgeDays, locale)} days</p>}
 

@@ -234,6 +234,40 @@ afterEach(() => {
 afterAll(() => __closeDb());
 
 describe('Maintainerr safe hand-off', () => {
+  it('keeps pending ids visible when the hand-off is not configured', async () => {
+    setMaintainerrConfig({ ...getMaintainerrConfig(), movieCollectionIds: [], showCollectionIds: [], enabled: false });
+    journalMemberships('http://maintainerr:6246', 99, ['missing-id'], 'add', 'old-plan');
+    const remote = mockMaintainerr();
+    const preview = await previewMaintainerr();
+    expect(preview.pauseReason).toBe('not_configured');
+    expect(preview.pendingWrites).toBe(1);
+    expect(preview.pendingWriteItems).toEqual([
+      { ratingKey: 'missing-id', title: null, year: null, collectionId: 99, collectionTitle: null, action: 'add' },
+    ]);
+    expect(remote.fetchMock).not.toHaveBeenCalled();
+    expect(pendingMemberships('http://maintainerr:6246')).toHaveLength(1);
+  });
+
+  it('shows pending titles, actions and collections without resolving or retrying writes', async () => {
+    releasedMedia();
+    const remote = mockMaintainerr({ movieMembers: ['movie-1'] });
+    journalMemberships('http://maintainerr:6246', 10, ['movie-1'], 'add', 'old-plan');
+    journalMemberships('http://maintainerr:6246', 20, ['show-1'], 'remove', 'old-plan');
+    journalMemberships('http://maintainerr:6246', 10, ['unknown-id'], 'add', 'old-plan');
+
+    const preview = await previewMaintainerr();
+    expect(preview.pendingWrites).toBe(3);
+    expect(preview.pendingWriteItems).toEqual(expect.arrayContaining([
+      { ratingKey: 'movie-1', title: 'Movie', year: 2020, collectionId: 10, collectionTitle: 'Keeparr movies', action: 'add' },
+      { ratingKey: 'show-1', title: 'Show', year: 2021, collectionId: 20, collectionTitle: 'Keeparr shows', action: 'remove' },
+      { ratingKey: 'unknown-id', title: null, year: null, collectionId: 10, collectionTitle: 'Keeparr movies', action: 'add' },
+    ]));
+    expect(pendingMemberships('http://maintainerr:6246')).toHaveLength(3);
+    expect(remote.writes).toEqual([]);
+    expect(getMaintainerrManagedItems()).toEqual({});
+    expect(recentMaintainerrHistory()).toEqual([]);
+  });
+
   it('sends bounded sequential batches and commits each confirmed batch', async () => {
     bulkRequesterReleases(12);
     const remote = mockMaintainerr();

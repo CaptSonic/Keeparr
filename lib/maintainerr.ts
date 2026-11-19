@@ -302,11 +302,34 @@ export interface MaintainerrPreviewCollection {
   remove: number;
 }
 
+export interface MaintainerrPendingWrite {
+  ratingKey: string;
+  title: string | null;
+  year: number | null;
+  collectionId: number;
+  collectionTitle: string | null;
+  action: 'add' | 'remove';
+}
+
+function pendingWriteDetails(url: string): MaintainerrPendingWrite[] {
+  const pending = pendingMemberships(url);
+  const details = maintainerrMemberDetails(pending.map((entry) => entry.ratingKey));
+  return pending.map((entry) => ({
+    ratingKey: entry.ratingKey,
+    title: details.get(entry.ratingKey)?.title ?? null,
+    year: details.get(entry.ratingKey)?.year ?? null,
+    collectionId: entry.collectionId,
+    collectionTitle: null,
+    action: entry.action,
+  }));
+}
+
 export interface MaintainerrPreview {
   /** Display-only saved result; never accepted as execution authorization. */
   snapshot?: boolean;
   /** Open durable intents; informational only, GET never resolves these. */
   pendingWrites?: number;
+  pendingWriteItems?: MaintainerrPendingWrite[];
   diagnostics?: {
     totalMs: number;
     inventoryMs: number;
@@ -522,13 +545,15 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
   const config = getMaintainerrConfig();
   const managedState = getMaintainerrManagedItems();
   const generatedAt = Math.floor(Date.now() / 1000);
+  const pending = pendingWriteDetails(config.url);
   if (!config.url || (!isMaintainerrConfigured() && Object.keys(managedState).length === 0)) {
     return {
       targets: [],
       automaticMatches: [],
       preview: {
         generatedAt,
-        pendingWrites: pendingMemberships(config.url).length,
+        pendingWrites: pending.length,
+        pendingWriteItems: pending,
         paused: true,
         pauseReason: 'not_configured',
         watchReady: getReclaimSignalReadiness().watch,
@@ -963,7 +988,10 @@ async function buildMaintainerrPlan(): Promise<MaintainerrPlan> {
   const massBlocked = config.requireMassApproval !== false && !paused && isMassChange(targets);
   const massApproved = massBlocked && getMaintainerrApprovedPlanHash() === hash;
   const preview: MaintainerrPreview = {
-    pendingWrites: pendingMemberships(config.url).length,
+    pendingWrites: pending.length,
+    pendingWriteItems: pending.map((entry) => ({
+      ...entry, collectionTitle: collections.get(entry.collectionId)?.title ?? null,
+    })),
     diagnostics,
     generatedAt,
     paused,
