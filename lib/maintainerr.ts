@@ -324,6 +324,11 @@ function pendingWriteDetails(url: string): MaintainerrPendingWrite[] {
   }));
 }
 
+/** Local-only diagnostic read, independent of live planning and preview caches. */
+export function listMaintainerrPendingWrites(): MaintainerrPendingWrite[] {
+  return pendingWriteDetails(getMaintainerrConfig().url);
+}
+
 export interface MaintainerrPreview {
   /** Display-only saved result; never accepted as execution authorization. */
   snapshot?: boolean;
@@ -1086,10 +1091,11 @@ function approvedPreview({ preview, targets }: MaintainerrPlan): MaintainerrPrev
 }
 
 /** Approve only the currently recomputed mass-change plan. */
-export async function approveCurrentMaintainerrPlan(): Promise<MaintainerrPreview> {
+export async function approveCurrentMaintainerrPlan(expectedPlanHash: string): Promise<MaintainerrPreview> {
   previewCaches.delete(getDb());
   const plan = await buildMaintainerrPlan();
   const { preview } = plan;
+  if (preview.planHash !== expectedPlanHash) throw new Error('Maintainerr mass approval is stale.');
   if (!preview.massBlocked) throw new Error('Maintainerr plan is not mass-blocked.');
   approveMaintainerrPlan(preview.planHash);
   recordMaintainerrHistory({

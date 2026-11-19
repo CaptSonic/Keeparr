@@ -35,6 +35,7 @@ import {
   approveCurrentMaintainerrReadd,
   approveCurrentMaintainerrReadds,
   previewMaintainerr,
+  listMaintainerrPendingWrites,
   savedMaintainerrPreview,
   syncMaintainerr,
   adoptMaintainerrMembers,
@@ -51,6 +52,11 @@ vi.mock('./tautulli', () => ({ activePlaybackTitles: playbackMock }));
 
 const GB = 1024 ** 3;
 const BASE = 1_800_000_000;
+
+async function approveDisplayedPlan() {
+  const { planHash } = await previewMaintainerr();
+  return approveCurrentMaintainerrPlan(planHash);
+}
 
 type Kind = 'movie' | 'show';
 interface RemoteCollection {
@@ -234,6 +240,22 @@ afterEach(() => {
 afterAll(() => __closeDb());
 
 describe('Maintainerr safe hand-off', () => {
+  it('reads the current journal locally even when Maintainerr is unreachable', async () => {
+    releasedMedia();
+    const fetchMock = vi.fn().mockRejectedValue(new Error('Maintainerr offline'));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(previewMaintainerr()).rejects.toThrow('Maintainerr offline');
+    fetchMock.mockClear();
+    expect(listMaintainerrPendingWrites()).toEqual([]);
+    journalMemberships('http://maintainerr:6246', 10, ['movie-1'], 'add', 'old-plan');
+    journalMemberships('http://other:6246', 10, ['foreign'], 'add', 'old-plan');
+    expect(listMaintainerrPendingWrites()).toEqual([
+      { ratingKey: 'movie-1', title: 'Movie', year: 2020, collectionId: 10, collectionTitle: null, action: 'add' },
+    ]);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(pendingMemberships('http://maintainerr:6246')).toHaveLength(1);
+  });
+
   it('keeps pending ids visible when the hand-off is not configured', async () => {
     setMaintainerrConfig({ ...getMaintainerrConfig(), movieCollectionIds: [], showCollectionIds: [], enabled: false });
     journalMemberships('http://maintainerr:6246', 99, ['missing-id'], 'add', 'old-plan');
@@ -271,7 +293,7 @@ describe('Maintainerr safe hand-off', () => {
   it('sends bounded sequential batches and commits each confirmed batch', async () => {
     bulkRequesterReleases(12);
     const remote = mockMaintainerr();
-    await approveCurrentMaintainerrPlan();
+    await approveDisplayedPlan();
     expect((await syncMaintainerr()).result).toBe(12);
     expect(remote.writes.map((write) => (write.body.media as unknown[]).length)).toEqual([5, 5, 2]);
     expect(getMaintainerrManagedItems()['10']).toHaveLength(12);
@@ -401,7 +423,7 @@ describe('Maintainerr safe hand-off', () => {
     bulkRequesterReleases(8);
     setMaintainerrManagedItems({ '10': ['old-a', 'old-b'] });
     const remote = mockMaintainerr({ movieMembers: ['old-a', 'old-b'] });
-    await approveCurrentMaintainerrPlan();
+    await approveDisplayedPlan();
     const fetch = remote.fetchMock.getMockImplementation()!;
     let removals = 0;
     remote.fetchMock.mockImplementation(async (input, init) => {
@@ -1255,7 +1277,7 @@ describe('Maintainerr safe hand-off', () => {
     const check = vi.fn(async () => true);
     fakeBackend.itemExists = check;
     remote.fetchMock.mockClear();
-    const approved = await approveCurrentMaintainerrPlan();
+    const approved = await approveCurrentMaintainerrPlan(blocked.planHash);
     expect(check).toHaveBeenCalledTimes(10);
     expect(remote.fetchMock).toHaveBeenCalledTimes(5);
     expect(approved).toMatchObject({ massBlocked: true, massApproved: true });
@@ -1309,7 +1331,7 @@ describe('Maintainerr safe hand-off', () => {
   it('clears approvals when toggled and restores mass blocking when re-enabled', async () => {
     bulkRequesterReleases(12);
     mockMaintainerr();
-    await approveCurrentMaintainerrPlan();
+    await approveDisplayedPlan();
     expect(getMaintainerrApprovedPlanHash()).not.toBeNull();
     setMaintainerrConfig({ ...getMaintainerrConfig(), requireMassApproval: false });
     expect(getMaintainerrApprovedPlanHash()).toBeNull();
@@ -1328,10 +1350,25 @@ describe('Maintainerr safe hand-off', () => {
     expect([...remote.members.get(10)!]).toEqual([]);
   });
 
+  it('does not approve a new mass plan when the displayed hash is stale', async () => {
+    bulkRequesterReleases(10);
+    const remote = mockMaintainerr();
+    const displayed = await previewMaintainerr();
+    bulkRequesterReleases(11);
+    const changed = await previewMaintainerr();
+    expect(changed.massBlocked).toBe(true);
+    expect(changed.planHash).not.toBe(displayed.planHash);
+    await expect(approveCurrentMaintainerrPlan(displayed.planHash)).rejects.toThrow('mass approval is stale');
+    expect(getMaintainerrApprovedPlanHash()).toBeNull();
+    expect(recentMaintainerrHistory()).toEqual([]);
+    expect(remote.writes).toEqual([]);
+    expect((await approveCurrentMaintainerrPlan(changed.planHash)).massApproved).toBe(true);
+  });
+
   it('invalidates a mass approval when the planned operations change', async () => {
     bulkRequesterReleases(10);
     const remote = mockMaintainerr();
-    const approved = await approveCurrentMaintainerrPlan();
+    const approved = await approveDisplayedPlan();
     const oldHash = approved.planHash;
     bulkRequesterReleases(11);
 
@@ -1453,7 +1490,7 @@ describe('Maintainerr safe hand-off', () => {
     expect((await syncMaintainerr()).message).toContain('require approval');
     expect(remote.writes).toEqual([]);
 
-    await approveCurrentMaintainerrPlan();
+    await approveDisplayedPlan();
     expect((await syncMaintainerr()).result).toBe(10);
     expect([...remote.members.get(10)!]).toEqual([]);
     expect(getMaintainerrManagedItems()).toEqual({});
@@ -1477,7 +1514,7 @@ describe('Maintainerr safe hand-off', () => {
     expect((await syncMaintainerr()).message).toContain('require approval');
     expect(remote.writes).toEqual([]);
 
-    await approveCurrentMaintainerrPlan();
+    await approveDisplayedPlan();
     expect((await syncMaintainerr()).result).toBe(10);
     expect([...remote.members.get(10)!].sort()).toEqual(ids.sort());
   });

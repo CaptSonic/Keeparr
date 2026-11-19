@@ -1,9 +1,10 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { cookieJar, previewMock, savedMock, approveMassMock, approveReaddMock, syncMock, adoptMock } = vi.hoisted(() => ({
+const { cookieJar, previewMock, savedMock, pendingMock, approveMassMock, approveReaddMock, syncMock, adoptMock } = vi.hoisted(() => ({
   cookieJar: new Map<string, string>(),
   previewMock: vi.fn(),
   savedMock: vi.fn(),
+  pendingMock: vi.fn(),
   approveMassMock: vi.fn(),
   approveReaddMock: vi.fn(),
   syncMock: vi.fn(),
@@ -20,6 +21,7 @@ vi.mock('next/headers', () => ({
 vi.mock('@/lib/maintainerr', () => ({
   previewMaintainerr: previewMock,
   savedMaintainerrPreview: savedMock,
+  listMaintainerrPendingWrites: pendingMock,
   approveCurrentMaintainerrPlan: approveMassMock,
   approveCurrentMaintainerrReadd: approveReaddMock,
   approveCurrentMaintainerrReadds: approveReaddMock,
@@ -41,6 +43,7 @@ beforeEach(() => {
   cookieJar.clear();
   previewMock.mockReset();
   savedMock.mockReset();
+  pendingMock.mockReset();
   approveMassMock.mockReset();
   approveReaddMock.mockReset();
   syncMock.mockReset();
@@ -93,13 +96,18 @@ describe('POST /api/admin/maintainerr-preview', () => {
     expect(approveMassMock).not.toHaveBeenCalled();
   });
 
-  it('approves the server-recomputed mass plan', async () => {
+  it('requires and forwards the displayed mass-plan hash', async () => {
     await loginAs('admin', true);
+    for (const planHash of [undefined, 'not-a-hash', 'a'.repeat(65)]) {
+      expect((await POST(request({ action: 'approve-mass', planHash }))).status).toBe(400);
+    }
+    expect(approveMassMock).not.toHaveBeenCalled();
     approveMassMock.mockResolvedValue({ massBlocked: true, massApproved: true });
-    const response = await POST(request({ action: 'approve-mass', planHash: 'ignored-client-value' }));
+    const planHash = 'a'.repeat(64);
+    const response = await POST(request({ action: 'approve-mass', planHash }));
     expect(response.status).toBe(200);
     expect(response.headers.get('cache-control')).toBe('no-store');
-    expect(approveMassMock).toHaveBeenCalledOnce();
+    expect(approveMassMock).toHaveBeenCalledExactlyOnceWith(planHash);
   });
 
   it('validates admin-only bounded bulk re-add selections and reports stale approvals', async () => {
@@ -135,8 +143,8 @@ describe('POST /api/admin/maintainerr-preview', () => {
 
   it('returns conflict when the server-recomputed approval is stale', async () => {
     await loginAs('admin', true);
-    approveMassMock.mockRejectedValue(new Error('Maintainerr plan is not mass-blocked.'));
-    const response = await POST(request({ action: 'approve-mass' }));
+    approveMassMock.mockRejectedValue(new Error('Maintainerr mass approval is stale.'));
+    const response = await POST(request({ action: 'approve-mass', planHash: 'a'.repeat(64) }));
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({ error: 'approval_stale' });
   });
@@ -144,6 +152,23 @@ describe('POST /api/admin/maintainerr-preview', () => {
 afterAll(() => __closeDb());
 
 describe('GET /api/admin/maintainerr-preview', () => {
+  it('returns the local journal only to admins without a live preview or snapshot', async () => {
+    const request = () => new Request('http://localhost/api/admin/maintainerr-preview?pending=1');
+    expect((await GET(request())).status).toBe(401);
+    await loginAs('member', false);
+    expect((await GET(request())).status).toBe(403);
+    expect(pendingMock).not.toHaveBeenCalled();
+    await loginAs('admin', true);
+    const items = [{ ratingKey: 'movie-1', title: 'Movie', collectionId: 10, action: 'add' }];
+    pendingMock.mockReturnValue(items);
+    const response = await GET(request());
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.json()).toEqual({ pendingWriteItems: items });
+    expect(previewMock).not.toHaveBeenCalled();
+    expect(savedMock).not.toHaveBeenCalled();
+  });
+
   it('returns display-only snapshots without starting a live check, admin-only', async () => {
     const request = () => new Request('http://localhost/api/admin/maintainerr-preview?snapshot=1');
     expect((await GET(request())).status).toBe(401);

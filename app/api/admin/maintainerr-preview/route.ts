@@ -4,6 +4,7 @@ import {
   approveCurrentMaintainerrPlan,
   approveCurrentMaintainerrReadd,
   approveCurrentMaintainerrReadds,
+  listMaintainerrPendingWrites,
   previewMaintainerr,
   savedMaintainerrPreview,
   syncMaintainerr,
@@ -19,7 +20,13 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: Request) {
   try {
     await requireAdmin();
-    if (new URL(request.url).searchParams.get('snapshot') === '1') {
+    const query = new URL(request.url).searchParams;
+    if (query.get('pending') === '1') {
+      return NextResponse.json({ pendingWriteItems: listMaintainerrPendingWrites() }, {
+        headers: { 'Cache-Control': 'no-store' },
+      });
+    }
+    if (query.get('snapshot') === '1') {
       return NextResponse.json({ preview: savedMaintainerrPreview() }, {
         headers: { 'Cache-Control': 'no-store' },
       });
@@ -73,7 +80,10 @@ export async function POST(request: Request) {
     }
     let preview;
     if (body.action === 'approve-mass') {
-      preview = await approveCurrentMaintainerrPlan();
+      if (typeof body.planHash !== 'string' || !/^[a-f0-9]{64}$/.test(body.planHash)) {
+        return NextResponse.json({ error: 'bad_request' }, { status: 400 });
+      }
+      preview = await approveCurrentMaintainerrPlan(body.planHash);
     } else if (
       body.action === 'approve-readd' &&
       Number.isSafeInteger(Number(body.collectionId)) &&
@@ -96,6 +106,7 @@ export async function POST(request: Request) {
       error.message === 'Maintainerr selection is stale.' ||
       error.message === 'Maintainerr adoption is stale.' ||
       error.message === 'Maintainerr mutation already running.' ||
+      error.message === 'Maintainerr mass approval is stale.' ||
       error.message === 'Maintainerr plan is not mass-blocked.' ||
       error.message === 'Maintainerr re-add is not currently blocked.'
     )) {

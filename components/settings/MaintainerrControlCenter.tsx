@@ -5,6 +5,7 @@ import { formatDate, formatNumber, formatRelativeTime } from '@/lib/i18n';
 import { collectionProtectionTooltip, decisionReasonLabel } from '@/lib/decision-labels';
 import type {
   MaintainerrPreview,
+  MaintainerrPendingWrite,
   MaintainerrPreviewItem,
   MaintainerrPreviewStatus,
 } from '@/lib/maintainerr';
@@ -94,6 +95,8 @@ export default function MaintainerrControlCenter() {
   const { locale } = useLocale();
   const text = labels[locale];
   const [data, setData] = useState<MaintainerrPreview | null>(null);
+  const [pendingWrites, setPendingWrites] = useState<MaintainerrPendingWrite[]>([]);
+  const [pendingUnavailable, setPendingUnavailable] = useState(false);
   const [filter, setFilter] = useState<'all' | MaintainerrPreviewStatus>('all');
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
@@ -120,6 +123,17 @@ export default function MaintainerrControlCenter() {
     setAdoptSelected(new Set());
     setReaddSelected(new Set());
     setData((previous) => previous ? { ...previous, snapshot: true, massApproved: false } : null);
+    void fetch('/api/admin/maintainerr-preview?pending=1', { cache: 'no-store', signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error('pending_read_failed');
+        const { pendingWriteItems } = await response.json();
+        if (loadId.current === id) {
+          setPendingWrites(pendingWriteItems);
+          setPendingUnavailable(false);
+        }
+      }).catch(() => {
+        if (loadId.current === id && !controller.signal.aborted) setPendingUnavailable(true);
+      });
     // A separate lightweight request lets the last successful result render
     // while the expensive live request is still running. Never overwrite it.
     void fetch('/api/admin/maintainerr-preview?snapshot=1', { cache: 'no-store', signal: controller.signal })
@@ -262,11 +276,19 @@ export default function MaintainerrControlCenter() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action,
+          planHash: action === 'approve-mass' ? data.planHash : undefined,
           collectionId: item?.collectionId,
           ratingKey: item?.ratingKey,
           members: action === 'approve-readds' ? members : undefined,
         }),
       });
+      if (response.status === 409 && action === 'approve-mass') {
+        await load();
+        setError(locale === 'de'
+          ? 'Der Plan hat sich geändert. Es wurde keine neue Freigabe gespeichert. Prüfe die aktuelle Vorschau, bevor du erneut freigibst.'
+          : 'The plan changed. No new approval was saved. Review the current preview before approving again.');
+        return;
+      }
       if (response.status === 409 && action === 'approve-readds') {
         setError(locale === 'de'
           ? 'Die Auswahl ist nicht mehr aktuell. Es wurde nichts entsperrt. Bitte die Live-Vorschau aktualisieren und erneut auswählen.'
@@ -318,15 +340,19 @@ export default function MaintainerrControlCenter() {
       </div>}
       {data?.paused && <div className="mb-4 rounded-lg border border-amber-700 bg-amber-950/30 p-3 text-sm text-amber-300">{data.pauseReason === 'not_configured' ? text.notConfigured : text.paused}</div>}
       {data && !data.paused && !data.watchReady && <div className="mb-4 rounded-lg border border-amber-700 bg-amber-950/30 p-3 text-sm text-amber-300">{text.watchWarning}</div>}
-      {!!data?.pendingWrites && <div className="mb-4 rounded-lg border border-amber-700 bg-amber-950/30 p-3 text-sm text-amber-300">{locale === 'de'
-        ? `${data.pendingWrites} protokollierte Änderungen sind noch unbestätigt. Der nächste Übergabe-Job prüft Maintainerr erneut. Unklare Anfragen werden nicht automatisch wiederholt. Nicht alles entfernen und neu hinzufügen; bei dauerhaft unklarem Ergebnis zuerst Maintainerr prüfen.`
-        : `${data.pendingWrites} journaled changes remain unconfirmed. The next hand-off job reads Maintainerr again. Ambiguous requests are never automatically retried. Do not remove everything and re-add it; inspect Maintainerr first if the outcome remains unclear.`}
-        {!!data.pendingWriteItems?.length && <ul className="mt-3 space-y-2">
-          {data.pendingWriteItems.map((entry) => <li key={`${entry.collectionId}:${entry.ratingKey}`} className="rounded border border-amber-800/60 p-2">
+      {(pendingUnavailable || pendingWrites.length > 0) && <div className="mb-4 rounded-lg border border-amber-700 bg-amber-950/30 p-3 text-sm text-amber-300">
+        {pendingUnavailable && <p>{locale === 'de'
+          ? 'Das Journal konnte nicht aktualisiert werden. Zuvor geladene Einträge können veraltet sein.'
+          : 'Could not refresh the journal. Previously loaded entries may be out of date.'}</p>}
+        {pendingWrites.length > 0 && <><p>{locale === 'de'
+          ? `${pendingWrites.length} protokollierte Änderungen sind noch unbestätigt. Der nächste Übergabe-Job prüft Maintainerr erneut. Unklare Anfragen werden nicht automatisch wiederholt.`
+          : `${pendingWrites.length} journaled changes remain unconfirmed. The next hand-off job reads Maintainerr again. Ambiguous requests are never automatically retried.`}</p>
+        <ul className="mt-3 space-y-2">
+          {pendingWrites.map((entry) => <li key={`${entry.collectionId}:${entry.ratingKey}`} className="rounded border border-amber-800/60 p-2">
             <div className="font-medium">{entry.title || (locale === 'de' ? 'Unbekannter Titel' : 'Unknown title')}{entry.year != null ? ` (${entry.year})` : ''}</div>
-            <div className="break-words text-xs">{actionLabel(entry.action, locale === 'de')} · {entry.collectionTitle || text.collection} (#{entry.collectionId}) · {locale === 'de' ? 'Medien-ID' : 'Media ID'}: {entry.ratingKey}</div>
+            <div className="break-words text-xs">{actionLabel(entry.action, locale === 'de')} · {(!data?.snapshot && data?.pendingWriteItems?.find((item) => item.collectionId === entry.collectionId)?.collectionTitle) || text.collection} (#{entry.collectionId}) · {locale === 'de' ? 'Medien-ID' : 'Media ID'}: {entry.ratingKey}</div>
           </li>)}
-        </ul>}
+        </ul></>}
       </div>}
       {data?.massBlocked && !data.massApproved && <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-red-700 bg-red-950/30 p-3 text-sm text-red-300"><span className="min-w-0 flex-1">{text.massBlocked.replace('{count}', formatNumber(data.totalChanges, locale))}</span><button type="button" className={btnGhost} disabled={loading || running || approving || data.snapshot} onClick={() => approve('approve-mass')}>{approving ? text.approving : text.approveMass}</button></div>}
       {data && <p className="mb-4 text-xs text-slate-500">{text.generated}: {formatDate(data.generatedAt * 1000, locale, { dateStyle: 'medium', timeStyle: 'medium' })} · Watch age: {formatNumber(data.watchAgeDays, locale)} days</p>}
